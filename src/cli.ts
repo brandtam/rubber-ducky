@@ -8,6 +8,12 @@ import { registerStatusCommand } from "./commands/status.js";
 import { registerPageCommand } from "./commands/page.js";
 import { registerIndexCommand, registerLogCommand } from "./commands/wiki.js";
 import { registerBackendCommand } from "./commands/backend.js";
+import {
+  registerAsapCommand,
+  registerRemindCommand,
+  registerIdeaCommand,
+  registerScreenshotCommand,
+} from "./commands/capture.js";
 
 const VERSION = "0.1.0";
 
@@ -28,6 +34,10 @@ export function createProgram(): Command {
   registerIndexCommand(program);
   registerLogCommand(program);
   registerBackendCommand(program);
+  registerAsapCommand(program);
+  registerRemindCommand(program);
+  registerIdeaCommand(program);
+  registerScreenshotCommand(program);
 
   return program;
 }
