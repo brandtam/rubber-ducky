@@ -278,7 +278,11 @@ async function runInteractive(directory: string | undefined): Promise<void> {
         `${chalk.bold("Files created:")} ${result.filesCreated.join(", ") || "none"}`,
         `${chalk.bold("Files adopted:")} ${result.filesAdopted?.length ?? 0}`,
         "",
-        `Open in Obsidian or any markdown editor.`,
+        chalk.bold("Next steps:"),
+        `  1. Open ${chalk.cyan(fullPath)} as a vault in Obsidian`,
+        `  2. cd ${fullPath}`,
+        `  3. Run ${chalk.cyan("claude")} to start Claude Code in your workspace`,
+        `  4. Type ${chalk.cyan("/good-morning")} to start your first day`,
       ];
 
       clack.note(noteLines.join("\n"), result.workspacePath);
@@ -318,7 +322,14 @@ async function runInteractive(directory: string | undefined): Promise<void> {
       notes.push(`${chalk.bold("Backends:")} ${backends.map((b) => b.type).join(", ")}`);
     }
 
-    notes.push("", "Open in Obsidian or any markdown editor.");
+    notes.push(
+      "",
+      chalk.bold("Next steps:"),
+      `  1. Open ${chalk.cyan(fullPath)} as a vault in Obsidian`,
+      `  2. cd ${fullPath}`,
+      `  3. Run ${chalk.cyan("claude")} to start Claude Code in your workspace`,
+      `  4. Type ${chalk.cyan("/good-morning")} to start your first day`,
+    );
 
     clack.note(notes.join("\n"), result.workspacePath);
 
