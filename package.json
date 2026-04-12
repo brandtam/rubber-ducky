@@ -1,5 +1,11 @@
 {
-	"dependencies": {
-		"@ai-hero/sandcastle": "^0.4.0"
-	}
+  "scripts": {
+    "sandcastle": "npx tsx .sandcastle/main.mts",
+    "implementer-logs": "tail -f .sandcastle/logs/*implementer*.log",
+    "planner-logs": "tail -f .sandcastle/logs/*planner*.log",
+    "merger-logs": "tail -f .sandcastle/logs/*merger*.log"
+  },
+  "dependencies": {
+    "@ai-hero/sandcastle": "^0.4.0"
+  }
 }
