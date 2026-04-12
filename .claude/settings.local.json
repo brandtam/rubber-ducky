@@ -9,7 +9,12 @@
       "WebFetch(domain:github.com)",
       "Bash(wc:*)",
       "Bash(npx vitest:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(ls src/__tests__/*.test.ts)",
+      "Bash(ls src/lib/*.ts)",
+      "Bash(xargs -I{} basename {})",
+      "Bash(ls src/commands/*.ts)",
+      "Bash(gh pr:*)"
     ]
   }
 }
