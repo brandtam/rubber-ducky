@@ -8,6 +8,7 @@ import { registerStatusCommand } from "./commands/status.js";
 import { registerPageCommand } from "./commands/page.js";
 import { registerIndexCommand, registerLogCommand } from "./commands/wiki.js";
 import { registerBackendCommand } from "./commands/backend.js";
+import { registerDoctorCommand } from "./commands/doctor.js";
 
 const VERSION = "0.1.0";
 
@@ -28,6 +29,7 @@ export function createProgram(): Command {
   registerIndexCommand(program);
   registerLogCommand(program);
   registerBackendCommand(program);
+  registerDoctorCommand(program);
 
   return program;
 }
