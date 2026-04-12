@@ -22,7 +22,8 @@
       "Bash(pnpm install:*)",
       "Bash(pnpm run:*)",
       "Bash(pnpm test:*)",
-      "Bash(pnpm build:*)"
+      "Bash(pnpm build:*)",
+      "Bash(rubber-ducky:*)"
     ]
   }
 }

@@ -4,12 +4,14 @@ import { parse as parseYaml } from "yaml";
 import {
   generateWorkspaceMd,
   generateClaudeMd,
+  generateClaudeSettings,
   generateUbiquitousLanguageMd,
   generateBackendSkills,
   generateReferenceFiles,
   type BackendConfig,
   type VocabularyOptions,
 } from "./templates.js";
+import { getBundledTemplates } from "./update.js";
 import {
   scanExistingContent,
   buildMigrationPlan,
@@ -87,13 +89,24 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
     { name: "workspace.md", content: generateWorkspaceMd(templateOpts) },
     { name: "CLAUDE.md", content: generateClaudeMd(templateOpts) },
     { name: "UBIQUITOUS_LANGUAGE.md", content: generateUbiquitousLanguageMd(opts.vocabulary) },
+    { name: ".claude/settings.json", content: generateClaudeSettings(opts.backends) },
   ];
 
   for (const file of files) {
-    fs.writeFileSync(path.join(targetDir, file.name), file.content, "utf-8");
+    const filePath = path.join(targetDir, file.name);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, file.content, "utf-8");
   }
 
-  // Generate backend-specific skill files
+  // Install bundled skills and agents (good-morning, wrap-up, commit, etc.)
+  const bundled = getBundledTemplates();
+  for (const template of bundled) {
+    const templatePath = path.join(targetDir, template.relativePath);
+    fs.mkdirSync(path.dirname(templatePath), { recursive: true });
+    fs.writeFileSync(templatePath, template.content, "utf-8");
+  }
+
+  // Generate backend-specific skill files (ingest-github, ingest-asana, etc.)
   const skills = generateBackendSkills(opts.backends);
   for (const skill of skills) {
     const skillPath = path.join(targetDir, skill.path);
@@ -113,6 +126,7 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
     workspacePath: targetDir,
     filesCreated: [
       ...files.map((f) => f.name),
+      ...bundled.map((t) => t.relativePath),
       ...skills.map((s) => s.path),
       ...refs.map((r) => r.path),
     ],
@@ -127,6 +141,14 @@ export async function migrateWorkspace(opts: WorkspaceOptions): Promise<Workspac
   const plan = buildMigrationPlan(scanResult);
   const result = executeMigration(plan, { name, purpose, targetDir });
 
+  // Install bundled skills and agents (same as createWorkspace)
+  const bundled = getBundledTemplates();
+  for (const template of bundled) {
+    const templatePath = path.join(targetDir, template.relativePath);
+    fs.mkdirSync(path.dirname(templatePath), { recursive: true });
+    fs.writeFileSync(templatePath, template.content, "utf-8");
+  }
+
   // Generate reference files (same as createWorkspace)
   const refs = generateReferenceFiles(opts.backends);
   for (const ref of refs) {
@@ -135,9 +157,14 @@ export async function migrateWorkspace(opts: WorkspaceOptions): Promise<Workspac
     fs.writeFileSync(refPath, ref.content, "utf-8");
   }
 
+  // Generate Claude Code settings
+  const settingsPath = path.join(targetDir, ".claude", "settings.json");
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, generateClaudeSettings(opts.backends), "utf-8");
+
   return {
     workspacePath: result.workspacePath,
-    filesCreated: [...result.filesCreated, ...refs.map((r) => r.path)],
+    filesCreated: [...result.filesCreated, ...bundled.map((t) => t.relativePath), ...refs.map((r) => r.path), ".claude/settings.json"],
     dirsCreated: result.dirsCreated,
     filesAdopted: result.filesAdopted,
     migrated: true,

@@ -724,6 +724,52 @@ Ask these questions:
 `;
 }
 
+/**
+ * Generate .claude/settings.json for a workspace.
+ * Pre-approves safe operations so Claude Code doesn't prompt for every read
+ * and CLI call. Write operations to external systems still require confirmation.
+ */
+export function generateClaudeSettings(backends?: BackendConfig[]): string {
+  const allow: string[] = [
+    // Reading files is always safe within the workspace
+    "Read",
+    "Glob",
+    "Grep",
+
+    // rubber-ducky CLI — all commands operate within the workspace directory
+    "Bash(rubber-ducky:*)",
+
+    // Directory listing for workspace navigation
+    "Bash(ls:*)",
+    "Bash(cat:*)",
+
+    // Git read operations
+    "Bash(git status:*)",
+    "Bash(git log:*)",
+    "Bash(git diff:*)",
+    "Bash(git branch:*)",
+  ];
+
+  // Backend-specific read permissions
+  const backendTypes = (backends ?? []).map((b) => b.type);
+
+  if (backendTypes.includes("github")) {
+    allow.push(
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+    );
+  }
+
+  const settings = {
+    permissions: { allow },
+  };
+
+  return JSON.stringify(settings, null, 2) + "\n";
+}
+
 export function generateUbiquitousLanguageMd(vocabulary?: VocabularyOptions): string {
   const sections: string[] = [];
 
