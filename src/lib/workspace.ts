@@ -5,6 +5,7 @@ import {
   generateWorkspaceMd,
   generateClaudeMd,
   generateUbiquitousLanguageMd,
+  generateBackendSkills,
   type BackendConfig,
   type VocabularyOptions,
 } from "./templates.js";
@@ -90,9 +91,20 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
     fs.writeFileSync(path.join(targetDir, file.name), file.content, "utf-8");
   }
 
+  // Generate backend-specific skill files
+  const skills = generateBackendSkills(opts.backends);
+  for (const skill of skills) {
+    const skillPath = path.join(targetDir, skill.path);
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.writeFileSync(skillPath, skill.content, "utf-8");
+  }
+
   return {
     workspacePath: targetDir,
-    filesCreated: files.map((f) => f.name),
+    filesCreated: [
+      ...files.map((f) => f.name),
+      ...skills.map((s) => s.path),
+    ],
     dirsCreated: DIRS.filter((d) => d !== ".obsidian"),
   };
 }

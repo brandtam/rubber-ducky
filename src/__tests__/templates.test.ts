@@ -4,6 +4,7 @@ import {
   generateWorkspaceMd,
   generateClaudeMd,
   generateUbiquitousLanguageMd,
+  generateBackendSkills,
   type BackendConfig,
   type VocabularyOptions,
 } from "../lib/templates.js";
@@ -225,5 +226,58 @@ describe("generateUbiquitousLanguageMd", () => {
     expect(content).toContain("# Ubiquitous Language");
     expect(content).toContain("## Statuses");
     expect(content).toContain("## Custom terms");
+  });
+});
+
+describe("generateBackendSkills", () => {
+  it("returns empty array when no backends provided", () => {
+    expect(generateBackendSkills()).toEqual([]);
+    expect(generateBackendSkills([])).toEqual([]);
+  });
+
+  it("generates ingest-asana skill when asana backend is configured", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", mcp_server: "asana" },
+    ];
+    const skills = generateBackendSkills(backends);
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0].path).toBe(".claude/commands/ingest-asana.md");
+    expect(skills[0].content).toContain("Ingest Asana Task");
+    expect(skills[0].content).toContain("/ingest-asana");
+    expect(skills[0].content).toContain("rubber-ducky backend check asana");
+    expect(skills[0].content).toContain("Bulk ingest");
+    expect(skills[0].content).toContain("project:<project-gid>");
+    expect(skills[0].content).toContain("section:<section-gid>");
+  });
+
+  it("includes workspace ID in skill when configured", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", mcp_server: "asana", workspace_id: "12345" },
+    ];
+    const skills = generateBackendSkills(backends);
+
+    expect(skills[0].content).toContain("12345");
+  });
+
+  it("does not generate skills for non-asana backends", () => {
+    const backends: BackendConfig[] = [
+      { type: "github", mcp_server: "github" },
+    ];
+    const skills = generateBackendSkills(backends);
+
+    expect(skills).toHaveLength(0);
+  });
+
+  it("generates skills for asana among mixed backends", () => {
+    const backends: BackendConfig[] = [
+      { type: "github", mcp_server: "github" },
+      { type: "asana", mcp_server: "asana" },
+      { type: "jira", mcp_server: "atlassian-remote" },
+    ];
+    const skills = generateBackendSkills(backends);
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0].path).toBe(".claude/commands/ingest-asana.md");
   });
 });

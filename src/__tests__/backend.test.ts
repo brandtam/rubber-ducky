@@ -69,10 +69,18 @@ describe("Backend interface", () => {
       expect(() =>
         getBackend({ type: "jira", mcp_server: "atlassian-remote" })
       ).toThrow('Backend "jira" is not yet implemented');
+    });
 
-      expect(() =>
-        getBackend({ type: "asana", mcp_server: "asana" })
-      ).toThrow('Backend "asana" is not yet implemented');
+    it("returns an asana backend for asana config", () => {
+      const backend = getBackend(
+        { type: "asana", mcp_server: "asana" },
+        { mcp: () => ({}) }
+      );
+      expect(backend.name).toBe("asana");
+      expect(backend.capabilities).toContain("ingest");
+      expect(backend.capabilities).toContain("pull");
+      expect(backend.capabilities).toContain("push");
+      expect(backend.capabilities).toContain("comment");
     });
   });
 

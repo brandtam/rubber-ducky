@@ -23,6 +23,11 @@ import {
   createGitHubBackend,
   checkGitHubConnectivity,
 } from "./github-backend.js";
+import {
+  createAsanaBackend,
+  checkAsanaConnectivity,
+  type McpCall,
+} from "./asana-backend.js";
 
 export type Capability = "ingest" | "pull" | "push" | "comment" | "transition";
 
@@ -148,11 +153,29 @@ export function assertCapability(
  */
 export function getBackend(
   config: BackendConfig,
-  options?: { exec?: (args: string[]) => string }
+  options?: {
+    exec?: (args: string[]) => string;
+    mcp?: McpCall;
+  }
 ): Backend {
   switch (config.type) {
     case "github":
       return createGitHubBackend(options);
+    case "asana":
+      if (!options?.mcp) {
+        return createAsanaBackend({
+          mcp: () => {
+            throw new Error(
+              "Asana MCP server is not available. Ensure the Asana MCP server is running."
+            );
+          },
+          workspaceId: config.workspace_id,
+        });
+      }
+      return createAsanaBackend({
+        mcp: options.mcp,
+        workspaceId: config.workspace_id,
+      });
     default:
       throw new Error(`Backend "${config.type}" is not yet implemented`);
   }
@@ -164,11 +187,16 @@ export function getBackend(
  */
 export function checkConnectivity(
   config: BackendConfig,
-  options?: { exec?: (args: string[]) => string }
+  options?: {
+    exec?: (args: string[]) => string;
+    mcp?: McpCall;
+  }
 ): ConnectivityResult {
   switch (config.type) {
     case "github":
       return checkGitHubConnectivity(options?.exec);
+    case "asana":
+      return checkAsanaConnectivity(options?.mcp);
     default:
       return {
         authenticated: false,
