@@ -1,6 +1,33 @@
 {
-	"dependencies": {
-		"@ai-hero/sandcastle": "^0.4.0",
-		"buffertools": "^2.1.6"
-	}
+  "name": "rubber-ducky",
+  "version": "0.1.0",
+  "description": "AI-assisted work log & second brain CLI",
+  "type": "module",
+  "bin": {
+    "rubber-ducky": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx src/cli.ts",
+    "sandcastle": "npx tsx .sandcastle/main.mts",
+    "implementer-logs": "tail -f .sandcastle/logs/*implementer*.log",
+    "planner-logs": "tail -f .sandcastle/logs/*planner*.log",
+    "merger-logs": "tail -f .sandcastle/logs/*merger*.log"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "yaml": "^2.7.1"
+  },
+  "devDependencies": {
+    "@ai-hero/sandcastle": "^0.4.0",
+    "@types/node": "^22.15.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
 }

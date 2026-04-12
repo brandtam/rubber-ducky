@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh issue:*)",
+      "Bash(echo \"EXIT CODE: $?\")",
+      "Bash(gh label:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git rm:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(wc:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}
