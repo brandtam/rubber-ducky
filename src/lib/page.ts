@@ -46,6 +46,7 @@ export function generateDailyPage(date?: string): PageGeneratorResult {
     updated: now,
     active_task: null,
     morning_brief: false,
+    wrap_up: false,
     tasks_touched: [],
   };
 

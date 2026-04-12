@@ -42,6 +42,103 @@ describe("getBundledTemplates", () => {
       expect(valid, `unexpected path: ${t.relativePath}`).toBe(true);
     }
   });
+
+  it("includes good-morning skill template", () => {
+    const templates = getBundledTemplates();
+    const gm = templates.find(
+      (t) => t.relativePath === ".claude/commands/good-morning.md"
+    );
+
+    expect(gm).toBeDefined();
+    expect(gm!.content).toContain("Good Morning");
+  });
+
+  it("includes wrap-up skill template", () => {
+    const templates = getBundledTemplates();
+    const wu = templates.find(
+      (t) => t.relativePath === ".claude/commands/wrap-up.md"
+    );
+
+    expect(wu).toBeDefined();
+    expect(wu!.content).toContain("Wrap Up");
+  });
+});
+
+describe("good-morning skill template", () => {
+  function getGoodMorningTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/good-morning.md"
+    )!;
+  }
+
+  it("instructs to create daily page if missing via CLI", () => {
+    const gm = getGoodMorningTemplate();
+    expect(gm.content).toContain("rubber-ducky page create daily");
+  });
+
+  it("instructs to read active tasks, ASAP items, reminders, and deadlines", () => {
+    const gm = getGoodMorningTemplate();
+    expect(gm.content).toMatch(/ASAP/i);
+    expect(gm.content).toMatch(/reminder/i);
+    expect(gm.content).toMatch(/deadline/i);
+    expect(gm.content).toMatch(/in-progress/i);
+  });
+
+  it("instructs to set morning-brief status flag via CLI", () => {
+    const gm = getGoodMorningTemplate();
+    expect(gm.content).toContain("rubber-ducky frontmatter set");
+    expect(gm.content).toContain("morning_brief");
+    expect(gm.content).toContain("true");
+  });
+
+  it("documents redirect-to-active-task behavior", () => {
+    const gm = getGoodMorningTemplate();
+    expect(gm.content).toContain("active_task");
+  });
+
+  it("uses CLI commands for mechanical operations", () => {
+    const gm = getGoodMorningTemplate();
+    expect(gm.content).toContain("rubber-ducky");
+  });
+});
+
+describe("wrap-up skill template", () => {
+  function getWrapUpTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/wrap-up.md"
+    )!;
+  }
+
+  it("instructs to update task pages via CLI", () => {
+    const wu = getWrapUpTemplate();
+    expect(wu.content).toContain("rubber-ducky frontmatter set");
+  });
+
+  it("instructs to update daily log via CLI", () => {
+    const wu = getWrapUpTemplate();
+    expect(wu.content).toContain("rubber-ducky log append");
+  });
+
+  it("instructs to create a status snapshot", () => {
+    const wu = getWrapUpTemplate();
+    expect(wu.content).toMatch(/snapshot|summary|status/i);
+  });
+
+  it("instructs to set wrap-up status flag via CLI", () => {
+    const wu = getWrapUpTemplate();
+    expect(wu.content).toContain("wrap_up");
+    expect(wu.content).toContain("true");
+  });
+
+  it("documents redirect-to-active-task behavior", () => {
+    const wu = getWrapUpTemplate();
+    expect(wu.content).toContain("active_task");
+  });
+
+  it("uses CLI commands for mechanical operations", () => {
+    const wu = getWrapUpTemplate();
+    expect(wu.content).toContain("rubber-ducky");
+  });
 });
 
 describe("scanWorkspace", () => {

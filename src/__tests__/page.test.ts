@@ -82,7 +82,15 @@ describe("generateDailyPage", () => {
     expect(parsed!.data).toHaveProperty("updated");
     expect(parsed!.data).toHaveProperty("active_task");
     expect(parsed!.data).toHaveProperty("morning_brief");
+    expect(parsed!.data).toHaveProperty("wrap_up");
     expect(parsed!.data).toHaveProperty("tasks_touched");
+  });
+
+  it("has wrap_up defaulting to false", () => {
+    const result = generateDailyPage("2024-03-15");
+    const parsed = parseFrontmatter(result.content);
+
+    expect(parsed!.data.wrap_up).toBe(false);
   });
 
   it("passes frontmatter validation for daily type", () => {

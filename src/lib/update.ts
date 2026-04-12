@@ -47,20 +47,65 @@ Start the day with a prioritized brief.
 
 ## Behavior
 
-1. Read \`workspace.md\` to understand workspace context
-2. Check \`wiki/daily/\` for yesterday's page — note any carried-over items
-3. Scan \`wiki/tasks/\` for tasks with status \`in-progress\`, \`to-do\`, or \`blocked\`
-4. Check for any ASAP items or date-keyed reminders due today
-5. Present a prioritized summary:
-   - ASAP items (handle first)
-   - In-progress tasks (continue)
-   - Blocked tasks (check if unblocked)
-   - To-do tasks (pick up next)
-6. Create today's daily page if it doesn't exist: \`rubber-ducky page create daily\`
+### Step 1 — Ensure today's daily page exists
+
+Run via Bash:
+
+\`\`\`
+rubber-ducky page create daily
+\`\`\`
+
+If the page already exists, this is a no-op (the CLI will report it exists). Continue either way.
+
+### Step 2 — Gather context
+
+Read the following files to build situational awareness:
+
+1. **Yesterday's daily page** — check \`wiki/daily/\` for the most recent page before today. Note any items in the "Carried over" section.
+2. **Active tasks** — scan \`wiki/tasks/\` for tasks with status \`in-progress\`, \`to-do\`, or \`blocked\`. Read their frontmatter (especially \`status\`, \`priority\`, \`due\`).
+3. **ASAP items** — check \`wiki/tasks/\` for any task with \`priority: asap\` or tagged \`asap\`. These must be surfaced first.
+4. **Date-keyed reminders** — check \`wiki/tasks/\` for tasks with a \`due\` date matching today. These are deadline items that need attention.
+5. **Upcoming deadlines** — check for tasks with \`due\` dates within the next 3 days to flag what's approaching.
+
+### Step 3 — Present the morning brief
+
+Output a prioritized summary in this order:
+
+1. **ASAP items** — handle first, these are urgent
+2. **Deadline items due today** — time-sensitive
+3. **Upcoming deadlines (next 3 days)** — awareness items
+4. **Carried-over items** — unfinished from yesterday
+5. **In-progress tasks** — continue work
+6. **Blocked tasks** — check if unblocked, escalate if still stuck
+7. **To-do tasks** — pick up next if capacity allows
+
+Suggest a focus task for the day based on priority and deadlines.
+
+### Step 4 — Set the morning-brief flag
+
+Run via Bash:
+
+\`\`\`
+rubber-ducky frontmatter set wiki/daily/YYYY-MM-DD.md morning_brief true
+\`\`\`
+
+(Replace YYYY-MM-DD with today's date.)
+
+### Step 5 — Set active task
+
+If a focus task was suggested and the user agrees, run via Bash:
+
+\`\`\`
+rubber-ducky frontmatter set wiki/daily/YYYY-MM-DD.md active_task "<task-slug>"
+\`\`\`
+
+## Redirect behavior
+
+After handling any interruption during the day, remind the user of their active task by reading the \`active_task\` field from today's daily page frontmatter. If \`active_task\` is set, say: "Ready to get back to [active task]?" This keeps the user focused after context switches.
 
 ## Output
 
-A concise morning brief with clear priorities and suggested focus order.
+A concise, prioritized morning brief. Use short bullet points. Do not reproduce full task contents — just titles, statuses, and due dates. The goal is a quick scan, not a wall of text.
 `,
       description: "Morning brief skill — prioritized daily summary",
     },
@@ -72,20 +117,84 @@ End-of-day summary and workspace update.
 
 ## Behavior
 
-1. Read today's daily page from \`wiki/daily/\`
-2. Scan \`wiki/tasks/\` for tasks touched today (check activity logs)
-3. For each touched task:
-   - Update status if changed
-   - Append activity log entry with today's date
-4. Update today's daily page:
-   - Fill in "Completed today" section
-   - Fill in "Carried over" section for incomplete tasks
-   - Add any notes or blockers
-5. Present a summary of the day
+### Step 1 — Read today's daily page
+
+Read today's daily page from \`wiki/daily/YYYY-MM-DD.md\`. If no daily page exists, create one first:
+
+\`\`\`
+rubber-ducky page create daily
+\`\`\`
+
+### Step 2 — Identify tasks touched today
+
+Scan \`wiki/tasks/\` and read activity logs and frontmatter. A task was "touched" if:
+- Its \`updated\` timestamp is from today
+- It has an activity log entry dated today
+- The user mentioned working on it during the session
+
+### Step 3 — Update task pages
+
+For each touched task, run via Bash:
+
+\`\`\`
+rubber-ducky frontmatter set wiki/tasks/<slug>.md status <new-status>
+rubber-ducky frontmatter set wiki/tasks/<slug>.md updated <now-iso>
+\`\`\`
+
+If a task was completed, also set:
+
+\`\`\`
+rubber-ducky frontmatter set wiki/tasks/<slug>.md closed <now-iso>
+\`\`\`
+
+### Step 4 — Update daily log
+
+Append a wrap-up entry to the workspace log:
+
+\`\`\`
+rubber-ducky log append "EOD wrap-up: <N> tasks touched, <M> completed"
+\`\`\`
+
+### Step 5 — Create status snapshot in daily page
+
+Update today's daily page body sections by editing the file directly:
+
+- **Completed today** — list tasks that moved to \`done\`
+- **Carried over** — list in-progress or to-do tasks that weren't completed
+- **Blockers** — note any blocked tasks and why
+- **Work log** — add a brief narrative of the day's work
+
+Also update the \`tasks_touched\` frontmatter array:
+
+\`\`\`
+rubber-ducky frontmatter set wiki/daily/YYYY-MM-DD.md tasks_touched '["task-slug-1","task-slug-2"]'
+\`\`\`
+
+### Step 6 — Set the wrap-up flag
+
+\`\`\`
+rubber-ducky frontmatter set wiki/daily/YYYY-MM-DD.md wrap_up true
+\`\`\`
+
+### Step 7 — Clear active task
+
+\`\`\`
+rubber-ducky frontmatter set wiki/daily/YYYY-MM-DD.md active_task null
+\`\`\`
+
+## Redirect behavior
+
+If the user triggers this skill but has an \`active_task\` set in today's daily page, confirm they want to wrap up: "You still have [active task] marked as active — ready to wrap up for the day?" This prevents accidental wrap-up mid-flow.
 
 ## Output
 
-A concise end-of-day summary showing what was accomplished and what carries over.
+A concise end-of-day summary:
+- Tasks completed today (count + titles)
+- Tasks carried over (count + titles)
+- Blockers (if any)
+- Suggested focus for tomorrow
+
+Keep it brief — the daily page has the full record.
 `,
       description: "End-of-day wrap-up skill — daily summary and status update",
     },
