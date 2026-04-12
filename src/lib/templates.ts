@@ -1,17 +1,43 @@
 import { stringify as yamlStringify } from "yaml";
 
+export interface BackendConfig {
+  type: "github" | "jira" | "asana";
+  mcp_server: string;
+  server_url?: string;
+  project_key?: string;
+  workspace_id?: string;
+}
+
+export interface VocabularyOptions {
+  brands?: string[];
+  teams?: string[];
+  labels?: string[];
+}
+
 export interface TemplateOptions {
   name: string;
   purpose: string;
+  backends?: BackendConfig[];
 }
 
 export function generateWorkspaceMd(opts: TemplateOptions): string {
+  const backends = (opts.backends ?? []).map((b) => {
+    const entry: Record<string, string> = {
+      type: b.type,
+      mcp_server: b.mcp_server,
+    };
+    if (b.server_url) entry.server_url = b.server_url;
+    if (b.project_key) entry.project_key = b.project_key;
+    if (b.workspace_id) entry.workspace_id = b.workspace_id;
+    return entry;
+  });
+
   const frontmatter = {
     name: opts.name,
     purpose: opts.purpose,
     version: "0.1.0",
     created: new Date().toISOString().split("T")[0],
-    backends: [],
+    backends,
   };
 
   const body = `# ${opts.name}
@@ -72,8 +98,10 @@ Use Claude Code skills for intelligent operations.
 `;
 }
 
-export function generateUbiquitousLanguageMd(): string {
-  return `# Ubiquitous Language
+export function generateUbiquitousLanguageMd(vocabulary?: VocabularyOptions): string {
+  const sections: string[] = [];
+
+  sections.push(`# Ubiquitous Language
 
 Controlled vocabulary for this workspace. All team members and AI assistants
 should use these terms consistently.
@@ -97,12 +125,26 @@ should use these terms consistently.
 |------|---------|
 | daily | A daily work log page (wiki/daily/) |
 | task | A single work item page (wiki/tasks/) |
-| project | A grouping of related tasks (wiki/projects/) |
+| project | A grouping of related tasks (wiki/projects/) |`);
 
-## Custom terms
+  if (vocabulary?.brands && vocabulary.brands.length > 0) {
+    sections.push(`\n## Brands\n\n| Term |\n|------|\n${vocabulary.brands.map((b) => `| ${b} |`).join("\n")}`);
+  }
+
+  if (vocabulary?.teams && vocabulary.teams.length > 0) {
+    sections.push(`\n## Teams\n\n| Term |\n|------|\n${vocabulary.teams.map((t) => `| ${t} |`).join("\n")}`);
+  }
+
+  if (vocabulary?.labels && vocabulary.labels.length > 0) {
+    sections.push(`\n## Labels\n\n| Term |\n|------|\n${vocabulary.labels.map((l) => `| ${l} |`).join("\n")}`);
+  }
+
+  sections.push(`\n## Custom terms
 
 Add workspace-specific terms below.
 
 <!-- Add your terms here -->
-`;
+`);
+
+  return sections.join("\n");
 }

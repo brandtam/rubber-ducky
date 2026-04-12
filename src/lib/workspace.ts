@@ -4,12 +4,16 @@ import {
   generateWorkspaceMd,
   generateClaudeMd,
   generateUbiquitousLanguageMd,
+  type BackendConfig,
+  type VocabularyOptions,
 } from "./templates.js";
 
 export interface WorkspaceOptions {
   name: string;
   purpose: string;
   targetDir: string;
+  backends?: BackendConfig[];
+  vocabulary?: VocabularyOptions;
 }
 
 export interface WorkspaceResult {
@@ -49,12 +53,12 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
   }
 
   // Generate and write files
-  const templateOpts = { name, purpose };
+  const templateOpts = { name, purpose, backends: opts.backends };
 
   const files: Array<{ name: string; content: string }> = [
     { name: "workspace.md", content: generateWorkspaceMd(templateOpts) },
     { name: "CLAUDE.md", content: generateClaudeMd(templateOpts) },
-    { name: "UBIQUITOUS_LANGUAGE.md", content: generateUbiquitousLanguageMd() },
+    { name: "UBIQUITOUS_LANGUAGE.md", content: generateUbiquitousLanguageMd(opts.vocabulary) },
   ];
 
   for (const file of files) {

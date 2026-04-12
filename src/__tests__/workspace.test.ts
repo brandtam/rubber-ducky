@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { parse as parseYaml } from "yaml";
 import { createWorkspace, type WorkspaceOptions } from "../lib/workspace.js";
+import type { BackendConfig, VocabularyOptions } from "../lib/templates.js";
 
 describe("createWorkspace", () => {
   let tmpDir: string;
@@ -176,6 +178,101 @@ describe("createWorkspace", () => {
       expect(
         fs.existsSync(path.join(result.workspacePath, ".obsidian"))
       ).toBe(true);
+    });
+  });
+
+  describe("backend configuration", () => {
+    it("writes backend configs into workspace.md frontmatter", async () => {
+      const backends: BackendConfig[] = [
+        { type: "github", mcp_server: "github" },
+        { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net", project_key: "PROJ" },
+      ];
+      const result = await createWorkspace(opts({ backends }));
+      const content = fs.readFileSync(path.join(result.workspacePath, "workspace.md"), "utf-8");
+      const match = content.match(/^---\n([\s\S]*?)\n---/);
+      const frontmatter = parseYaml(match![1]);
+
+      expect(frontmatter.backends).toHaveLength(2);
+      expect(frontmatter.backends[0].type).toBe("github");
+      expect(frontmatter.backends[1].type).toBe("jira");
+      expect(frontmatter.backends[1].server_url).toBe("https://myorg.atlassian.net");
+    });
+
+    it("produces empty backends array when none provided", async () => {
+      const result = await createWorkspace(opts());
+      const content = fs.readFileSync(path.join(result.workspacePath, "workspace.md"), "utf-8");
+      const match = content.match(/^---\n([\s\S]*?)\n---/);
+      const frontmatter = parseYaml(match![1]);
+
+      expect(frontmatter.backends).toEqual([]);
+    });
+
+    it("creates valid workspace when backends are skipped", async () => {
+      const result = await createWorkspace(opts({ backends: [] }));
+
+      expect(fs.existsSync(path.join(result.workspacePath, "workspace.md"))).toBe(true);
+      expect(fs.existsSync(path.join(result.workspacePath, "CLAUDE.md"))).toBe(true);
+      expect(fs.existsSync(path.join(result.workspacePath, "UBIQUITOUS_LANGUAGE.md"))).toBe(true);
+      expect(result.filesCreated).toContain("workspace.md");
+    });
+  });
+
+  describe("vocabulary in UBIQUITOUS_LANGUAGE.md", () => {
+    it("includes custom brands in UBIQUITOUS_LANGUAGE.md", async () => {
+      const vocabulary: VocabularyOptions = {
+        brands: ["Acme Corp", "Widget Co"],
+      };
+      const result = await createWorkspace(opts({ vocabulary }));
+      const content = fs.readFileSync(path.join(result.workspacePath, "UBIQUITOUS_LANGUAGE.md"), "utf-8");
+
+      expect(content).toContain("## Brands");
+      expect(content).toContain("Acme Corp");
+      expect(content).toContain("Widget Co");
+    });
+
+    it("includes custom teams in UBIQUITOUS_LANGUAGE.md", async () => {
+      const vocabulary: VocabularyOptions = {
+        teams: ["Frontend", "Backend"],
+      };
+      const result = await createWorkspace(opts({ vocabulary }));
+      const content = fs.readFileSync(path.join(result.workspacePath, "UBIQUITOUS_LANGUAGE.md"), "utf-8");
+
+      expect(content).toContain("## Teams");
+      expect(content).toContain("Frontend");
+      expect(content).toContain("Backend");
+    });
+
+    it("includes custom labels in UBIQUITOUS_LANGUAGE.md", async () => {
+      const vocabulary: VocabularyOptions = {
+        labels: ["urgent", "bug"],
+      };
+      const result = await createWorkspace(opts({ vocabulary }));
+      const content = fs.readFileSync(path.join(result.workspacePath, "UBIQUITOUS_LANGUAGE.md"), "utf-8");
+
+      expect(content).toContain("## Labels");
+      expect(content).toContain("urgent");
+      expect(content).toContain("bug");
+    });
+
+    it("always includes status vocabulary regardless of custom vocabulary", async () => {
+      const vocabulary: VocabularyOptions = { brands: ["Test"] };
+      const result = await createWorkspace(opts({ vocabulary }));
+      const content = fs.readFileSync(path.join(result.workspacePath, "UBIQUITOUS_LANGUAGE.md"), "utf-8");
+
+      expect(content).toContain("backlog");
+      expect(content).toContain("to-do");
+      expect(content).toContain("in-progress");
+      expect(content).toContain("done");
+      expect(content).toContain("deferred");
+    });
+
+    it("produces default UBIQUITOUS_LANGUAGE.md when no vocabulary is provided", async () => {
+      const result = await createWorkspace(opts());
+      const content = fs.readFileSync(path.join(result.workspacePath, "UBIQUITOUS_LANGUAGE.md"), "utf-8");
+
+      expect(content).toContain("# Ubiquitous Language");
+      expect(content).toContain("## Statuses");
+      expect(content).toContain("## Custom terms");
     });
   });
 
