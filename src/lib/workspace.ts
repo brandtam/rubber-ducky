@@ -118,7 +118,7 @@ export interface WorkspaceConfig {
   purpose: string;
   version: string;
   created: string;
-  backends: string[];
+  backends: BackendConfig[];
   workspaceRoot: string;
 }
 

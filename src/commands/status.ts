@@ -39,7 +39,7 @@ export function registerStatusCommand(program: Command): void {
               `${chalk.bold("Purpose:")} ${config.purpose}`,
               `${chalk.bold("Version:")} ${config.version}`,
               `${chalk.bold("Created:")} ${config.created}`,
-              `${chalk.bold("Backends:")} ${config.backends.length === 0 ? "none" : config.backends.join(", ")}`,
+              `${chalk.bold("Backends:")} ${config.backends.length === 0 ? "none" : config.backends.map((b: { type: string }) => b.type).join(", ")}`,
             ].join("\n"),
             config.workspaceRoot
           );
