@@ -393,3 +393,231 @@ describe("applyFileUpdate", () => {
     expect(fs.existsSync(fullPath)).toBe(false);
   });
 });
+
+describe("push skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/push.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("describes pushing a wiki task to an external backend", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/push/i);
+    expect(t.content).toMatch(/backend/i);
+    expect(t.content).toMatch(/task/i);
+  });
+
+  it("requires write-back safety: preview before confirmation", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/preview/i);
+    expect(t.content).toMatch(/confirm/i);
+  });
+
+  it("requires audit logging to log.md", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/log/i);
+  });
+});
+
+describe("comment skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/comment.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("describes adding a comment to an external ticket", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/comment/i);
+    expect(t.content).toMatch(/backend/i);
+  });
+
+  it("requires write-back safety: preview before confirmation", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/preview/i);
+    expect(t.content).toMatch(/confirm/i);
+  });
+
+  it("requires audit logging", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/log/i);
+  });
+});
+
+describe("transition skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/transition.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("describes changing status in both wiki and backend", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/status/i);
+    expect(t.content).toMatch(/wiki/i);
+    expect(t.content).toMatch(/backend/i);
+  });
+
+  it("requires write-back safety: preview before confirmation", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/preview/i);
+    expect(t.content).toMatch(/confirm/i);
+  });
+
+  it("requires audit logging", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/log/i);
+  });
+});
+
+describe("pull-active skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/pull-active.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("describes pulling latest state for active tasks", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/pull/i);
+    expect(t.content).toMatch(/active/i);
+    expect(t.content).toMatch(/backend/i);
+  });
+
+  it("scans wiki/tasks for tasks with backend refs", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/wiki\/tasks/i);
+  });
+});
+
+describe("reconcile skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/reconcile.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("describes comparing wiki state with backend state", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/reconcile|compare/i);
+    expect(t.content).toMatch(/wiki/i);
+    expect(t.content).toMatch(/backend/i);
+  });
+
+  it("surfaces differences between wiki and backend", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/difference|drift|mismatch/i);
+  });
+});
+
+describe("start skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/start.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("uses rubber-ducky task start for mechanical operation", () => {
+    const t = getTemplate();
+    expect(t.content).toContain("rubber-ducky task start");
+  });
+
+  it("triggers backend transition to in-progress when ref exists", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/backend/i);
+    expect(t.content).toMatch(/in-progress/i);
+    expect(t.content).toMatch(/transition/i);
+  });
+
+  it("requires write-back safety for backend transition", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/preview/i);
+    expect(t.content).toMatch(/confirm/i);
+  });
+});
+
+describe("close skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/close.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("uses rubber-ducky task close for mechanical operation", () => {
+    const t = getTemplate();
+    expect(t.content).toContain("rubber-ducky task close");
+  });
+
+  it("triggers backend transition to done when ref exists", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/backend/i);
+    expect(t.content).toMatch(/done/i);
+    expect(t.content).toMatch(/transition/i);
+  });
+
+  it("requires write-back safety for backend transition", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/preview/i);
+    expect(t.content).toMatch(/confirm/i);
+  });
+});
+
+describe("ticket-writer agent template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/agents/ticket-writer.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("describes drafting ticket content from wiki pages", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/draft/i);
+    expect(t.content).toMatch(/ticket/i);
+  });
+
+  it("adapts tone to target system", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/github/i);
+    expect(t.content).toMatch(/jira/i);
+    expect(t.content).toMatch(/asana/i);
+  });
+
+  it("is read-only with respect to external systems", () => {
+    const t = getTemplate();
+    // Ticket writer drafts content but does not write to backends
+    expect(t.content).toMatch(/draft|generate|produce/i);
+  });
+});

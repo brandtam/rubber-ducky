@@ -260,16 +260,31 @@ describe("generateBackendSkills", () => {
     expect(skills[0].content).toContain("12345");
   });
 
-  it("does not generate skills for non-asana backends", () => {
+  it("generates ingest-github skill when github backend is configured", () => {
     const backends: BackendConfig[] = [
       { type: "github", mcp_server: "github" },
+    ];
+    const skills = generateBackendSkills(backends);
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0].path).toBe(".claude/commands/ingest-github.md");
+    expect(skills[0].content).toContain("Ingest GitHub");
+    expect(skills[0].content).toContain("/ingest-github");
+    expect(skills[0].content).toContain("rubber-ducky backend check github");
+    expect(skills[0].content).toContain("issue");
+    expect(skills[0].content).toContain("PR");
+  });
+
+  it("does not generate skills for jira-only backends", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", mcp_server: "atlassian-remote" },
     ];
     const skills = generateBackendSkills(backends);
 
     expect(skills).toHaveLength(0);
   });
 
-  it("generates skills for asana among mixed backends", () => {
+  it("generates skills for github and asana among mixed backends", () => {
     const backends: BackendConfig[] = [
       { type: "github", mcp_server: "github" },
       { type: "asana", mcp_server: "asana" },
@@ -277,7 +292,9 @@ describe("generateBackendSkills", () => {
     ];
     const skills = generateBackendSkills(backends);
 
-    expect(skills).toHaveLength(1);
-    expect(skills[0].path).toBe(".claude/commands/ingest-asana.md");
+    expect(skills).toHaveLength(2);
+    const paths = skills.map((s) => s.path);
+    expect(paths).toContain(".claude/commands/ingest-github.md");
+    expect(paths).toContain(".claude/commands/ingest-asana.md");
   });
 });

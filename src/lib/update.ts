@@ -390,6 +390,488 @@ A structured report of findings grouped by severity (error, warning, info) with 
 `,
       description: "Linter agent — wiki health and drift detection",
     },
+    {
+      relativePath: ".claude/commands/push.md",
+      content: `# Push
+
+Push a wiki task page to an external backend as a new ticket.
+
+## Arguments
+
+\`$ARGUMENTS\` — Path to the task page (e.g., \`wiki/tasks/fix-login-bug.md\`)
+
+## Behavior
+
+### Step 1 — Read the task page
+
+Read the task page specified in \`$ARGUMENTS\`. Extract its frontmatter (title, description, tags, status, source) and body content.
+
+If the task already has a backend reference (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`), warn the user that this task may already exist in the target system.
+
+### Step 2 — Identify target backend
+
+Read \`workspace.md\` frontmatter to get configured backends. If multiple backends are configured, ask the user which one to push to. If only one backend is configured, use it.
+
+### Step 3 — Draft ticket content
+
+Use the **ticket-writer** agent to draft backend-appropriate content:
+
+\`\`\`
+Agent({
+  subagent_type: "ticket-writer",
+  prompt: "Draft a <backend-type> ticket from this wiki task page: <task content>"
+})
+\`\`\`
+
+### Step 4 — Show write-back preview
+
+**MANDATORY**: Before executing ANY external write, show a structured preview:
+
+\`\`\`
+Action:  push
+Backend: <backend-name>
+Target:  (new ticket)
+Payload:
+  title: <title>
+  description: <description summary>
+  labels: <tags>
+\`\`\`
+
+Ask the user to confirm: "Proceed with creating this ticket? (yes/no)"
+
+**Do NOT proceed without explicit confirmation.**
+
+### Step 5 — Execute push
+
+Only after confirmation, use the backend's push capability to create the ticket.
+
+### Step 6 — Update wiki and log
+
+1. Update the task page frontmatter with the new backend reference (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`) and set \`pushed\` to the current ISO timestamp
+2. Append an audit entry to \`wiki/log.md\`:
+   \`\`\`
+   rubber-ducky log append "[write-back] push → <backend> (<ref>)"
+   \`\`\`
+3. Run \`rubber-ducky index rebuild\` to update the index
+`,
+      description: "Push skill — create external ticket from wiki task page",
+    },
+    {
+      relativePath: ".claude/commands/comment.md",
+      content: `# Comment
+
+Add a comment to an external ticket from the wiki.
+
+## Arguments
+
+\`$ARGUMENTS\` — Path to the task page, optionally followed by the comment text (e.g., \`wiki/tasks/fix-login-bug.md "Great progress on this"\`)
+
+## Behavior
+
+### Step 1 — Read the task page
+
+Read the task page. Extract its backend reference (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`).
+
+If no backend reference exists, inform the user: "This task has no backend reference. Push it first with /push."
+
+### Step 2 — Get comment text
+
+If comment text was provided in \`$ARGUMENTS\`, use it. Otherwise, ask the user what they want to comment.
+
+### Step 3 — Show write-back preview
+
+**MANDATORY**: Before executing ANY external write, show a structured preview:
+
+\`\`\`
+Action:  comment
+Backend: <backend-name>
+Target:  <ref>
+Payload:
+  text: <comment text>
+\`\`\`
+
+Ask the user to confirm: "Post this comment? (yes/no)"
+
+**Do NOT proceed without explicit confirmation.**
+
+### Step 4 — Execute comment
+
+Only after confirmation, use the backend's comment capability.
+
+### Step 5 — Update wiki and log
+
+1. Append the comment to the task page's ## Comments section
+2. Increment \`comment_count\` in frontmatter
+3. Append an audit entry to \`wiki/log.md\`:
+   \`\`\`
+   rubber-ducky log append "[write-back] comment → <backend> (<ref>)"
+   \`\`\`
+`,
+      description: "Comment skill — add comment to external ticket from wiki",
+    },
+    {
+      relativePath: ".claude/commands/transition.md",
+      content: `# Transition
+
+Change a task's status in both the wiki and the external backend.
+
+## Arguments
+
+\`$ARGUMENTS\` — Path to the task page and the target status (e.g., \`wiki/tasks/fix-login-bug.md in-progress\`)
+
+## Behavior
+
+### Step 1 — Read the task page
+
+Read the task page. Extract current status and backend reference (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`).
+
+### Step 2 — Validate the transition
+
+Check that the target status is valid: backlog, to-do, in-progress, in-review, pending, blocked, done, deferred.
+
+### Step 3 — Show write-back preview
+
+**MANDATORY**: Before executing ANY external write, show a structured preview:
+
+\`\`\`
+Action:  transition
+Backend: <backend-name>
+Target:  <ref>
+Payload:
+  from: <current-status>
+  to: <target-status>
+\`\`\`
+
+Ask the user to confirm: "Transition status? (yes/no)"
+
+**Do NOT proceed without explicit confirmation.**
+
+### Step 4 — Execute transition
+
+Only after confirmation:
+
+1. If the task has a backend reference AND the backend supports transition:
+   - Use the backend's transition capability
+2. Update the wiki task page status via CLI:
+   \`\`\`
+   rubber-ducky frontmatter set <task-file> status <target-status>
+   rubber-ducky frontmatter set <task-file> updated <now-iso>
+   \`\`\`
+3. If the target status is \`done\`, also set:
+   \`\`\`
+   rubber-ducky frontmatter set <task-file> closed <now-iso>
+   \`\`\`
+
+### Step 5 — Log the transition
+
+Append an audit entry to \`wiki/log.md\`:
+\`\`\`
+rubber-ducky log append "[write-back] transition → <backend> (<ref>): <from> → <to>"
+\`\`\`
+`,
+      description: "Transition skill — sync status across wiki and backend",
+    },
+    {
+      relativePath: ".claude/commands/pull-active.md",
+      content: `# Pull Active
+
+Pull latest state from backends for all active tasks.
+
+## Behavior
+
+### Step 1 — Find active tasks with backend refs
+
+Scan \`wiki/tasks/\` for task pages that:
+- Have status \`in-progress\`, \`in-review\`, \`pending\`, or \`blocked\`
+- Have at least one backend reference (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`)
+
+Use \`rubber-ducky frontmatter get <file>\` to read each task's frontmatter.
+
+### Step 2 — Read workspace backend config
+
+Read \`workspace.md\` frontmatter to get configured backends. Only pull from backends that are configured and support the \`pull\` capability.
+
+### Step 3 — Pull from each backend
+
+For each active task with a backend reference:
+1. Run \`rubber-ducky backend check <backend-type>\` to verify connectivity
+2. Use the backend's pull capability to fetch latest state
+3. Compare with the local wiki page
+
+### Step 4 — Report changes
+
+For each task, report what changed:
+- Status changes (e.g., "PROJ-123: in-progress → in-review in Jira")
+- New comments
+- Assignee changes
+- Due date changes
+
+### Step 5 — Update wiki pages
+
+For each task with changes:
+1. Update frontmatter fields that changed (\`status\`, \`assignee\`, \`due\`, \`comment_count\`)
+2. Append new comments to the ## Comments section
+3. Set \`updated\` to current timestamp
+4. Add activity log entry: "- Pulled from <backend> on <date>"
+
+### Step 6 — Summary
+
+Output a summary: "<N> tasks checked, <M> updated, <K> unchanged."
+`,
+      description: "Pull-active skill — refresh active tasks from backends",
+    },
+    {
+      relativePath: ".claude/commands/reconcile.md",
+      content: `# Reconcile
+
+Compare wiki state with backend state and surface differences.
+
+## Behavior
+
+### Step 1 — Find tasks with backend refs
+
+Scan \`wiki/tasks/\` for ALL task pages that have at least one backend reference (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`), regardless of status.
+
+### Step 2 — Read workspace backend config
+
+Read \`workspace.md\` frontmatter to get configured backends.
+
+### Step 3 — Compare each task
+
+For each task with a backend reference:
+1. Read the local wiki page frontmatter and body
+2. Fetch the current state from the external backend
+3. Compare: status, assignee, description, comments, due date
+
+### Step 4 — Report drift
+
+Present a structured report of any differences or drift found:
+
+**Status mismatch**: Wiki says "in-progress" but Jira says "In Review"
+**Comment drift**: Backend has 5 comments, wiki has 3
+**Assignee mismatch**: Wiki says "alice" but backend says "bob"
+**Description drift**: Backend description was updated after last sync
+
+Group findings by severity:
+- **Error**: Status mismatch (may indicate stale wiki state)
+- **Warning**: Comment drift (new discussion not captured locally)
+- **Info**: Minor field differences
+
+### Step 5 — Suggest actions
+
+For each drift item, suggest a resolution:
+- "Run /pull-active to update wiki from backend"
+- "Run /transition to sync status"
+- "Run /comment to post local notes to backend"
+
+### Step 6 — Summary
+
+Output: "<N> tasks compared, <M> with drift, <K> in sync."
+`,
+      description: "Reconcile skill — surface wiki/backend differences",
+    },
+    {
+      relativePath: ".claude/commands/start.md",
+      content: `# Start
+
+Start working on a task: set status to in-progress and sync with external backend.
+
+## Arguments
+
+\`$ARGUMENTS\` — Path to the task page (e.g., \`wiki/tasks/fix-login-bug.md\`)
+
+## Behavior
+
+### Step 1 — Start the task locally
+
+Run via Bash:
+
+\`\`\`
+rubber-ducky task start $ARGUMENTS
+\`\`\`
+
+This sets the task status to in-progress, updates the daily page, and adds an activity log entry.
+
+### Step 2 — Check for backend reference
+
+Read the task page frontmatter. Check if it has a backend reference (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`).
+
+If no backend reference exists, the task is local-only — skip to Step 5.
+
+### Step 3 — Show write-back preview
+
+**MANDATORY**: If a backend reference exists, show a structured preview before any external write:
+
+\`\`\`
+Action:  transition
+Backend: <backend-name>
+Target:  <ref>
+Payload:
+  from: <current-status>
+  to: in-progress
+\`\`\`
+
+Ask the user to confirm: "Also transition in <backend>? (yes/no)"
+
+**Do NOT proceed with the backend write without explicit confirmation.**
+
+### Step 4 — Transition in backend
+
+Only after confirmation, use the backend's transition capability to set the external status to in-progress.
+
+Append an audit entry to \`wiki/log.md\`:
+\`\`\`
+rubber-ducky log append "[write-back] transition → <backend> (<ref>): <from> → in-progress"
+\`\`\`
+
+### Step 5 — Confirm
+
+Report: "Started: <task title> (status: in-progress)" and, if applicable, "Backend status synced."
+`,
+      description: "Start skill — begin task with optional backend sync",
+    },
+    {
+      relativePath: ".claude/commands/close.md",
+      content: `# Close
+
+Close a task: set status to done and sync with external backend.
+
+## Arguments
+
+\`$ARGUMENTS\` — Path to the task page (e.g., \`wiki/tasks/fix-login-bug.md\`)
+
+## Behavior
+
+### Step 1 — Close the task locally
+
+Run via Bash:
+
+\`\`\`
+rubber-ducky task close $ARGUMENTS
+\`\`\`
+
+This sets the task status to done, sets the closed date, updates the daily page, and appends to the wiki log.
+
+### Step 2 — Check for backend reference
+
+Read the task page frontmatter. Check if it has a backend reference (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`).
+
+If no backend reference exists, the task is local-only — skip to Step 5.
+
+### Step 3 — Show write-back preview
+
+**MANDATORY**: If a backend reference exists, show a structured preview before any external write:
+
+\`\`\`
+Action:  transition
+Backend: <backend-name>
+Target:  <ref>
+Payload:
+  from: <current-status>
+  to: done
+\`\`\`
+
+Ask the user to confirm: "Also transition to done in <backend>? (yes/no)"
+
+**Do NOT proceed with the backend write without explicit confirmation.**
+
+### Step 4 — Transition in backend
+
+Only after confirmation, use the backend's transition capability to set the external status to done.
+
+Append an audit entry to \`wiki/log.md\`:
+\`\`\`
+rubber-ducky log append "[write-back] transition → <backend> (<ref>): <from> → done"
+\`\`\`
+
+### Step 5 — Confirm
+
+Report: "Closed: <task title> (status: done)" and, if applicable, "Backend status synced."
+`,
+      description: "Close skill — finish task with optional backend sync",
+    },
+    {
+      relativePath: ".claude/agents/ticket-writer.md",
+      content: `# Ticket Writer
+
+An agent that drafts backend-appropriate ticket content from wiki task pages.
+
+## Role
+
+You are a ticket-writer agent. Your job is to transform wiki task page content into well-formatted ticket content appropriate for a specific external system (GitHub issue, Jira ticket, or Asana task). You draft content — you do not write to any external system.
+
+## Constraints
+
+- **Draft only**: You produce formatted text. You do NOT push, create, or modify external tickets.
+- **Faithful to source**: All content must come from the wiki task page. Do not invent details.
+- **System-appropriate**: Adapt tone, structure, and formatting to the target system's conventions.
+
+## Input
+
+You will receive:
+1. The wiki task page content (frontmatter + body)
+2. The target system (github, jira, or asana)
+
+## Output Format by System
+
+### GitHub Issue
+
+- **Title**: Concise, action-oriented (e.g., "Fix login form crash on submit")
+- **Body**: Markdown formatted with sections:
+  - Description (from wiki ## Description)
+  - Context (from wiki ## Context, if present)
+  - Acceptance criteria (if derivable from description)
+- **Labels**: Suggest from wiki tags
+- Tone: Direct, developer-focused, technical
+
+### Jira Ticket
+
+- **Summary**: Clear, structured (e.g., "[Login] Fix form crash on submit")
+- **Description**: Jira wiki markup or markdown (depending on instance):
+  - h3. Description
+  - h3. Acceptance Criteria
+  - h3. Context
+- **Issue Type**: Infer from content (Bug, Task, Story)
+- **Labels**: From wiki tags
+- **Priority**: Map from wiki priority field
+- Tone: Structured, process-oriented, team-readable
+
+### Asana Task
+
+- **Name**: Clear, brief task name
+- **Notes**: Rich text with sections:
+  - Description
+  - Context
+  - Related tasks (from wiki ## See also)
+- **Tags**: From wiki tags
+- Tone: Collaborative, clear, action-oriented
+
+## Example
+
+Given a wiki task page about a login bug, draft for GitHub:
+
+**Title**: Fix login form crash on submit
+**Body**:
+\`\`\`markdown
+## Description
+
+The login form crashes when the user clicks submit with valid credentials.
+Stack trace points to null reference in auth handler.
+
+## Steps to Reproduce
+
+1. Navigate to /login
+2. Enter valid credentials
+3. Click Submit
+
+## Context
+
+Reported by QA on 2024-03-12. Blocking release 2.1.
+\`\`\`
+**Labels**: bug, auth, blocking
+`,
+      description: "Ticket writer agent — draft backend-appropriate ticket content from wiki pages",
+    },
   ];
 }
 

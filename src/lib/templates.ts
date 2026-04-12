@@ -110,6 +110,12 @@ export function generateBackendSkills(
   const skills: Array<{ path: string; content: string }> = [];
 
   for (const backend of backends) {
+    if (backend.type === "github") {
+      skills.push({
+        path: ".claude/commands/ingest-github.md",
+        content: generateIngestGitHubSkill(),
+      });
+    }
     if (backend.type === "asana") {
       skills.push({
         path: ".claude/commands/ingest-asana.md",
@@ -119,6 +125,31 @@ export function generateBackendSkills(
   }
 
   return skills;
+}
+
+function generateIngestGitHubSkill(): string {
+  return `# Ingest GitHub Issue or PR
+
+Ingest a GitHub issue or pull request into the wiki as a task page.
+
+## Usage
+
+\`\`\`
+/ingest-github <issue-or-pr-number>
+\`\`\`
+
+## Steps
+
+1. Run \`rubber-ducky backend check github\` to verify connectivity
+2. Use the \`gh\` CLI to fetch the issue or PR by number
+3. Run \`rubber-ducky page create task "<title>" --source github --ref <number>\` to scaffold the page
+4. Update the page frontmatter with fields from GitHub:
+   - \`gh_ref\`: The GitHub URL
+   - \`status\`: Mapped from GitHub state and labels
+   - \`tags\`: From GitHub labels
+5. Write the issue/PR description and comments into the page body
+6. Run \`rubber-ducky index rebuild\` to update the index
+`;
 }
 
 function generateIngestAsanaSkill(config: BackendConfig): string {

@@ -59,11 +59,19 @@ function createWorkspace(tmpDir: string): void {
   fs.writeFileSync(path.join(tmpDir, ".claude/commands/wrap-up.md"), "# Wrap Up\n", "utf-8");
   fs.writeFileSync(path.join(tmpDir, ".claude/commands/lint.md"), "# Lint\n", "utf-8");
   fs.writeFileSync(path.join(tmpDir, ".claude/commands/query.md"), "# Query\n", "utf-8");
+  fs.writeFileSync(path.join(tmpDir, ".claude/commands/push.md"), "# Push\n", "utf-8");
+  fs.writeFileSync(path.join(tmpDir, ".claude/commands/comment.md"), "# Comment\n", "utf-8");
+  fs.writeFileSync(path.join(tmpDir, ".claude/commands/transition.md"), "# Transition\n", "utf-8");
+  fs.writeFileSync(path.join(tmpDir, ".claude/commands/pull-active.md"), "# Pull Active\n", "utf-8");
+  fs.writeFileSync(path.join(tmpDir, ".claude/commands/reconcile.md"), "# Reconcile\n", "utf-8");
+  fs.writeFileSync(path.join(tmpDir, ".claude/commands/start.md"), "# Start\n", "utf-8");
+  fs.writeFileSync(path.join(tmpDir, ".claude/commands/close.md"), "# Close\n", "utf-8");
 
   // Agent files
   fs.mkdirSync(path.join(tmpDir, ".claude", "agents"), { recursive: true });
   fs.writeFileSync(path.join(tmpDir, ".claude/agents/work-historian.md"), "# WH\n", "utf-8");
   fs.writeFileSync(path.join(tmpDir, ".claude/agents/linter.md"), "# Linter\n", "utf-8");
+  fs.writeFileSync(path.join(tmpDir, ".claude/agents/ticket-writer.md"), "# Ticket Writer\n", "utf-8");
 }
 
 describe("doctor CLI", () => {
