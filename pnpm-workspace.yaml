@@ -1,0 +1,4 @@
+allowBuilds:
+  '@parcel/watcher': true
+  buffertools: true
+  msgpackr-extract: true

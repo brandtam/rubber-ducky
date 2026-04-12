@@ -1,0 +1,6 @@
+{
+	"dependencies": {
+		"@ai-hero/sandcastle": "^0.4.0",
+		"buffertools": "^2.1.6"
+	}
+}
