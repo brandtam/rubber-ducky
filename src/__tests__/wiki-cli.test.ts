@@ -265,3 +265,169 @@ describe("status check CLI", () => {
     }
   });
 });
+
+describe("wiki search CLI", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rubber-ducky-wiki-cli-"));
+    runCli(["--json", "init", tmpDir]);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns JSON search results", () => {
+    runCli(["--json", "page", "create", "task", "Auth rewrite"], tmpDir);
+    // Add searchable content
+    const taskPath = path.join(tmpDir, "wiki", "tasks", "auth-rewrite.md");
+    const content = fs.readFileSync(taskPath, "utf-8");
+    fs.writeFileSync(
+      taskPath,
+      content.replace("## Description", "## Description\n\nRewrite the auth middleware"),
+      "utf-8"
+    );
+
+    const output = runCli(["--json", "wiki", "search", "auth middleware"], tmpDir);
+    const result = JSON.parse(output);
+
+    expect(result.success).toBe(true);
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].relativePath).toBe("wiki/tasks/auth-rewrite.md");
+  });
+
+  it("returns empty results when no matches", () => {
+    const output = runCli(["--json", "wiki", "search", "nonexistent"], tmpDir);
+    const result = JSON.parse(output);
+
+    expect(result.success).toBe(true);
+    expect(result.totalMatches).toBe(0);
+    expect(result.matches).toEqual([]);
+  });
+
+  it("supports --type filter", () => {
+    runCli(["--json", "page", "create", "task", "Task with keyword"], tmpDir);
+    runCli(["--json", "page", "create", "daily", "2024-03-15"], tmpDir);
+
+    const taskPath = path.join(tmpDir, "wiki", "tasks", "task-with-keyword.md");
+    const dailyPath = path.join(tmpDir, "wiki", "daily", "2024-03-15.md");
+    const taskContent = fs.readFileSync(taskPath, "utf-8");
+    const dailyContent = fs.readFileSync(dailyPath, "utf-8");
+    fs.writeFileSync(
+      taskPath,
+      taskContent.replace("## Description", "## Description\n\nShared keyword"),
+      "utf-8"
+    );
+    fs.writeFileSync(
+      dailyPath,
+      dailyContent.replace("## Work log", "## Work log\n\n- Shared keyword"),
+      "utf-8"
+    );
+
+    const output = runCli(["--json", "wiki", "search", "Shared keyword", "--type", "task"], tmpDir);
+    const result = JSON.parse(output);
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].type).toBe("task");
+  });
+
+  it("supports --from date filter", () => {
+    runCli(["--json", "page", "create", "daily", "2024-03-10"], tmpDir);
+    runCli(["--json", "page", "create", "daily", "2024-03-15"], tmpDir);
+    const earlyPath = path.join(tmpDir, "wiki", "daily", "2024-03-10.md");
+    const latePath = path.join(tmpDir, "wiki", "daily", "2024-03-15.md");
+    fs.writeFileSync(
+      earlyPath,
+      fs.readFileSync(earlyPath, "utf-8").replace("## Work log", "## Work log\n\n- Did work"),
+      "utf-8"
+    );
+    fs.writeFileSync(
+      latePath,
+      fs.readFileSync(latePath, "utf-8").replace("## Work log", "## Work log\n\n- Did work"),
+      "utf-8"
+    );
+
+    const output = runCli(
+      ["--json", "wiki", "search", "Did work", "--from", "2024-03-12"],
+      tmpDir
+    );
+    const result = JSON.parse(output);
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].relativePath).toBe("wiki/daily/2024-03-15.md");
+  });
+
+  it("supports --to date filter", () => {
+    runCli(["--json", "page", "create", "daily", "2024-03-10"], tmpDir);
+    runCli(["--json", "page", "create", "daily", "2024-03-15"], tmpDir);
+    const earlyPath = path.join(tmpDir, "wiki", "daily", "2024-03-10.md");
+    const latePath = path.join(tmpDir, "wiki", "daily", "2024-03-15.md");
+    fs.writeFileSync(
+      earlyPath,
+      fs.readFileSync(earlyPath, "utf-8").replace("## Work log", "## Work log\n\n- Did work"),
+      "utf-8"
+    );
+    fs.writeFileSync(
+      latePath,
+      fs.readFileSync(latePath, "utf-8").replace("## Work log", "## Work log\n\n- Did work"),
+      "utf-8"
+    );
+
+    const output = runCli(
+      ["--json", "wiki", "search", "Did work", "--to", "2024-03-12"],
+      tmpDir
+    );
+    const result = JSON.parse(output);
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].relativePath).toBe("wiki/daily/2024-03-10.md");
+  });
+
+  it("includes frontmatter in results", () => {
+    runCli(["--json", "page", "create", "task", "Important task"], tmpDir);
+    runCli(
+      ["--json", "frontmatter", "set", "wiki/tasks/important-task.md", "status", "in-progress"],
+      tmpDir
+    );
+
+    const output = runCli(["--json", "wiki", "search", "Important task"], tmpDir);
+    const result = JSON.parse(output);
+
+    expect(result.matches[0].frontmatter.title).toBe("Important task");
+    expect(result.matches[0].frontmatter.status).toBe("in-progress");
+  });
+
+  it("includes matching lines with line numbers", () => {
+    runCli(["--json", "page", "create", "task", "Bug fix"], tmpDir);
+    const taskPath = path.join(tmpDir, "wiki", "tasks", "bug-fix.md");
+    const content = fs.readFileSync(taskPath, "utf-8");
+    fs.writeFileSync(
+      taskPath,
+      content.replace("## Description", "## Description\n\nThe login form crashes on submit"),
+      "utf-8"
+    );
+
+    const output = runCli(["--json", "wiki", "search", "login form"], tmpDir);
+    const result = JSON.parse(output);
+
+    expect(result.matches[0].matchingLines.length).toBeGreaterThan(0);
+    expect(result.matches[0].matchingLines[0].text).toContain("login form");
+    expect(typeof result.matches[0].matchingLines[0].lineNumber).toBe("number");
+  });
+
+  it("fails outside a workspace", () => {
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "rubber-ducky-outside-"));
+    try {
+      runCli(["--json", "wiki", "search", "test"], outsideDir);
+      expect.fail("Should have thrown");
+    } catch (error: unknown) {
+      const err = error as { stdout?: string };
+      const output = JSON.parse(err.stdout ?? "{}");
+      expect(output.success).toBe(false);
+      expect(output.error).toMatch(/not inside/i);
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+});

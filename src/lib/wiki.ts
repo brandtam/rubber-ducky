@@ -2,6 +2,25 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseFrontmatter } from "./frontmatter.js";
 
+export interface SearchMatch {
+  relativePath: string;
+  type: string;
+  frontmatter: Record<string, unknown>;
+  matchingLines: Array<{ lineNumber: number; text: string }>;
+}
+
+export interface SearchResult {
+  query: string;
+  matches: SearchMatch[];
+  totalMatches: number;
+}
+
+export interface SearchOptions {
+  type?: string;
+  from?: string;
+  to?: string;
+}
+
 export interface IndexResult {
   filePath: string;
   relativePath: string;
@@ -274,5 +293,96 @@ export function checkStatusFlag(
     date: checkDate,
     flagSet,
     pageExists: true,
+  };
+}
+
+/**
+ * Search across all wiki pages for a keyword query.
+ * Returns matching pages with frontmatter metadata and matching lines.
+ *
+ * Supports filtering by page type and date range (daily pages only for date filters).
+ */
+export function searchWiki(
+  workspaceRoot: string,
+  query: string,
+  options?: SearchOptions
+): SearchResult {
+  const matches: SearchMatch[] = [];
+  const queryLower = query.toLowerCase();
+  const wikiDir = path.join(workspaceRoot, "wiki");
+
+  // Collect all candidate files
+  const candidates: Array<{ filePath: string; relativePath: string; type: string }> = [];
+
+  const dirs = [
+    { dir: "daily", type: "daily" },
+    { dir: "tasks", type: "task" },
+    { dir: "projects", type: "project" },
+  ];
+
+  for (const { dir, type } of dirs) {
+    if (options?.type && options.type !== type) continue;
+
+    const fullDir = path.join(wikiDir, dir);
+    if (!fs.existsSync(fullDir)) continue;
+
+    const files = fs.readdirSync(fullDir).filter((f) => f.endsWith(".md"));
+    for (const file of files) {
+      candidates.push({
+        filePath: path.join(fullDir, file),
+        relativePath: path.join("wiki", dir, file),
+        type,
+      });
+    }
+  }
+
+  // Also search log.md if no type filter or explicitly requested
+  if (!options?.type) {
+    const logPath = path.join(wikiDir, "log.md");
+    if (fs.existsSync(logPath)) {
+      candidates.push({
+        filePath: logPath,
+        relativePath: "wiki/log.md",
+        type: "log",
+      });
+    }
+  }
+
+  for (const candidate of candidates) {
+    const content = fs.readFileSync(candidate.filePath, "utf-8");
+    const parsed = parseFrontmatter(content);
+    const frontmatter = parsed?.data ?? {};
+
+    // Apply date range filter for daily pages
+    if (candidate.type === "daily" && (options?.from || options?.to)) {
+      const dateStr = String(frontmatter.title ?? "");
+      if (options?.from && dateStr < options.from) continue;
+      if (options?.to && dateStr > options.to) continue;
+    }
+
+    // Search all lines of the file content for the query
+    const lines = content.split("\n");
+    const matchingLines: Array<{ lineNumber: number; text: string }> = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].toLowerCase().includes(queryLower)) {
+        matchingLines.push({ lineNumber: i + 1, text: lines[i] });
+      }
+    }
+
+    if (matchingLines.length > 0) {
+      matches.push({
+        relativePath: candidate.relativePath,
+        type: candidate.type,
+        frontmatter,
+        matchingLines,
+      });
+    }
+  }
+
+  return {
+    query,
+    matches,
+    totalMatches: matches.length,
   };
 }

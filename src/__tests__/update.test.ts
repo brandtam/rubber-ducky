@@ -42,6 +42,63 @@ describe("getBundledTemplates", () => {
       expect(valid, `unexpected path: ${t.relativePath}`).toBe(true);
     }
   });
+
+  it("includes work-historian agent template", () => {
+    const templates = getBundledTemplates();
+    const agent = templates.find(
+      (t) => t.relativePath === ".claude/agents/work-historian.md"
+    );
+
+    expect(agent).toBeDefined();
+    expect(agent!.content).toContain("Work Historian");
+    expect(agent!.content).toContain("read-only");
+    expect(agent!.content).toContain("wiki/daily/");
+    expect(agent!.content).toContain("wiki/tasks/");
+    expect(agent!.content).toContain("frontmatter");
+    expect(agent!.content).toContain("Citation");
+  });
+
+  it("work-historian agent enforces read-only access", () => {
+    const templates = getBundledTemplates();
+    const agent = templates.find(
+      (t) => t.relativePath === ".claude/agents/work-historian.md"
+    );
+
+    expect(agent).toBeDefined();
+    // Agent must explicitly prohibit file modifications
+    expect(agent!.content).toMatch(/never modify|read.only|no file modification|do not (write|edit|create|delete)/i);
+  });
+
+  it("work-historian agent references rubber-ducky wiki search", () => {
+    const templates = getBundledTemplates();
+    const agent = templates.find(
+      (t) => t.relativePath === ".claude/agents/work-historian.md"
+    );
+
+    expect(agent).toBeDefined();
+    expect(agent!.content).toContain("rubber-ducky wiki search");
+  });
+
+  it("includes query skill template", () => {
+    const templates = getBundledTemplates();
+    const skill = templates.find(
+      (t) => t.relativePath === ".claude/commands/query.md"
+    );
+
+    expect(skill).toBeDefined();
+    expect(skill!.content).toContain("work-historian");
+    expect(skill!.content).toContain("query");
+  });
+
+  it("query skill routes to work-historian agent", () => {
+    const templates = getBundledTemplates();
+    const skill = templates.find(
+      (t) => t.relativePath === ".claude/commands/query.md"
+    );
+
+    expect(skill).toBeDefined();
+    expect(skill!.content).toContain("work-historian");
+  });
 });
 
 describe("scanWorkspace", () => {
