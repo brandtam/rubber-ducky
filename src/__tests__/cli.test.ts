@@ -22,6 +22,7 @@ describe("CLI", () => {
 
     expect(output).toContain("rubber-ducky");
     expect(output).toContain("init");
+    expect(output).toContain("status");
     expect(output).toContain("--json");
     expect(output).toContain("--version");
   });
@@ -208,6 +209,67 @@ describe("CLI", () => {
       expect(content).toContain("in-progress");
       expect(content).toContain("done");
       expect(content).toContain("deferred");
+    });
+  });
+
+  describe("status --json", () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rubber-ducky-status-test-"));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("returns workspace info when run inside a workspace", () => {
+      const wsPath = path.join(tmpDir, "my-ws");
+      runCli(["--json", "init", wsPath]);
+
+      const output = runCli(["--json", "status"], wsPath);
+      const result = JSON.parse(output);
+
+      expect(result.success).toBe(true);
+      expect(result.workspace.name).toBe("my-ws");
+      expect(result.workspace.workspaceRoot).toBe(wsPath);
+    });
+
+    it("returns workspace info when run from a nested subdirectory", () => {
+      const wsPath = path.join(tmpDir, "nested-ws");
+      runCli(["--json", "init", wsPath]);
+
+      const output = runCli(["--json", "status"], path.join(wsPath, "wiki", "daily"));
+      const result = JSON.parse(output);
+
+      expect(result.success).toBe(true);
+      expect(result.workspace.workspaceRoot).toBe(wsPath);
+    });
+
+    it("returns error when run outside any workspace", () => {
+      try {
+        runCli(["--json", "status"], tmpDir);
+        expect.fail("Should have thrown");
+      } catch (error: unknown) {
+        const err = error as { stdout?: string };
+        const output = JSON.parse(err.stdout ?? "{}");
+        expect(output.success).toBe(false);
+        expect(output.error).toMatch(/not inside a rubber-ducky workspace/i);
+      }
+    });
+
+    it("workspace A status shows workspace A config, not workspace B", () => {
+      const wsA = path.join(tmpDir, "work");
+      const wsB = path.join(tmpDir, "personal");
+      runCli(["--json", "init", wsA]);
+      runCli(["--json", "init", wsB]);
+
+      const outputA = JSON.parse(runCli(["--json", "status"], wsA));
+      const outputB = JSON.parse(runCli(["--json", "status"], wsB));
+
+      expect(outputA.workspace.name).toBe("work");
+      expect(outputB.workspace.name).toBe("personal");
+      expect(outputA.workspace.workspaceRoot).not.toBe(outputB.workspace.workspaceRoot);
     });
   });
 });
