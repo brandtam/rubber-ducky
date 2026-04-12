@@ -5,6 +5,7 @@ import { registerInitCommand } from "./commands/init.js";
 import { registerFrontmatterCommand } from "./commands/frontmatter.js";
 import { registerUpdateCommand } from "./commands/update.js";
 import { registerStatusCommand } from "./commands/status.js";
+import { registerPageCommand } from "./commands/page.js";
 
 const VERSION = "0.1.0";
 
@@ -21,6 +22,7 @@ export function createProgram(): Command {
   registerFrontmatterCommand(program);
   registerUpdateCommand(program);
   registerStatusCommand(program);
+  registerPageCommand(program);
 
   return program;
 }
