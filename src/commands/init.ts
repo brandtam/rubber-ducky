@@ -2,7 +2,7 @@ import { Command } from "commander";
 import * as clack from "@clack/prompts";
 import * as path from "node:path";
 import chalk from "chalk";
-import { createWorkspace } from "../lib/workspace.js";
+import { createWorkspace, migrateWorkspace, detectExistingContent } from "../lib/workspace.js";
 import { formatOutput } from "../lib/output.js";
 import type { BackendConfig, VocabularyOptions } from "../lib/templates.js";
 
@@ -230,6 +230,71 @@ async function runInteractive(directory: string | undefined): Promise<void> {
   const targetDir = directory ?? slugify(name as string);
   const fullPath = path.resolve(process.cwd(), targetDir);
 
+  // Check for existing content
+  const existingContent = detectExistingContent(fullPath);
+
+  if (existingContent) {
+    const { scanResult, migrationPlan } = existingContent;
+
+    clack.log.info(
+      `Found existing content in ${chalk.bold(fullPath)}:\n` +
+      `  ${chalk.cyan(String(scanResult.totalMdFiles))} markdown file(s)\n` +
+      `  ${chalk.cyan(String(scanResult.filesWithFrontmatter))} with YAML frontmatter`
+    );
+
+    if (migrationPlan.adoptedFiles.length > 0) {
+      clack.log.info(
+        `Migration plan:\n` +
+        `  ${chalk.green(String(migrationPlan.filesToAddFrontmatter.length))} file(s) will get frontmatter added\n` +
+        `  ${chalk.green(String(migrationPlan.filesToUpdateFrontmatter.length))} file(s) will get frontmatter updated\n` +
+        `  ${chalk.green(String(migrationPlan.dirsToCreate.length))} directories will be created\n` +
+        `  ${chalk.green(String(migrationPlan.templateFilesToCreate.length))} template file(s) will be created`
+      );
+    }
+
+    const confirmMigrate = await clack.confirm({
+      message: "Adopt existing content into Rubber-Ducky workspace?",
+    });
+
+    if (clack.isCancel(confirmMigrate) || !confirmMigrate) {
+      clack.cancel("Setup cancelled.");
+      process.exit(0);
+    }
+
+    const spinner = clack.spinner();
+    spinner.start("Migrating workspace...");
+
+    try {
+      const result = await migrateWorkspace({
+        name: name as string,
+        purpose: purpose as string,
+        targetDir: fullPath,
+      });
+
+      spinner.stop("Workspace migrated!");
+
+      const noteLines = [
+        `${chalk.bold("Directories created:")} ${result.dirsCreated.join(", ") || "none"}`,
+        `${chalk.bold("Files created:")} ${result.filesCreated.join(", ") || "none"}`,
+        `${chalk.bold("Files adopted:")} ${result.filesAdopted?.length ?? 0}`,
+        "",
+        `Open in Obsidian or any markdown editor.`,
+      ];
+
+      clack.note(noteLines.join("\n"), result.workspacePath);
+      clack.outro(chalk.green("Done! Your workspace is ready with adopted content."));
+    } catch (error) {
+      spinner.stop("Failed!");
+      clack.log.error(
+        error instanceof Error ? error.message : "Unknown error"
+      );
+      process.exit(1);
+    }
+
+    return;
+  }
+
+  // Fresh workspace creation
   const spinner = clack.spinner();
   spinner.start("Creating workspace...");
 
@@ -288,6 +353,50 @@ async function runNonInteractive(
 
   const name = path.basename(directory);
   const fullPath = path.resolve(process.cwd(), directory);
+
+  // Check for existing content and auto-migrate
+  const existingContent = detectExistingContent(fullPath);
+
+  if (existingContent) {
+    try {
+      const result = await migrateWorkspace({
+        name,
+        purpose: "Rubber-Ducky workspace",
+        targetDir: fullPath,
+      });
+
+      const output = formatOutput(
+        {
+          success: true,
+          migrated: true,
+          workspacePath: result.workspacePath,
+          filesCreated: result.filesCreated,
+          dirsCreated: result.dirsCreated,
+          filesAdopted: result.filesAdopted,
+        },
+        {
+          json: jsonMode,
+          humanReadable: `Workspace migrated at ${result.workspacePath} (${result.filesAdopted?.length ?? 0} files adopted)`,
+        }
+      );
+      console.log(output);
+    } catch (error) {
+      const output = formatOutput(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        {
+          json: jsonMode,
+          humanReadable: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        }
+      );
+      console.log(output);
+      process.exit(1);
+    }
+
+    return;
+  }
 
   try {
     const result = await createWorkspace({
