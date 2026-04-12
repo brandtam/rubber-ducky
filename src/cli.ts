@@ -6,7 +6,7 @@ import { registerFrontmatterCommand } from "./commands/frontmatter.js";
 import { registerUpdateCommand } from "./commands/update.js";
 import { registerStatusCommand } from "./commands/status.js";
 import { registerPageCommand } from "./commands/page.js";
-import { registerIndexCommand, registerLogCommand } from "./commands/wiki.js";
+import { registerIndexCommand, registerLogCommand, registerWikiCommand } from "./commands/wiki.js";
 import { registerBackendCommand } from "./commands/backend.js";
 import {
   registerAsapCommand,
@@ -34,6 +34,7 @@ export function createProgram(): Command {
   registerPageCommand(program);
   registerIndexCommand(program);
   registerLogCommand(program);
+  registerWikiCommand(program);
   registerBackendCommand(program);
   registerAsapCommand(program);
   registerRemindCommand(program);

@@ -7,6 +7,7 @@ import {
   rebuildIndex,
   appendLog,
   checkStatusFlag,
+  searchWiki,
 } from "../lib/wiki.js";
 import { createPage } from "../lib/page.js";
 import { setFrontmatterField } from "../lib/frontmatter.js";
@@ -289,5 +290,267 @@ describe("checkStatusFlag", () => {
 
     const result = checkStatusFlag(tmpDir, "morning_brief", "2024-03-15");
     expect(result.flagSet).toBe(true);
+  });
+});
+
+describe("searchWiki", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rubber-ducky-wiki-test-"));
+    fs.mkdirSync(path.join(tmpDir, "wiki", "daily"), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, "wiki", "tasks"), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, "wiki", "projects"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "workspace.md"),
+      "---\nname: test\npurpose: testing\nversion: 0.1.0\ncreated: 2024-01-01\nbackends: []\n---\n"
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns empty results when no pages exist", () => {
+    const result = searchWiki(tmpDir, "anything");
+
+    expect(result.query).toBe("anything");
+    expect(result.matches).toEqual([]);
+    expect(result.totalMatches).toBe(0);
+  });
+
+  it("finds keyword in task page body", () => {
+    createPage(tmpDir, "task", { title: "Auth rewrite" });
+    const taskPath = path.join(tmpDir, "wiki", "tasks", "auth-rewrite.md");
+    const content = fs.readFileSync(taskPath, "utf-8");
+    fs.writeFileSync(
+      taskPath,
+      content.replace("## Description", "## Description\n\nRewrite the auth middleware for compliance"),
+      "utf-8"
+    );
+
+    const result = searchWiki(tmpDir, "auth middleware");
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].relativePath).toBe("wiki/tasks/auth-rewrite.md");
+    expect(result.matches[0].type).toBe("task");
+  });
+
+  it("finds keyword in daily page body", () => {
+    createPage(tmpDir, "daily", { date: "2024-03-15" });
+    const dailyPath = path.join(tmpDir, "wiki", "daily", "2024-03-15.md");
+    const content = fs.readFileSync(dailyPath, "utf-8");
+    fs.writeFileSync(
+      dailyPath,
+      content.replace("## Work log", "## Work log\n\n- Discussed the API migration plan"),
+      "utf-8"
+    );
+
+    const result = searchWiki(tmpDir, "API migration");
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].relativePath).toBe("wiki/daily/2024-03-15.md");
+    expect(result.matches[0].type).toBe("daily");
+  });
+
+  it("finds keyword in project page", () => {
+    createPage(tmpDir, "project", { title: "Q2 Migration" });
+    const projectPath = path.join(tmpDir, "wiki", "projects", "q2-migration.md");
+    const content = fs.readFileSync(projectPath, "utf-8");
+    fs.writeFileSync(
+      projectPath,
+      content.replace("## Description", "## Description\n\nMigrate all services to Kubernetes"),
+      "utf-8"
+    );
+
+    const result = searchWiki(tmpDir, "Kubernetes");
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].type).toBe("project");
+  });
+
+  it("returns matching lines with context", () => {
+    createPage(tmpDir, "task", { title: "Fix bug" });
+    const taskPath = path.join(tmpDir, "wiki", "tasks", "fix-bug.md");
+    const content = fs.readFileSync(taskPath, "utf-8");
+    fs.writeFileSync(
+      taskPath,
+      content.replace("## Description", "## Description\n\nThe login form crashes on submit"),
+      "utf-8"
+    );
+
+    const result = searchWiki(tmpDir, "login form");
+
+    expect(result.matches[0].matchingLines.length).toBeGreaterThan(0);
+    expect(result.matches[0].matchingLines[0].text).toContain("login form");
+    expect(typeof result.matches[0].matchingLines[0].lineNumber).toBe("number");
+  });
+
+  it("searches case-insensitively", () => {
+    createPage(tmpDir, "task", { title: "Deploy service" });
+    const taskPath = path.join(tmpDir, "wiki", "tasks", "deploy-service.md");
+    const content = fs.readFileSync(taskPath, "utf-8");
+    fs.writeFileSync(
+      taskPath,
+      content.replace("## Description", "## Description\n\nDeploy the KUBERNETES cluster"),
+      "utf-8"
+    );
+
+    const result = searchWiki(tmpDir, "kubernetes");
+
+    expect(result.totalMatches).toBe(1);
+  });
+
+  it("finds matches across multiple pages", () => {
+    createPage(tmpDir, "task", { title: "Task one" });
+    createPage(tmpDir, "task", { title: "Task two" });
+    const path1 = path.join(tmpDir, "wiki", "tasks", "task-one.md");
+    const path2 = path.join(tmpDir, "wiki", "tasks", "task-two.md");
+    const content1 = fs.readFileSync(path1, "utf-8");
+    const content2 = fs.readFileSync(path2, "utf-8");
+    fs.writeFileSync(
+      path1,
+      content1.replace("## Description", "## Description\n\nFix the database connection"),
+      "utf-8"
+    );
+    fs.writeFileSync(
+      path2,
+      content2.replace("## Description", "## Description\n\nDatabase migration script"),
+      "utf-8"
+    );
+
+    const result = searchWiki(tmpDir, "database");
+
+    expect(result.totalMatches).toBe(2);
+  });
+
+  it("filters by page type", () => {
+    createPage(tmpDir, "task", { title: "Task with keyword" });
+    createPage(tmpDir, "daily", { date: "2024-03-15" });
+    const taskPath = path.join(tmpDir, "wiki", "tasks", "task-with-keyword.md");
+    const dailyPath = path.join(tmpDir, "wiki", "daily", "2024-03-15.md");
+    const taskContent = fs.readFileSync(taskPath, "utf-8");
+    const dailyContent = fs.readFileSync(dailyPath, "utf-8");
+    fs.writeFileSync(
+      taskPath,
+      taskContent.replace("## Description", "## Description\n\nSearch target text"),
+      "utf-8"
+    );
+    fs.writeFileSync(
+      dailyPath,
+      dailyContent.replace("## Work log", "## Work log\n\n- Search target text"),
+      "utf-8"
+    );
+
+    const result = searchWiki(tmpDir, "Search target", { type: "task" });
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].type).toBe("task");
+  });
+
+  it("filters by date range (from)", () => {
+    createPage(tmpDir, "daily", { date: "2024-03-10" });
+    createPage(tmpDir, "daily", { date: "2024-03-15" });
+    const earlyPath = path.join(tmpDir, "wiki", "daily", "2024-03-10.md");
+    const latePath = path.join(tmpDir, "wiki", "daily", "2024-03-15.md");
+    const earlyContent = fs.readFileSync(earlyPath, "utf-8");
+    const lateContent = fs.readFileSync(latePath, "utf-8");
+    fs.writeFileSync(
+      earlyPath,
+      earlyContent.replace("## Work log", "## Work log\n\n- Worked on feature"),
+      "utf-8"
+    );
+    fs.writeFileSync(
+      latePath,
+      lateContent.replace("## Work log", "## Work log\n\n- Worked on feature"),
+      "utf-8"
+    );
+
+    const result = searchWiki(tmpDir, "feature", { from: "2024-03-12" });
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].relativePath).toBe("wiki/daily/2024-03-15.md");
+  });
+
+  it("filters by date range (to)", () => {
+    createPage(tmpDir, "daily", { date: "2024-03-10" });
+    createPage(tmpDir, "daily", { date: "2024-03-15" });
+    const earlyPath = path.join(tmpDir, "wiki", "daily", "2024-03-10.md");
+    const latePath = path.join(tmpDir, "wiki", "daily", "2024-03-15.md");
+    const earlyContent = fs.readFileSync(earlyPath, "utf-8");
+    const lateContent = fs.readFileSync(latePath, "utf-8");
+    fs.writeFileSync(
+      earlyPath,
+      earlyContent.replace("## Work log", "## Work log\n\n- Worked on feature"),
+      "utf-8"
+    );
+    fs.writeFileSync(
+      latePath,
+      lateContent.replace("## Work log", "## Work log\n\n- Worked on feature"),
+      "utf-8"
+    );
+
+    const result = searchWiki(tmpDir, "feature", { to: "2024-03-12" });
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].relativePath).toBe("wiki/daily/2024-03-10.md");
+  });
+
+  it("includes frontmatter metadata in results", () => {
+    createPage(tmpDir, "task", { title: "Auth rewrite" });
+    const taskPath = path.join(tmpDir, "wiki", "tasks", "auth-rewrite.md");
+    const content = fs.readFileSync(taskPath, "utf-8");
+    const updated = setFrontmatterField(content, "status", "in-progress");
+    fs.writeFileSync(taskPath, updated, "utf-8");
+
+    const result = searchWiki(tmpDir, "Auth rewrite");
+
+    expect(result.matches[0].frontmatter).toBeDefined();
+    expect(result.matches[0].frontmatter.title).toBe("Auth rewrite");
+    expect(result.matches[0].frontmatter.status).toBe("in-progress");
+  });
+
+  it("searches log.md when it exists", () => {
+    appendLog(tmpDir, "Pushed auth-rewrite task to GitHub");
+
+    const result = searchWiki(tmpDir, "auth-rewrite");
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].relativePath).toBe("wiki/log.md");
+    expect(result.matches[0].type).toBe("log");
+  });
+
+  it("finds matches in frontmatter title field", () => {
+    createPage(tmpDir, "task", { title: "Authentication overhaul" });
+
+    const result = searchWiki(tmpDir, "Authentication");
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].frontmatter.title).toBe("Authentication overhaul");
+  });
+
+  it("date range filters only apply to daily pages", () => {
+    createPage(tmpDir, "task", { title: "Old task" });
+    createPage(tmpDir, "daily", { date: "2024-03-15" });
+    const taskPath = path.join(tmpDir, "wiki", "tasks", "old-task.md");
+    const dailyPath = path.join(tmpDir, "wiki", "daily", "2024-03-15.md");
+    const taskContent = fs.readFileSync(taskPath, "utf-8");
+    const dailyContent = fs.readFileSync(dailyPath, "utf-8");
+    fs.writeFileSync(
+      taskPath,
+      taskContent.replace("## Description", "## Description\n\nShared keyword here"),
+      "utf-8"
+    );
+    fs.writeFileSync(
+      dailyPath,
+      dailyContent.replace("## Work log", "## Work log\n\n- Shared keyword here"),
+      "utf-8"
+    );
+
+    // Date filter that excludes the daily page but should still include the task
+    const result = searchWiki(tmpDir, "Shared keyword", { from: "2024-03-20" });
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0].type).toBe("task");
   });
 });
