@@ -6,6 +6,7 @@ import {
   generateClaudeMd,
   generateUbiquitousLanguageMd,
   generateBackendSkills,
+  generateReferenceFiles,
   type BackendConfig,
   type VocabularyOptions,
 } from "./templates.js";
@@ -38,6 +39,7 @@ const DIRS = [
   "wiki/tasks",
   "wiki/projects",
   "raw",
+  "references",
   ".obsidian",
 ];
 
@@ -99,11 +101,20 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
     fs.writeFileSync(skillPath, skill.content, "utf-8");
   }
 
+  // Generate reference template files
+  const refs = generateReferenceFiles(opts.backends);
+  for (const ref of refs) {
+    const refPath = path.join(targetDir, ref.path);
+    fs.mkdirSync(path.dirname(refPath), { recursive: true });
+    fs.writeFileSync(refPath, ref.content, "utf-8");
+  }
+
   return {
     workspacePath: targetDir,
     filesCreated: [
       ...files.map((f) => f.name),
       ...skills.map((s) => s.path),
+      ...refs.map((r) => r.path),
     ],
     dirsCreated: DIRS.filter((d) => d !== ".obsidian"),
   };
@@ -116,9 +127,17 @@ export async function migrateWorkspace(opts: WorkspaceOptions): Promise<Workspac
   const plan = buildMigrationPlan(scanResult);
   const result = executeMigration(plan, { name, purpose, targetDir });
 
+  // Generate reference files (same as createWorkspace)
+  const refs = generateReferenceFiles(opts.backends);
+  for (const ref of refs) {
+    const refPath = path.join(targetDir, ref.path);
+    fs.mkdirSync(path.dirname(refPath), { recursive: true });
+    fs.writeFileSync(refPath, ref.content, "utf-8");
+  }
+
   return {
     workspacePath: result.workspacePath,
-    filesCreated: result.filesCreated,
+    filesCreated: [...result.filesCreated, ...refs.map((r) => r.path)],
     dirsCreated: result.dirsCreated,
     filesAdopted: result.filesAdopted,
     migrated: true,
@@ -130,6 +149,7 @@ export interface WorkspaceConfig {
   purpose: string;
   version: string;
   created: string;
+  cli_mode: boolean;
   backends: BackendConfig[];
   workspaceRoot: string;
 }
@@ -181,6 +201,7 @@ export function loadWorkspaceConfig(workspaceRoot: string): WorkspaceConfig {
     purpose: frontmatter.purpose,
     version: frontmatter.version,
     created: frontmatter.created,
+    cli_mode: frontmatter.cli_mode ?? true,
     backends: frontmatter.backends ?? [],
     workspaceRoot,
   };

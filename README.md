@@ -39,12 +39,12 @@ You need three things installed before you start:
 ```bash
 git clone https://github.com/brandtam/rubber-ducky.git
 cd rubber-ducky
-npm install
-npm run build
-npm link
+pnpm install    # or npm install, or yarn install
+pnpm build      # or npm run build
+pnpm link       # or npm link
 ```
 
-The `npm link` step makes the `rubber-ducky` command available globally in your terminal. Verify it worked:
+The link step makes the `rubber-ducky` command available globally in your terminal. Verify it worked:
 
 ```bash
 rubber-ducky --version
@@ -77,6 +77,7 @@ my-work-log/
 │   ├── projects/                # Project pages
 │   ├── index.md                 # Auto-generated index
 │   └── log.md                   # Timestamped activity log
+├── references/                  # Shared templates (frontmatter schemas, ticket formats)
 ├── raw/                         # Screenshots, attachments
 └── .obsidian/                   # Obsidian config (pre-created)
 ```
@@ -124,55 +125,53 @@ The wizard detects existing markdown files and offers to adopt them — adding Y
 
 ## Using it day to day
 
-All `rubber-ducky` CLI commands run from your terminal inside the workspace directory. Claude Code skills (the `/slash-commands`) run inside a Claude Code session started in the same directory. Obsidian stays open so you can browse and edit pages visually while the CLI and Claude Code handle the bookkeeping.
+Your primary interface is Claude Code. You stay in a Claude Code session all day, and just talk to it. When something needs AI — synthesizing a morning brief, writing a summary — Claude does that directly. When something is mechanical — creating a page, updating a status, logging an entry — Claude runs the `rubber-ducky` CLI behind the scenes so you don't burn tokens on bookkeeping. You don't need to learn the CLI commands; Claude knows them.
+
+Obsidian stays open alongside so you can browse and edit pages visually. As Claude creates and updates pages, they appear in Obsidian in real time.
 
 ### Morning
 
-In Claude Code, run `/good-morning`. It:
+```
+/good-morning
+```
 
-- Creates today's daily page if it doesn't exist
-- Scans for ASAP items, tasks due today, upcoming deadlines
-- Shows carried-over work from yesterday
-- Suggests a focus task for the day
+Creates today's daily page, scans for urgent items, deadlines, and carried-over work, and gives you a prioritized brief. Suggests a focus task for the day.
 
 ### During the day
 
-Use CLI commands from your terminal for quick captures — these are instant and cost zero tokens:
+Just talk to Claude Code like you would a colleague:
 
-```bash
-# Create a new task page
-rubber-ducky page create task "Fix auth timeout"
+- *"Create a task for fixing the auth timeout"* — Claude runs the CLI to scaffold the page
+- *"I'm starting on the auth task"* — Claude marks it in-progress and logs it to your daily page
+- *"Client just reported a 500 on checkout, need to deal with that first"* — Claude captures it as an ASAP item and switches your active task
+- *"Remind me Friday to follow up on the deployment"* — Claude sets a date-keyed reminder
+- *"Had an idea — we should add rate limiting to API v2"* — Claude files it in your ideas list
+- *"The timeout was caused by missing refresh token rotation"* — Claude logs the finding
 
-# Mark it as in-progress (updates frontmatter + logs to daily page)
-rubber-ducky task start wiki/tasks/fix-auth-timeout.md
-
-# Something urgent comes up — capture it
-rubber-ducky asap add "Client reported 500 on checkout"
-
-# Set a reminder for later this week
-rubber-ducky remind add 2026-04-15 "Follow up on deployment"
-
-# Jot down an idea for later
-rubber-ducky idea add "Rate limiting middleware for API v2"
-
-# Log what you're working on
-rubber-ducky log append "Traced timeout to missing refresh token rotation"
-```
-
-As you work, you'll see pages appear and update in Obsidian in real time. Click into any task or daily page to read it, add notes, or edit the body — Rubber-Ducky manages the frontmatter, you own the content.
+Everything you say gets captured in your workspace. Pages appear and update in Obsidian as you work. Click into any task or daily page to add your own notes — Rubber-Ducky manages the frontmatter, you own the content.
 
 ### End of day
 
-In Claude Code, run `/wrap-up`. It:
+```
+/wrap-up
+```
 
-- Updates task statuses based on the day's activity
-- Stamps today's daily page with completed work, carried-over items, and blockers
-- Suggests what to focus on tomorrow
-- Clears the active task so tomorrow starts fresh
+Updates task statuses, stamps today's daily page with what you completed, what's carrying over, and any blockers. Suggests what to focus on tomorrow. Clears your active task so the next morning starts fresh.
 
-## CLI commands
+### The CLI is still there
 
-Every command supports `--json` for structured output.
+You don't *have* to go through Claude Code for everything. The `rubber-ducky` CLI works directly from any terminal in your workspace directory. This is useful for scripting, automation, or if you just prefer typing commands:
+
+```bash
+rubber-ducky page create task "Fix auth timeout"
+rubber-ducky task start wiki/tasks/fix-auth-timeout.md
+rubber-ducky asap add "Client reported 500 on checkout"
+rubber-ducky log append "Traced timeout to missing refresh token rotation"
+```
+
+Every command supports `--json` for structured output, so you can pipe them into other tools.
+
+## CLI reference
 
 | Command | What it does |
 |---|---|
@@ -216,7 +215,7 @@ backends:
 |---|---|---|
 | GitHub | `gh` CLI, authenticated | ingest, push, comment |
 | Jira | atlassian-remote MCP server | ingest, pull, push, comment, transition |
-| Asana | Asana MCP server | ingest, pull, push, comment, transition |
+| Asana | Asana MCP server | ingest, pull, push, comment |
 
 Check connectivity:
 
@@ -257,11 +256,15 @@ All pages are markdown with YAML frontmatter. The CLI manages frontmatter; you w
 ```yaml
 ---
 title: "2026-04-12"
-date: "2026-04-12"
-morning_brief: true
-active_task: fix-auth-timeout
-wrap_up: false
-tasks_touched: ["fix-auth-timeout", "update-api-docs"]
+type: daily
+created: 2026-04-12T08:00:00Z
+updated: 2026-04-12T14:30:00Z
+active_task: fix-auth-timeout  # slug of current focus task, or null
+morning_brief: true            # set by /good-morning
+wrap_up: false                 # set by /wrap-up
+tasks_touched:                 # populated throughout the day
+  - fix-auth-timeout
+  - update-api-docs
 ---
 ```
 
@@ -270,15 +273,22 @@ tasks_touched: ["fix-auth-timeout", "update-api-docs"]
 ```yaml
 ---
 title: Fix auth timeout
-status: in-progress        # backlog | to-do | in-progress | in-review | pending | blocked | done | deferred
+type: task
+ref: "42"                      # external ID (issue number, task ID), or null
+source: github                 # backend that originated this task, or null
+status: in-progress            # backlog | to-do | in-progress | in-review | pending | blocked | done | deferred
 priority: high
 assignee: brandt
 tags: [auth, backend]
-source: github
-ref: "42"
 created: 2026-04-12T10:00:00Z
 updated: 2026-04-12T14:30:00Z
+closed: null                   # ISO timestamp when completed
+pushed: null                   # ISO timestamp when pushed to backend
 due: 2026-04-15
+gh_ref: null                   # GitHub issue/PR URL
+jira_ref: null                 # Jira ticket URL
+asana_ref: null                # Asana task URL
+comment_count: 0
 ---
 ```
 
@@ -287,9 +297,11 @@ due: 2026-04-15
 ```yaml
 ---
 title: API v2
+type: project
+created: 2026-04-12T10:00:00Z
+updated: 2026-04-12T10:00:00Z
 status: in-progress
-description: Next-gen API with rate limiting and versioned endpoints
-tasks: [fix-auth-timeout, add-rate-limiting, api-versioning]
+tags: [api, backend]
 ---
 ```
 
@@ -313,17 +325,46 @@ The linter checks for:
 
 ## Development
 
+Use whichever package manager you prefer — pnpm, npm, and yarn all work.
+
 ```bash
-npm run dev -- <command>    # Run CLI via tsx (no build step)
-npm test                    # Run all 26 test suites
-npm run test:watch          # Watch mode
-npm run typecheck           # Type check without emitting
-npm run build               # Compile to dist/
+pnpm dev -- <command>       # Run CLI via tsx (no build step)
+pnpm test                   # Run all test suites
+pnpm test:watch             # Watch mode
+pnpm typecheck              # Type check without emitting
+pnpm build                  # Compile to dist/
 ```
+
+## Why not just use Claude Code for everything?
+
+You could. Claude Code can read files, write YAML, and update markdown. The CLI exists because of what happens when you do that hundreds of times across a long session.
+
+**Speed.** A CLI command finishes in 50-200ms. Claude Code reading a file, reasoning about the YAML, and writing it back takes 3-10 seconds with multiple round trips. When you say "log this" or "start this task" ten times a day, the CLI makes the tool feel instant instead of sluggish.
+
+**Reliability.** `rubber-ducky frontmatter set` produces valid YAML every single time. Claude Code *almost always* will — but "almost always" across hundreds of operations per week means occasional malformed frontmatter, a forgotten field, or a status value with a typo. The CLI follows the schema deterministically.
+
+**Atomicity.** `rubber-ducky task start` does three things in one shot: updates the task frontmatter, logs to the daily page, and appends to the activity log. If Claude Code did those as three separate tool calls and failed on the second, your workspace is in an inconsistent state.
+
+**Context window efficiency.** This is the biggest win. Every file Claude Code reads occupies context window space for the rest of the conversation. In a long session — which is the point of staying in Claude Code all day — that compounds. The CLI keeps the context clean. Instead of reading a 100-line task page to flip one field, Claude runs a one-liner and gets back `{"success": true}`. The context window stays available for the intelligent work that actually needs it.
+
+**Token savings.** Real but modest. A typical day of mechanical operations might save 7,000-15,000 tokens compared to doing everything through AI. At current pricing that's maybe $0.10-0.50/day — not the primary motivator, but a nice side effect.
+
+The split follows a simple rule:
+
+| Good fit for CLI | Stays in Claude Code |
+|---|---|
+| High-frequency (many times/day) | Low-frequency (once a week, once ever) |
+| Deterministic (same input = same output) | Context-dependent (needs understanding) |
+| Schema-bound (frontmatter, statuses) | Creative (synthesis, summarization) |
+| Composable (chains into larger operations) | Conversational (back-and-forth with user) |
+
+Page creation, task transitions, frontmatter updates, index rebuilds, health checks — all CLI. Morning briefs, end-of-day summaries, PRD authoring, integration research — all Claude Code. Each tool does what it's best at.
 
 ## Acknowledgments
 
 Rubber-Ducky is a direct implementation of the [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern described by [Andrej Karpathy](https://github.com/karpathy). The core insight — that LLMs should maintain the wiki while humans curate sources and ask questions — shapes every design decision in this project.
+
+Several of the Claude Code skills in this project were inspired by and adapted from [Matt Pocock's skills collection](https://github.com/mattpocock/skills) — a curated set of reusable agent commands for planning, development, and knowledge work. If you're building your own Claude Code workflows, his repo is a great place to start.
 
 ## License
 

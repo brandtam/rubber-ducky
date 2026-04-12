@@ -149,15 +149,15 @@ describe("createWorkspace", () => {
       expect(content).toContain("UBIQUITOUS_LANGUAGE.md");
     });
 
-    it("is approximately 50 lines or fewer", async () => {
+    it("includes CLI command reference and request mapping", async () => {
       const result = await createWorkspace(opts());
       const content = fs.readFileSync(
         path.join(result.workspacePath, "CLAUDE.md"),
         "utf-8"
       );
-      const lines = content.split("\n").length;
 
-      expect(lines).toBeLessThanOrEqual(60);
+      expect(content).toContain("rubber-ducky page create");
+      expect(content).toContain("User says");
     });
   });
 
@@ -314,6 +314,64 @@ describe("createWorkspace", () => {
       const skillPath = path.join(result.workspacePath, ".claude", "commands", "ingest-asana.md");
       expect(fs.existsSync(skillPath)).toBe(false);
       expect(result.filesCreated).not.toContain(".claude/commands/ingest-asana.md");
+    });
+  });
+
+  describe("reference file generation", () => {
+    it("creates references directory", async () => {
+      const result = await createWorkspace(opts());
+      const refsDir = path.join(result.workspacePath, "references");
+
+      expect(fs.existsSync(refsDir)).toBe(true);
+    });
+
+    it("creates universal reference files", async () => {
+      const result = await createWorkspace(opts());
+
+      const fmPath = path.join(result.workspacePath, "references", "frontmatter-templates.md");
+      const cliPath = path.join(result.workspacePath, "references", "when-to-use-cli.md");
+
+      expect(fs.existsSync(fmPath)).toBe(true);
+      expect(fs.existsSync(cliPath)).toBe(true);
+    });
+
+    it("includes reference files in filesCreated", async () => {
+      const result = await createWorkspace(opts());
+
+      expect(result.filesCreated).toContain("references/frontmatter-templates.md");
+      expect(result.filesCreated).toContain("references/when-to-use-cli.md");
+    });
+
+    it("creates backend-specific reference files when backends configured", async () => {
+      const backends: BackendConfig[] = [
+        { type: "github", mcp_server: "github" },
+      ];
+      const result = await createWorkspace(opts({ backends }));
+
+      const ghPath = path.join(result.workspacePath, "references", "github-ticket-template.md");
+      expect(fs.existsSync(ghPath)).toBe(true);
+      expect(result.filesCreated).toContain("references/github-ticket-template.md");
+
+      const content = fs.readFileSync(ghPath, "utf-8");
+      expect(content).toContain("GitHub Ticket Template");
+    });
+
+    it("does not create backend-specific files for unconfigured backends", async () => {
+      const result = await createWorkspace(opts());
+
+      const ghPath = path.join(result.workspacePath, "references", "github-ticket-template.md");
+      const jiraPath = path.join(result.workspacePath, "references", "jira-ticket-template.md");
+      const asanaPath = path.join(result.workspacePath, "references", "asana-ticket-template.md");
+
+      expect(fs.existsSync(ghPath)).toBe(false);
+      expect(fs.existsSync(jiraPath)).toBe(false);
+      expect(fs.existsSync(asanaPath)).toBe(false);
+    });
+
+    it("includes references in dirsCreated", async () => {
+      const result = await createWorkspace(opts());
+
+      expect(result.dirsCreated).toContain("references");
     });
   });
 

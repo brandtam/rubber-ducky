@@ -15,7 +15,13 @@
       "Bash(xargs -I{} basename {})",
       "Bash(ls src/commands/*.ts)",
       "Bash(gh pr:*)",
-      "WebFetch(domain:gist.github.com)"
+      "WebFetch(domain:gist.github.com)",
+      "Bash(grep -r \"frontmatter\\\\|schema\\\\|fields\" /Users/brandt/codes/brandt/rubber-ducky/src/lib/*.ts)",
+      "Bash(npx tsx:*)",
+      "Bash(pnpm --version)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm run:*)",
+      "Bash(pnpm test:*)"
     ]
   }
 }

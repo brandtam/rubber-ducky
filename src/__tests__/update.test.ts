@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import {
   getBundledTemplates,
+  getBundledReferenceFiles,
   scanWorkspace,
   generateDiff,
   applyFileUpdate,
@@ -229,25 +230,31 @@ describe("scanWorkspace", () => {
   });
 
   it("marks files as 'unchanged' when local matches bundled", () => {
-    const templates = getBundledTemplates();
-    for (const t of templates) {
+    const allTemplates = [
+      ...getBundledTemplates(),
+      ...getBundledReferenceFiles(workspacePath),
+    ];
+    for (const t of allTemplates) {
       writeBundledFile(t.relativePath, t.content);
     }
 
     const result = scanWorkspace(workspacePath);
 
-    expect(result.unchanged.length).toBe(templates.length);
+    expect(result.unchanged.length).toBe(allTemplates.length);
     expect(result.modified.length).toBe(0);
     expect(result.newFiles.length).toBe(0);
   });
 
   it("marks files as 'modified' when local differs from bundled", () => {
-    const templates = getBundledTemplates();
+    const allTemplates = [
+      ...getBundledTemplates(),
+      ...getBundledReferenceFiles(workspacePath),
+    ];
     // Write all files but modify the first one
-    for (const t of templates) {
+    for (const t of allTemplates) {
       writeBundledFile(t.relativePath, t.content);
     }
-    const firstTemplate = templates[0];
+    const firstTemplate = allTemplates[0];
     writeBundledFile(firstTemplate.relativePath, firstTemplate.content + "\n\n<!-- user customization -->");
 
     const result = scanWorkspace(workspacePath);
@@ -259,13 +266,45 @@ describe("scanWorkspace", () => {
   });
 
   it("returns comparisons array with all files", () => {
-    const templates = getBundledTemplates();
+    const allTemplates = [
+      ...getBundledTemplates(),
+      ...getBundledReferenceFiles(workspacePath),
+    ];
     const result = scanWorkspace(workspacePath);
 
-    expect(result.comparisons.length).toBe(templates.length);
+    expect(result.comparisons.length).toBe(allTemplates.length);
     expect(result.comparisons.length).toBe(
       result.unchanged.length + result.modified.length + result.newFiles.length
     );
+  });
+
+  it("includes backend-specific reference files when workspace has backends", () => {
+    // Create a workspace.md with a GitHub backend
+    const workspaceMd = [
+      "---",
+      "name: test",
+      "purpose: testing",
+      "version: 0.1.0",
+      "created: 2026-04-12",
+      "cli_mode: true",
+      "backends:",
+      "  - type: github",
+      "    mcp_server: github",
+      "---",
+      "",
+      "# test",
+    ].join("\n");
+    fs.writeFileSync(path.join(workspacePath, "workspace.md"), workspaceMd, "utf-8");
+
+    const result = scanWorkspace(workspacePath);
+    const refPaths = result.comparisons.map((c) => c.relativePath);
+
+    expect(refPaths).toContain("references/frontmatter-templates.md");
+    expect(refPaths).toContain("references/when-to-use-cli.md");
+    expect(refPaths).toContain("references/github-ticket-template.md");
+    // Should NOT include Jira/Asana since they aren't configured
+    expect(refPaths).not.toContain("references/jira-ticket-template.md");
+    expect(refPaths).not.toContain("references/asana-ticket-template.md");
   });
 
   it("includes bundled content in all comparisons", () => {

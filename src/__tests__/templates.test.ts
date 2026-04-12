@@ -5,6 +5,7 @@ import {
   generateClaudeMd,
   generateUbiquitousLanguageMd,
   generateBackendSkills,
+  generateReferenceFiles,
   type BackendConfig,
   type VocabularyOptions,
 } from "../lib/templates.js";
@@ -114,11 +115,37 @@ describe("generateClaudeMd", () => {
     expect(content).toContain("wiki/");
   });
 
-  it("is under 60 lines", () => {
+  it("includes CLI command reference", () => {
     const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
-    const lines = content.split("\n").length;
 
-    expect(lines).toBeLessThanOrEqual(60);
+    expect(content).toContain("rubber-ducky page create");
+    expect(content).toContain("rubber-ducky task start");
+    expect(content).toContain("rubber-ducky asap add");
+    expect(content).toContain("rubber-ducky log append");
+  });
+
+  it("includes common request mapping table", () => {
+    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+
+    expect(content).toContain("User says");
+    expect(content).toContain("You do");
+  });
+
+  it("describes the primary interface role", () => {
+    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+
+    expect(content).toContain("You are the primary interface");
+  });
+
+  it("includes backend info when backends configured", () => {
+    const content = generateClaudeMd({
+      name: "Test",
+      purpose: "Testing",
+      backends: [{ type: "github", mcp_server: "github" }],
+    });
+
+    expect(content).toContain("Configured backends: github");
+    expect(content).toContain("rubber-ducky backend check");
   });
 });
 
@@ -296,5 +323,116 @@ describe("generateBackendSkills", () => {
     const paths = skills.map((s) => s.path);
     expect(paths).toContain(".claude/commands/ingest-github.md");
     expect(paths).toContain(".claude/commands/ingest-asana.md");
+  });
+});
+
+describe("generateReferenceFiles", () => {
+  it("returns universal files when no backends provided", () => {
+    const refs = generateReferenceFiles();
+    const paths = refs.map((r) => r.path);
+
+    expect(paths).toContain("references/frontmatter-templates.md");
+    expect(paths).toContain("references/when-to-use-cli.md");
+    expect(paths).toHaveLength(2);
+  });
+
+  it("returns universal files for empty backends array", () => {
+    const refs = generateReferenceFiles([]);
+    const paths = refs.map((r) => r.path);
+
+    expect(paths).toContain("references/frontmatter-templates.md");
+    expect(paths).toContain("references/when-to-use-cli.md");
+    expect(paths).toHaveLength(2);
+  });
+
+  it("includes github ticket template when github backend configured", () => {
+    const backends: BackendConfig[] = [{ type: "github", mcp_server: "github" }];
+    const refs = generateReferenceFiles(backends);
+    const paths = refs.map((r) => r.path);
+
+    expect(paths).toContain("references/github-ticket-template.md");
+    expect(paths).not.toContain("references/jira-ticket-template.md");
+    expect(paths).not.toContain("references/asana-ticket-template.md");
+  });
+
+  it("includes jira ticket template when jira backend configured", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://example.atlassian.net" },
+    ];
+    const refs = generateReferenceFiles(backends);
+    const paths = refs.map((r) => r.path);
+
+    expect(paths).toContain("references/jira-ticket-template.md");
+    expect(paths).not.toContain("references/github-ticket-template.md");
+    expect(paths).not.toContain("references/asana-ticket-template.md");
+  });
+
+  it("includes asana ticket template when asana backend configured", () => {
+    const backends: BackendConfig[] = [{ type: "asana", mcp_server: "asana" }];
+    const refs = generateReferenceFiles(backends);
+    const paths = refs.map((r) => r.path);
+
+    expect(paths).toContain("references/asana-ticket-template.md");
+  });
+
+  it("includes all ticket templates when all backends configured", () => {
+    const backends: BackendConfig[] = [
+      { type: "github", mcp_server: "github" },
+      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://example.atlassian.net" },
+      { type: "asana", mcp_server: "asana" },
+    ];
+    const refs = generateReferenceFiles(backends);
+    const paths = refs.map((r) => r.path);
+
+    expect(paths).toHaveLength(5);
+    expect(paths).toContain("references/frontmatter-templates.md");
+    expect(paths).toContain("references/when-to-use-cli.md");
+    expect(paths).toContain("references/github-ticket-template.md");
+    expect(paths).toContain("references/jira-ticket-template.md");
+    expect(paths).toContain("references/asana-ticket-template.md");
+  });
+
+  it("frontmatter templates reference contains all three page types", () => {
+    const refs = generateReferenceFiles();
+    const fm = refs.find((r) => r.path === "references/frontmatter-templates.md")!;
+
+    expect(fm.content).toContain("## Daily page");
+    expect(fm.content).toContain("## Task page");
+    expect(fm.content).toContain("## Project page");
+  });
+
+  it("frontmatter templates reference contains status vocabulary", () => {
+    const refs = generateReferenceFiles();
+    const fm = refs.find((r) => r.path === "references/frontmatter-templates.md")!;
+
+    expect(fm.content).toContain("## Valid statuses");
+    expect(fm.content).toContain("backlog");
+    expect(fm.content).toContain("in-progress");
+    expect(fm.content).toContain("done");
+    expect(fm.content).toContain("deferred");
+  });
+
+  it("ticket templates contain field mapping tables", () => {
+    const backends: BackendConfig[] = [
+      { type: "github", mcp_server: "github" },
+      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://example.atlassian.net" },
+      { type: "asana", mcp_server: "asana" },
+    ];
+    const refs = generateReferenceFiles(backends);
+
+    for (const name of ["github", "jira", "asana"]) {
+      const ref = refs.find((r) => r.path === `references/${name}-ticket-template.md`)!;
+      expect(ref.content).toContain("Field mapping");
+      expect(ref.content).toContain("Status mapping");
+    }
+  });
+
+  it("when-to-use-cli reference contains decision guide", () => {
+    const refs = generateReferenceFiles();
+    const cli = refs.find((r) => r.path === "references/when-to-use-cli.md")!;
+
+    expect(cli.content).toContain("## The rule");
+    expect(cli.content).toContain("## Decision guide");
+    expect(cli.content).toContain("cli_mode");
   });
 });

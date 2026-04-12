@@ -1,5 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { generateReferenceFiles } from "./templates.js";
+import { loadWorkspaceConfig } from "./workspace.js";
 
 export interface BundledTemplate {
   relativePath: string;
@@ -812,63 +814,15 @@ You will receive:
 1. The wiki task page content (frontmatter + body)
 2. The target system (github, jira, or asana)
 
-## Output Format by System
+## Output format
 
-### GitHub Issue
+Load the appropriate template for the target system:
 
-- **Title**: Concise, action-oriented (e.g., "Fix login form crash on submit")
-- **Body**: Markdown formatted with sections:
-  - Description (from wiki ## Description)
-  - Context (from wiki ## Context, if present)
-  - Acceptance criteria (if derivable from description)
-- **Labels**: Suggest from wiki tags
-- Tone: Direct, developer-focused, technical
+- **GitHub**: Follow @references/github-ticket-template.md
+- **Jira**: Follow @references/jira-ticket-template.md
+- **Asana**: Follow @references/asana-ticket-template.md
 
-### Jira Ticket
-
-- **Summary**: Clear, structured (e.g., "[Login] Fix form crash on submit")
-- **Description**: Jira wiki markup or markdown (depending on instance):
-  - h3. Description
-  - h3. Acceptance Criteria
-  - h3. Context
-- **Issue Type**: Infer from content (Bug, Task, Story)
-- **Labels**: From wiki tags
-- **Priority**: Map from wiki priority field
-- Tone: Structured, process-oriented, team-readable
-
-### Asana Task
-
-- **Name**: Clear, brief task name
-- **Notes**: Rich text with sections:
-  - Description
-  - Context
-  - Related tasks (from wiki ## See also)
-- **Tags**: From wiki tags
-- Tone: Collaborative, clear, action-oriented
-
-## Example
-
-Given a wiki task page about a login bug, draft for GitHub:
-
-**Title**: Fix login form crash on submit
-**Body**:
-\`\`\`markdown
-## Description
-
-The login form crashes when the user clicks submit with valid credentials.
-Stack trace points to null reference in auth handler.
-
-## Steps to Reproduce
-
-1. Navigate to /login
-2. Enter valid credentials
-3. Click Submit
-
-## Context
-
-Reported by QA on 2024-03-12. Blocking release 2.1.
-\`\`\`
-**Labels**: bug, auth, blocking
+These templates define the tone, structure, field mappings, and status mappings for each system. If a template file does not exist for the target system, inform the user that the backend's ticket template needs to be created in \`references/\`.
 `,
       description: "Ticket writer agent — draft backend-appropriate ticket content from wiki pages",
     },
@@ -876,10 +830,39 @@ Reported by QA on 2024-03-12. Blocking release 2.1.
 }
 
 /**
+ * Generate the complete set of reference file templates for a workspace.
+ * Reads workspace.md to discover configured backends, then generates
+ * both universal and backend-specific reference files.
+ */
+export function getBundledReferenceFiles(
+  workspacePath: string
+): BundledTemplate[] {
+  let backends;
+  try {
+    const config = loadWorkspaceConfig(workspacePath);
+    backends = config.backends;
+  } catch {
+    // If workspace.md is missing or unreadable, generate universal refs only
+    backends = undefined;
+  }
+
+  return generateReferenceFiles(backends).map((ref) => ({
+    relativePath: ref.path,
+    content: ref.content,
+    description: `Reference template — ${ref.path}`,
+  }));
+}
+
+/**
  * Scan a workspace and compare local files against bundled templates.
+ * Reads workspace.md to discover configured backends so backend-specific
+ * reference files are included in the scan.
  */
 export function scanWorkspace(workspacePath: string): UpdateScanResult {
-  const templates = getBundledTemplates();
+  const templates = [
+    ...getBundledTemplates(),
+    ...getBundledReferenceFiles(workspacePath),
+  ];
   const comparisons: FileComparison[] = [];
 
   for (const template of templates) {

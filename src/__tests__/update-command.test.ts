@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { getBundledTemplates } from "../lib/update.js";
+import { getBundledTemplates, getBundledReferenceFiles } from "../lib/update.js";
 
 const CLI_PATH = path.resolve(__dirname, "..", "cli.ts");
 const TSX_PATH = path.resolve(__dirname, "..", "..", "node_modules", ".bin", "tsx");
@@ -48,8 +48,11 @@ describe("update --json", () => {
   });
 
   it("returns JSON scan result with unchanged files when templates match", () => {
-    const templates = getBundledTemplates();
-    for (const t of templates) {
+    const allTemplates = [
+      ...getBundledTemplates(),
+      ...getBundledReferenceFiles(workspacePath),
+    ];
+    for (const t of allTemplates) {
       const fullPath = path.join(workspacePath, t.relativePath);
       fs.mkdirSync(path.dirname(fullPath), { recursive: true });
       fs.writeFileSync(fullPath, t.content, "utf-8");
@@ -59,7 +62,7 @@ describe("update --json", () => {
     const result = JSON.parse(output);
 
     expect(result.success).toBe(true);
-    expect(result.scan.unchanged.length).toBe(templates.length);
+    expect(result.scan.unchanged.length).toBe(allTemplates.length);
     expect(result.scan.newFiles.length).toBe(0);
     expect(result.scan.modified.length).toBe(0);
   });
