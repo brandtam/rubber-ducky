@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { registerInitCommand } from "./commands/init.js";
+import { registerUpdateCommand } from "./commands/update.js";
 
 const VERSION = "0.1.0";
 
@@ -15,6 +16,7 @@ export function createProgram(): Command {
     .option("--json", "Output structured JSON");
 
   registerInitCommand(program);
+  registerUpdateCommand(program);
 
   return program;
 }
