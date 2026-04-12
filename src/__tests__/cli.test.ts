@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { parse as parseYaml } from "yaml";
 
 const CLI_PATH = path.resolve(__dirname, "..", "cli.ts");
 const TSX_PATH = path.resolve(__dirname, "..", "..", "node_modules", ".bin", "tsx");
@@ -83,6 +84,71 @@ describe("CLI", () => {
         expect(output.success).toBe(false);
         expect(output.error).toContain("already exists and is not empty");
       }
+    });
+
+    it("writes backend configs to workspace.md when --backends-json is provided", () => {
+      const target = path.join(tmpDir, "backend-test");
+      const backends = JSON.stringify([
+        { type: "github", mcp_server: "github" },
+        { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net", project_key: "PROJ" },
+      ]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      const content = fs.readFileSync(path.join(target, "workspace.md"), "utf-8");
+      const match = content.match(/^---\n([\s\S]*?)\n---/);
+      const frontmatter = parseYaml(match![1]);
+
+      expect(frontmatter.backends).toHaveLength(2);
+      expect(frontmatter.backends[0].type).toBe("github");
+      expect(frontmatter.backends[1].type).toBe("jira");
+      expect(frontmatter.backends[1].server_url).toBe("https://myorg.atlassian.net");
+    });
+
+    it("writes vocabulary to UBIQUITOUS_LANGUAGE.md when --vocabulary-json is provided", () => {
+      const target = path.join(tmpDir, "vocab-test");
+      const vocabulary = JSON.stringify({
+        brands: ["Acme Corp"],
+        teams: ["Frontend", "Backend"],
+        labels: ["urgent"],
+      });
+      runCli(["--json", "init", target, "--vocabulary-json", vocabulary]);
+
+      const content = fs.readFileSync(path.join(target, "UBIQUITOUS_LANGUAGE.md"), "utf-8");
+
+      expect(content).toContain("## Brands");
+      expect(content).toContain("Acme Corp");
+      expect(content).toContain("## Teams");
+      expect(content).toContain("Frontend");
+      expect(content).toContain("## Labels");
+      expect(content).toContain("urgent");
+    });
+
+    it("creates valid workspace when backends are skipped (no --backends-json)", () => {
+      const target = path.join(tmpDir, "no-backend-test");
+      const output = runCli(["--json", "init", target]);
+      const result = JSON.parse(output);
+
+      expect(result.success).toBe(true);
+
+      const content = fs.readFileSync(path.join(target, "workspace.md"), "utf-8");
+      const match = content.match(/^---\n([\s\S]*?)\n---/);
+      const frontmatter = parseYaml(match![1]);
+
+      expect(frontmatter.backends).toEqual([]);
+    });
+
+    it("always includes status vocabulary even with custom vocabulary", () => {
+      const target = path.join(tmpDir, "status-vocab-test");
+      const vocabulary = JSON.stringify({ brands: ["Test"] });
+      runCli(["--json", "init", target, "--vocabulary-json", vocabulary]);
+
+      const content = fs.readFileSync(path.join(target, "UBIQUITOUS_LANGUAGE.md"), "utf-8");
+
+      expect(content).toContain("backlog");
+      expect(content).toContain("to-do");
+      expect(content).toContain("in-progress");
+      expect(content).toContain("done");
+      expect(content).toContain("deferred");
     });
   });
 });

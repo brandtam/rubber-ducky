@@ -4,23 +4,164 @@ import * as path from "node:path";
 import chalk from "chalk";
 import { createWorkspace } from "../lib/workspace.js";
 import { formatOutput } from "../lib/output.js";
+import type { BackendConfig, VocabularyOptions } from "../lib/templates.js";
+
+const BACKEND_CHOICES = [
+  { value: "github", label: "GitHub", hint: "via gh CLI" },
+  { value: "jira", label: "Jira", hint: "via atlassian-remote MCP" },
+  { value: "asana", label: "Asana", hint: "via Asana MCP" },
+] as const;
+
+const MCP_DEFAULTS: Record<string, string> = {
+  github: "github",
+  jira: "atlassian-remote",
+  asana: "asana",
+};
 
 export function registerInitCommand(program: Command): void {
   program
     .command("init")
     .description("Create a new Rubber-Ducky workspace")
     .argument("[directory]", "Target directory (defaults to workspace name)")
-    .action(async (_directory: string | undefined, _opts: unknown, cmd: Command) => {
+    .option("--backends-json <json>", "Backend configuration as JSON array (non-interactive)")
+    .option("--vocabulary-json <json>", "Vocabulary configuration as JSON object (non-interactive)")
+    .action(async (_directory: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
       const globalOpts = cmd.parent?.opts() ?? {};
       const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
 
       if (jsonMode) {
-        await runNonInteractive(_directory, jsonMode);
+        const backends = opts.backendsJson
+          ? (JSON.parse(opts.backendsJson as string) as BackendConfig[])
+          : undefined;
+        const vocabulary = opts.vocabularyJson
+          ? (JSON.parse(opts.vocabularyJson as string) as VocabularyOptions)
+          : undefined;
+        await runNonInteractive(_directory, jsonMode, backends, vocabulary);
         return;
       }
 
       await runInteractive(_directory);
     });
+}
+
+async function collectBackendConfig(backendType: string): Promise<BackendConfig> {
+  const config: BackendConfig = {
+    type: backendType as BackendConfig["type"],
+    mcp_server: MCP_DEFAULTS[backendType] ?? backendType,
+  };
+
+  clack.log.info(chalk.bold(`Configuring ${backendType} backend`));
+
+  const mcpServer = await clack.text({
+    message: `MCP server name for ${backendType}:`,
+    placeholder: MCP_DEFAULTS[backendType] ?? backendType,
+    defaultValue: MCP_DEFAULTS[backendType] ?? backendType,
+  });
+
+  if (clack.isCancel(mcpServer)) {
+    clack.cancel("Setup cancelled.");
+    process.exit(0);
+  }
+
+  config.mcp_server = (mcpServer as string) || (MCP_DEFAULTS[backendType] ?? backendType);
+
+  if (backendType === "jira") {
+    const serverUrl = await clack.text({
+      message: "Jira server URL:",
+      placeholder: "https://myorg.atlassian.net",
+      validate: (value) => {
+        if (!value.trim()) return "Server URL is required for Jira";
+        return undefined;
+      },
+    });
+
+    if (clack.isCancel(serverUrl)) {
+      clack.cancel("Setup cancelled.");
+      process.exit(0);
+    }
+
+    config.server_url = serverUrl as string;
+
+    const projectKey = await clack.text({
+      message: "Jira project key (optional):",
+      placeholder: "PROJ",
+    });
+
+    if (clack.isCancel(projectKey)) {
+      clack.cancel("Setup cancelled.");
+      process.exit(0);
+    }
+
+    if ((projectKey as string)?.trim()) {
+      config.project_key = projectKey as string;
+    }
+  }
+
+  if (backendType === "asana") {
+    const workspaceId = await clack.text({
+      message: "Asana workspace ID (optional):",
+      placeholder: "12345",
+    });
+
+    if (clack.isCancel(workspaceId)) {
+      clack.cancel("Setup cancelled.");
+      process.exit(0);
+    }
+
+    if ((workspaceId as string)?.trim()) {
+      config.workspace_id = workspaceId as string;
+    }
+  }
+
+  return config;
+}
+
+async function collectVocabulary(): Promise<VocabularyOptions> {
+  const vocabulary: VocabularyOptions = {};
+
+  const brandsInput = await clack.text({
+    message: "Brand names (comma-separated, or press Enter to skip):",
+    placeholder: "Acme Corp, Widget Co",
+  });
+
+  if (clack.isCancel(brandsInput)) {
+    clack.cancel("Setup cancelled.");
+    process.exit(0);
+  }
+
+  if ((brandsInput as string)?.trim()) {
+    vocabulary.brands = (brandsInput as string).split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
+  const teamsInput = await clack.text({
+    message: "Team names (comma-separated, or press Enter to skip):",
+    placeholder: "Frontend, Backend, DevOps",
+  });
+
+  if (clack.isCancel(teamsInput)) {
+    clack.cancel("Setup cancelled.");
+    process.exit(0);
+  }
+
+  if ((teamsInput as string)?.trim()) {
+    vocabulary.teams = (teamsInput as string).split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
+  const labelsInput = await clack.text({
+    message: "Labels/tags (comma-separated, or press Enter to skip):",
+    placeholder: "urgent, bug, feature",
+  });
+
+  if (clack.isCancel(labelsInput)) {
+    clack.cancel("Setup cancelled.");
+    process.exit(0);
+  }
+
+  if ((labelsInput as string)?.trim()) {
+    vocabulary.labels = (labelsInput as string).split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
+  return vocabulary;
 }
 
 async function runInteractive(directory: string | undefined): Promise<void> {
@@ -54,6 +195,38 @@ async function runInteractive(directory: string | undefined): Promise<void> {
     process.exit(0);
   }
 
+  // Backend selection
+  const selectedBackends = await clack.multiselect({
+    message: "Which backends do you use? (Space to select, Enter to confirm)",
+    options: BACKEND_CHOICES.map((b) => ({
+      value: b.value,
+      label: b.label,
+      hint: b.hint,
+    })),
+    required: false,
+  });
+
+  if (clack.isCancel(selectedBackends)) {
+    clack.cancel("Setup cancelled.");
+    process.exit(0);
+  }
+
+  // Collect MCP server config for each selected backend
+  const backends: BackendConfig[] = [];
+  for (const backendType of selectedBackends as string[]) {
+    const config = await collectBackendConfig(backendType);
+    backends.push(config);
+  }
+
+  // Vocabulary collection
+  clack.log.info(
+    chalk.bold("Controlled vocabulary") +
+      "\nDefine brands, teams, and labels for consistent metadata." +
+      "\nStatus vocabulary (backlog, to-do, in-progress, etc.) is included automatically."
+  );
+
+  const vocabulary = await collectVocabulary();
+
   const targetDir = directory ?? slugify(name as string);
   const fullPath = path.resolve(process.cwd(), targetDir);
 
@@ -65,19 +238,24 @@ async function runInteractive(directory: string | undefined): Promise<void> {
       name: name as string,
       purpose: purpose as string,
       targetDir: fullPath,
+      backends: backends.length > 0 ? backends : undefined,
+      vocabulary: hasVocabulary(vocabulary) ? vocabulary : undefined,
     });
 
     spinner.stop("Workspace created!");
 
-    clack.note(
-      [
-        `${chalk.bold("Directories:")} ${result.dirsCreated.join(", ")}`,
-        `${chalk.bold("Files:")} ${result.filesCreated.join(", ")}`,
-        "",
-        `Open in Obsidian or any markdown editor.`,
-      ].join("\n"),
-      result.workspacePath
-    );
+    const notes = [
+      `${chalk.bold("Directories:")} ${result.dirsCreated.join(", ")}`,
+      `${chalk.bold("Files:")} ${result.filesCreated.join(", ")}`,
+    ];
+
+    if (backends.length > 0) {
+      notes.push(`${chalk.bold("Backends:")} ${backends.map((b) => b.type).join(", ")}`);
+    }
+
+    notes.push("", "Open in Obsidian or any markdown editor.");
+
+    clack.note(notes.join("\n"), result.workspacePath);
 
     clack.outro(chalk.green("Done! Your workspace is ready."));
   } catch (error) {
@@ -91,7 +269,9 @@ async function runInteractive(directory: string | undefined): Promise<void> {
 
 async function runNonInteractive(
   directory: string | undefined,
-  jsonMode: boolean
+  jsonMode: boolean,
+  backends?: BackendConfig[],
+  vocabulary?: VocabularyOptions,
 ): Promise<void> {
   // In non-interactive mode, use sensible defaults or error
   if (!directory) {
@@ -114,6 +294,8 @@ async function runNonInteractive(
       name,
       purpose: "Rubber-Ducky workspace",
       targetDir: fullPath,
+      backends,
+      vocabulary,
     });
 
     const output = formatOutput(
@@ -143,6 +325,14 @@ async function runNonInteractive(
     console.log(output);
     process.exit(1);
   }
+}
+
+function hasVocabulary(v: VocabularyOptions): boolean {
+  return Boolean(
+    (v.brands && v.brands.length > 0) ||
+    (v.teams && v.teams.length > 0) ||
+    (v.labels && v.labels.length > 0)
+  );
 }
 
 function slugify(text: string): string {

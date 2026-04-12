@@ -4,6 +4,8 @@ import {
   generateWorkspaceMd,
   generateClaudeMd,
   generateUbiquitousLanguageMd,
+  type BackendConfig,
+  type VocabularyOptions,
 } from "../lib/templates.js";
 
 describe("generateWorkspaceMd", () => {
@@ -48,6 +50,46 @@ describe("generateWorkspaceMd", () => {
 
     expect(body).toContain("# Test");
   });
+
+  it("includes empty backends array when no backends provided", () => {
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing" });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter.backends).toEqual([]);
+  });
+
+  it("includes backend configs in frontmatter when provided", () => {
+    const backends: BackendConfig[] = [
+      { type: "github", mcp_server: "github" },
+      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net", project_key: "PROJ" },
+    ];
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", backends });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter.backends).toHaveLength(2);
+    expect(frontmatter.backends[0].type).toBe("github");
+    expect(frontmatter.backends[0].mcp_server).toBe("github");
+    expect(frontmatter.backends[1].type).toBe("jira");
+    expect(frontmatter.backends[1].mcp_server).toBe("atlassian-remote");
+    expect(frontmatter.backends[1].server_url).toBe("https://myorg.atlassian.net");
+    expect(frontmatter.backends[1].project_key).toBe("PROJ");
+  });
+
+  it("includes asana backend config in frontmatter", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", mcp_server: "asana", workspace_id: "12345" },
+    ];
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", backends });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter.backends).toHaveLength(1);
+    expect(frontmatter.backends[0].type).toBe("asana");
+    expect(frontmatter.backends[0].mcp_server).toBe("asana");
+    expect(frontmatter.backends[0].workspace_id).toBe("12345");
+  });
 });
 
 describe("generateClaudeMd", () => {
@@ -91,5 +133,97 @@ describe("generateUbiquitousLanguageMd", () => {
 
     // Should have some structure for adding terms
     expect(content).toContain("##");
+  });
+
+  it("always includes status vocabulary", () => {
+    const content = generateUbiquitousLanguageMd();
+
+    expect(content).toContain("backlog");
+    expect(content).toContain("to-do");
+    expect(content).toContain("in-progress");
+    expect(content).toContain("in-review");
+    expect(content).toContain("pending");
+    expect(content).toContain("blocked");
+    expect(content).toContain("done");
+    expect(content).toContain("deferred");
+  });
+
+  it("includes status vocabulary even when custom vocabulary is provided", () => {
+    const vocabulary: VocabularyOptions = {
+      brands: ["Acme"],
+      teams: ["Frontend"],
+      labels: ["urgent"],
+    };
+    const content = generateUbiquitousLanguageMd(vocabulary);
+
+    expect(content).toContain("backlog");
+    expect(content).toContain("done");
+    expect(content).toContain("deferred");
+  });
+
+  it("includes brands section when brands are provided", () => {
+    const vocabulary: VocabularyOptions = {
+      brands: ["Acme Corp", "Widget Co"],
+    };
+    const content = generateUbiquitousLanguageMd(vocabulary);
+
+    expect(content).toContain("## Brands");
+    expect(content).toContain("Acme Corp");
+    expect(content).toContain("Widget Co");
+  });
+
+  it("includes teams section when teams are provided", () => {
+    const vocabulary: VocabularyOptions = {
+      teams: ["Frontend", "Backend", "DevOps"],
+    };
+    const content = generateUbiquitousLanguageMd(vocabulary);
+
+    expect(content).toContain("## Teams");
+    expect(content).toContain("Frontend");
+    expect(content).toContain("Backend");
+    expect(content).toContain("DevOps");
+  });
+
+  it("includes labels section when labels are provided", () => {
+    const vocabulary: VocabularyOptions = {
+      labels: ["urgent", "bug", "feature"],
+    };
+    const content = generateUbiquitousLanguageMd(vocabulary);
+
+    expect(content).toContain("## Labels");
+    expect(content).toContain("urgent");
+    expect(content).toContain("bug");
+    expect(content).toContain("feature");
+  });
+
+  it("omits empty vocabulary sections", () => {
+    const vocabulary: VocabularyOptions = {
+      brands: ["Acme"],
+      teams: [],
+      labels: [],
+    };
+    const content = generateUbiquitousLanguageMd(vocabulary);
+
+    expect(content).toContain("## Brands");
+    expect(content).not.toContain("## Teams");
+    expect(content).not.toContain("## Labels");
+  });
+
+  it("renders vocabulary terms as table rows", () => {
+    const vocabulary: VocabularyOptions = {
+      brands: ["Acme Corp"],
+    };
+    const content = generateUbiquitousLanguageMd(vocabulary);
+
+    // Brands should be in a markdown table
+    expect(content).toMatch(/\|\s*Acme Corp\s*\|/);
+  });
+
+  it("produces valid output with no vocabulary provided", () => {
+    const content = generateUbiquitousLanguageMd();
+
+    expect(content).toContain("# Ubiquitous Language");
+    expect(content).toContain("## Statuses");
+    expect(content).toContain("## Custom terms");
   });
 });
