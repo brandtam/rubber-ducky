@@ -14,6 +14,7 @@ import {
   registerIdeaCommand,
   registerScreenshotCommand,
 } from "./commands/capture.js";
+import { registerTaskCommand } from "./commands/task.js";
 
 const VERSION = "0.1.0";
 
@@ -38,6 +39,7 @@ export function createProgram(): Command {
   registerRemindCommand(program);
   registerIdeaCommand(program);
   registerScreenshotCommand(program);
+  registerTaskCommand(program);
 
   return program;
 }
