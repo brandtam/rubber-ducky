@@ -98,6 +98,65 @@ Use Claude Code skills for intelligent operations.
 `;
 }
 
+/**
+ * Generate backend-specific skill files for Claude Code.
+ * Returns an array of { path, content } for each skill to create.
+ */
+export function generateBackendSkills(
+  backends?: BackendConfig[]
+): Array<{ path: string; content: string }> {
+  if (!backends || backends.length === 0) return [];
+
+  const skills: Array<{ path: string; content: string }> = [];
+
+  for (const backend of backends) {
+    if (backend.type === "asana") {
+      skills.push({
+        path: ".claude/commands/ingest-asana.md",
+        content: generateIngestAsanaSkill(backend),
+      });
+    }
+  }
+
+  return skills;
+}
+
+function generateIngestAsanaSkill(config: BackendConfig): string {
+  const workspaceIdNote = config.workspace_id
+    ? `Default workspace ID: \`${config.workspace_id}\`\n\n`
+    : "";
+
+  return `# Ingest Asana Task
+
+Ingest an Asana task into the wiki as a task page.
+
+${workspaceIdNote}## Usage
+
+\`\`\`
+/ingest-asana <task-id-or-url>
+\`\`\`
+
+## Steps
+
+1. Run \`rubber-ducky backend check asana\` to verify connectivity
+2. Use the Asana MCP server to fetch the task by ID or URL
+3. Run \`rubber-ducky page create task "<title>" --source asana --ref <task-gid>\` to scaffold the page
+4. Update the page frontmatter with fields from the Asana task:
+   - \`asana_ref\`: The Asana permalink URL
+   - \`status\`: Mapped from Asana section/completion state
+   - \`assignee\`: From Asana assignee
+   - \`due\`: From Asana due date
+   - \`tags\`: From Asana tags
+5. Write the task description and comments into the page body
+6. Run \`rubber-ducky index rebuild\` to update the index
+
+## Bulk ingest
+
+To ingest all tasks from a project: \`/ingest-asana project:<project-gid>\`
+To ingest all tasks from a section: \`/ingest-asana section:<section-gid>\`
+`;
+}
+
 export function generateUbiquitousLanguageMd(vocabulary?: VocabularyOptions): string {
   const sections: string[] = [];
 

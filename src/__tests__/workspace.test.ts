@@ -284,6 +284,39 @@ describe("createWorkspace", () => {
     });
   });
 
+  describe("skill generation", () => {
+    it("generates ingest-asana skill when asana backend is configured", async () => {
+      const backends: BackendConfig[] = [
+        { type: "asana", mcp_server: "asana", workspace_id: "12345" },
+      ];
+      const result = await createWorkspace(opts({ backends }));
+
+      const skillPath = path.join(result.workspacePath, ".claude", "commands", "ingest-asana.md");
+      expect(fs.existsSync(skillPath)).toBe(true);
+
+      const content = fs.readFileSync(skillPath, "utf-8");
+      expect(content).toContain("Ingest Asana Task");
+      expect(content).toContain("12345");
+    });
+
+    it("includes skill in filesCreated result", async () => {
+      const backends: BackendConfig[] = [
+        { type: "asana", mcp_server: "asana" },
+      ];
+      const result = await createWorkspace(opts({ backends }));
+
+      expect(result.filesCreated).toContain(".claude/commands/ingest-asana.md");
+    });
+
+    it("does not generate skills when no backends configured", async () => {
+      const result = await createWorkspace(opts());
+
+      const skillPath = path.join(result.workspacePath, ".claude", "commands", "ingest-asana.md");
+      expect(fs.existsSync(skillPath)).toBe(false);
+      expect(result.filesCreated).not.toContain(".claude/commands/ingest-asana.md");
+    });
+  });
+
   describe("result object", () => {
     it("returns workspace path and list of created files", async () => {
       const result = await createWorkspace(opts());

@@ -79,10 +79,22 @@ describe("Backend interface", () => {
       expect(backend.capabilities).toContain("transition");
     });
 
+    it("returns an asana backend for asana config", () => {
+      const backend = getBackend(
+        { type: "asana", mcp_server: "asana" },
+        { mcp: () => ({}) }
+      );
+      expect(backend.name).toBe("asana");
+      expect(backend.capabilities).toContain("ingest");
+      expect(backend.capabilities).toContain("pull");
+      expect(backend.capabilities).toContain("push");
+      expect(backend.capabilities).toContain("comment");
+    });
+
     it("throws for unimplemented backend type", () => {
       expect(() =>
-        getBackend({ type: "asana", mcp_server: "asana" })
-      ).toThrow('Backend "asana" is not yet implemented');
+        getBackend({ type: "linear" as any, mcp_server: "linear" })
+      ).toThrow('Backend "linear" is not yet implemented');
     });
   });
 
@@ -107,8 +119,8 @@ describe("Backend interface", () => {
 
     it("returns not-implemented for unimplemented backends", () => {
       const result = checkConnectivity({
-        type: "asana",
-        mcp_server: "asana",
+        type: "linear" as any,
+        mcp_server: "linear",
       });
       expect(result.authenticated).toBe(false);
       expect(result.error).toMatch(/not yet implemented/);

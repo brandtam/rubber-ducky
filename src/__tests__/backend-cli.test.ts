@@ -58,6 +58,28 @@ describe("backend CLI", () => {
       expect(result.backends[0].capabilities).not.toContain("transition");
     });
 
+    it("lists configured asana backend with capabilities", () => {
+      const target = path.join(tmpDir, "ws-asana");
+      const backends = JSON.stringify([
+        { type: "asana", mcp_server: "asana" },
+      ]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      const output = runCli(["--json", "backend", "list"], target);
+      const result = JSON.parse(output);
+
+      expect(result.success).toBe(true);
+      expect(result.backends).toHaveLength(1);
+      expect(result.backends[0].name).toBe("asana");
+      expect(result.backends[0].type).toBe("asana");
+      expect(result.backends[0].implemented).toBe(true);
+      expect(result.backends[0].capabilities).toContain("ingest");
+      expect(result.backends[0].capabilities).toContain("pull");
+      expect(result.backends[0].capabilities).toContain("push");
+      expect(result.backends[0].capabilities).toContain("comment");
+      expect(result.backends[0].capabilities).not.toContain("transition");
+    });
+
     it("shows empty list when no backends configured", () => {
       const target = path.join(tmpDir, "ws-empty");
       runCli(["--json", "init", target]);
