@@ -216,7 +216,7 @@ describe("CLI", () => {
     let tmpDir: string;
 
     beforeEach(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rubber-ducky-status-test-"));
+      tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rubber-ducky-status-test-")));
     });
 
     afterEach(() => {
