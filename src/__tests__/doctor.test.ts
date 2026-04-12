@@ -58,6 +58,7 @@ function createWorkspace(tmpDir: string, opts?: {
     fs.writeFileSync(path.join(tmpDir, ".claude/commands/good-morning.md"), "# Good Morning\n", "utf-8");
     fs.writeFileSync(path.join(tmpDir, ".claude/commands/wrap-up.md"), "# Wrap Up\n", "utf-8");
     fs.writeFileSync(path.join(tmpDir, ".claude/commands/lint.md"), "# Lint\n", "utf-8");
+    fs.writeFileSync(path.join(tmpDir, ".claude/commands/query.md"), "# Query\n", "utf-8");
   }
 
   if (!skipFiles.includes("agents")) {
