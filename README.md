@@ -39,12 +39,23 @@ You need three things installed before you start:
 ```bash
 git clone https://github.com/brandtam/rubber-ducky.git
 cd rubber-ducky
-pnpm install    # or npm install, or yarn install
-pnpm build      # or npm run build
-pnpm link       # or npm link
+pnpm install          # or: npm install
+pnpm build            # or: npm run build
 ```
 
-The link step makes the `rubber-ducky` command available globally in your terminal. Verify it worked:
+Now make the `rubber-ducky` command available globally. Pick whichever matches your package manager:
+
+```bash
+# npm — works out of the box, no PATH changes needed
+npm link
+
+# pnpm — requires pnpm's global bin in your PATH
+pnpm setup            # adds pnpm bin to your shell profile (one-time)
+source ~/.zshrc       # reload your shell (or restart your terminal)
+pnpm link --global
+```
+
+Verify it worked:
 
 ```bash
 rubber-ducky --version
@@ -122,6 +133,25 @@ rubber-ducky init ~/path/to/my-vault
 ```
 
 The wizard detects existing markdown files and offers to adopt them — adding YAML frontmatter where needed without changing your content. Your existing notes become part of the Rubber-Ducky workspace alongside the new `wiki/` structure.
+
+### Reference templates
+
+Every workspace includes a `references/` directory with shared templates that Claude Code loads on demand using the `@references/filename.md` syntax:
+
+- **`references/frontmatter-templates.md`** — Complete YAML schema for daily, task, and project pages. This is the single source of truth for what fields exist and what values are valid.
+- **`references/when-to-use-cli.md`** — Decision guide for when Claude should use the CLI vs. handle something directly. Documents the architectural split.
+- **`references/<backend>-ticket-template.md`** — Tone, structure, field mappings, and status mappings for each configured backend (GitHub, Jira, Asana). Only created for backends you configure.
+
+These keep Claude Code's instructions DRY — the CLAUDE.md file stays concise and points to references when it needs detailed schemas or formatting rules. You can edit the reference files to customize how Claude formats content for your specific systems.
+
+### The cli_mode toggle
+
+`workspace.md` frontmatter includes a `cli_mode` flag (default: `true`). When enabled, Claude Code uses the `rubber-ducky` CLI for mechanical operations like creating pages and updating frontmatter. Set it to `false` to have Claude Code do everything by hand — useful for A/B testing, debugging, or environments where the CLI isn't installed:
+
+```yaml
+# workspace.md frontmatter
+cli_mode: false    # Claude Code will read/write files directly instead of using the CLI
+```
 
 ## Using it day to day
 
@@ -246,6 +276,7 @@ These skills run inside [Claude Code](https://claude.ai/claude-code) and use the
 | `/verify-prd` | Post-implementation audit — finds unmerged branches, migration conflicts, missing features |
 | `/write-a-prd` | Interactive PRD authoring with user stories and implementation decisions |
 | `/prd-to-issues` | Breaks a PRD into vertical-slice GitHub issues |
+| `/add-integration <name>` | Research and scaffold a new external service integration (Slack, Linear, etc.) |
 
 ## Page types and frontmatter
 
@@ -300,7 +331,7 @@ title: API v2
 type: project
 created: 2026-04-12T10:00:00Z
 updated: 2026-04-12T10:00:00Z
-status: in-progress
+status: backlog                # same status vocabulary as tasks
 tags: [api, backend]
 ---
 ```
