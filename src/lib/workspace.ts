@@ -5,6 +5,13 @@ import {
   generateClaudeMd,
   generateUbiquitousLanguageMd,
 } from "./templates.js";
+import {
+  scanExistingContent,
+  buildMigrationPlan,
+  executeMigration,
+  type ScanResult,
+  type MigrationPlan,
+} from "./migration.js";
 
 export interface WorkspaceOptions {
   name: string;
@@ -16,6 +23,8 @@ export interface WorkspaceResult {
   workspacePath: string;
   filesCreated: string[];
   dirsCreated: string[];
+  filesAdopted?: string[];
+  migrated?: boolean;
 }
 
 const DIRS = [
@@ -26,6 +35,21 @@ const DIRS = [
   ".obsidian",
 ];
 
+export interface ExistingContentInfo {
+  scanResult: ScanResult;
+  migrationPlan: MigrationPlan;
+}
+
+export function detectExistingContent(targetDir: string): ExistingContentInfo | null {
+  if (!fs.existsSync(targetDir)) return null;
+  const entries = fs.readdirSync(targetDir);
+  if (entries.length === 0) return null;
+
+  const scanResult = scanExistingContent(targetDir);
+  const migrationPlan = buildMigrationPlan(scanResult);
+  return { scanResult, migrationPlan };
+}
+
 export async function createWorkspace(opts: WorkspaceOptions): Promise<WorkspaceResult> {
   const { name, purpose, targetDir } = opts;
 
@@ -35,7 +59,7 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
     if (entries.length > 0) {
       throw new Error(
         `Directory "${targetDir}" already exists and is not empty. ` +
-        `Choose a different location or remove existing files.`
+        `Use migration to adopt existing content.`
       );
     }
   }
@@ -65,5 +89,21 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
     workspacePath: targetDir,
     filesCreated: files.map((f) => f.name),
     dirsCreated: DIRS.filter((d) => d !== ".obsidian"),
+  };
+}
+
+export async function migrateWorkspace(opts: WorkspaceOptions): Promise<WorkspaceResult> {
+  const { name, purpose, targetDir } = opts;
+
+  const scanResult = scanExistingContent(targetDir);
+  const plan = buildMigrationPlan(scanResult);
+  const result = executeMigration(plan, { name, purpose, targetDir });
+
+  return {
+    workspacePath: result.workspacePath,
+    filesCreated: result.filesCreated,
+    dirsCreated: result.dirsCreated,
+    filesAdopted: result.filesAdopted,
+    migrated: true,
   };
 }

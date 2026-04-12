@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { createWorkspace, type WorkspaceOptions } from "../lib/workspace.js";
+import { createWorkspace, migrateWorkspace, detectExistingContent, type WorkspaceOptions } from "../lib/workspace.js";
 
 describe("createWorkspace", () => {
   let tmpDir: string;
@@ -55,6 +55,14 @@ describe("createWorkspace", () => {
       await expect(createWorkspace(opts({ targetDir: target }))).rejects.toThrow(
         /already exists and is not empty/
       );
+    });
+
+    it("succeeds on empty existing directory", async () => {
+      const target = path.join(tmpDir, "empty-dir");
+      fs.mkdirSync(target, { recursive: true });
+
+      const result = await createWorkspace(opts({ targetDir: target }));
+      expect(result.workspacePath).toBe(target);
     });
   });
 
@@ -199,6 +207,85 @@ describe("createWorkspace", () => {
       expect(result.dirsCreated).toContain("wiki/tasks");
       expect(result.dirsCreated).toContain("wiki/projects");
       expect(result.dirsCreated).toContain("raw");
+    });
+  });
+
+  describe("detectExistingContent", () => {
+    it("returns null for non-existent directory", () => {
+      const result = detectExistingContent(path.join(tmpDir, "nope"));
+      expect(result).toBeNull();
+    });
+
+    it("returns null for empty directory", () => {
+      const target = path.join(tmpDir, "empty");
+      fs.mkdirSync(target, { recursive: true });
+
+      const result = detectExistingContent(target);
+      expect(result).toBeNull();
+    });
+
+    it("returns scan result and migration plan for non-empty directory", () => {
+      const target = path.join(tmpDir, "existing");
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(target, "notes.md"), "# Notes");
+
+      const result = detectExistingContent(target);
+
+      expect(result).not.toBeNull();
+      expect(result!.scanResult.totalMdFiles).toBe(1);
+      expect(result!.migrationPlan.filesToAddFrontmatter).toContain("notes.md");
+    });
+  });
+
+  describe("migrateWorkspace", () => {
+    it("completes successfully on a non-empty directory", async () => {
+      const target = path.join(tmpDir, "vault");
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(target, "my-notes.md"), "# My Notes\nContent");
+
+      const result = await migrateWorkspace({
+        name: "Migrated Vault",
+        purpose: "Testing migration",
+        targetDir: target,
+      });
+
+      expect(result.workspacePath).toBe(target);
+      expect(result.migrated).toBe(true);
+      expect(result.filesAdopted).toContain("my-notes.md");
+    });
+
+    it("creates workspace structure alongside existing content", async () => {
+      const target = path.join(tmpDir, "vault");
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(target, "readme.md"), "# README");
+
+      await migrateWorkspace({
+        name: "Test",
+        purpose: "Testing",
+        targetDir: target,
+      });
+
+      expect(fs.existsSync(path.join(target, "wiki", "daily"))).toBe(true);
+      expect(fs.existsSync(path.join(target, "wiki", "tasks"))).toBe(true);
+      expect(fs.existsSync(path.join(target, "workspace.md"))).toBe(true);
+      expect(fs.existsSync(path.join(target, "CLAUDE.md"))).toBe(true);
+    });
+
+    it("preserves existing file content", async () => {
+      const target = path.join(tmpDir, "vault");
+      fs.mkdirSync(target, { recursive: true });
+      const originalContent = "# Important\n\nDo not lose this content.";
+      fs.writeFileSync(path.join(target, "important.md"), originalContent);
+
+      await migrateWorkspace({
+        name: "Test",
+        purpose: "Testing",
+        targetDir: target,
+      });
+
+      const content = fs.readFileSync(path.join(target, "important.md"), "utf-8");
+      expect(content).toContain("# Important");
+      expect(content).toContain("Do not lose this content.");
     });
   });
 });
