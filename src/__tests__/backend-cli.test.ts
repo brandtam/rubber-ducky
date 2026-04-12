@@ -125,7 +125,7 @@ describe("backend CLI", () => {
       expect(result.success).toBe(true);
       expect(result.backends).toHaveLength(2);
       expect(result.backends[0].implemented).toBe(true);
-      expect(result.backends[1].implemented).toBe(false);
+      expect(result.backends[1].implemented).toBe(true);
     });
 
     it("lists github and jira backends both as implemented", () => {
