@@ -69,10 +69,10 @@ describe("backend CLI", () => {
       expect(result.backends).toHaveLength(0);
     });
 
-    it("marks unimplemented backends appropriately", () => {
+    it("lists configured jira backend with full capabilities", () => {
       const target = path.join(tmpDir, "ws-jira");
       const backends = JSON.stringify([
-        { type: "jira", mcp_server: "atlassian-remote" },
+        { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net" },
       ]);
       runCli(["--json", "init", target, "--backends-json", backends]);
 
@@ -81,15 +81,19 @@ describe("backend CLI", () => {
 
       expect(result.backends).toHaveLength(1);
       expect(result.backends[0].name).toBe("jira");
-      expect(result.backends[0].implemented).toBe(false);
-      expect(result.backends[0].capabilities).toEqual([]);
+      expect(result.backends[0].implemented).toBe(true);
+      expect(result.backends[0].capabilities).toContain("ingest");
+      expect(result.backends[0].capabilities).toContain("pull");
+      expect(result.backends[0].capabilities).toContain("push");
+      expect(result.backends[0].capabilities).toContain("comment");
+      expect(result.backends[0].capabilities).toContain("transition");
     });
 
     it("lists multiple backends with mixed implementation status", () => {
       const target = path.join(tmpDir, "ws-multi");
       const backends = JSON.stringify([
         { type: "github", mcp_server: "github" },
-        { type: "jira", mcp_server: "atlassian-remote" },
+        { type: "asana", mcp_server: "asana" },
       ]);
       runCli(["--json", "init", target, "--backends-json", backends]);
 
@@ -100,6 +104,23 @@ describe("backend CLI", () => {
       expect(result.backends).toHaveLength(2);
       expect(result.backends[0].implemented).toBe(true);
       expect(result.backends[1].implemented).toBe(false);
+    });
+
+    it("lists github and jira backends both as implemented", () => {
+      const target = path.join(tmpDir, "ws-gh-jira");
+      const backends = JSON.stringify([
+        { type: "github", mcp_server: "github" },
+        { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net" },
+      ]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      const output = runCli(["--json", "backend", "list"], target);
+      const result = JSON.parse(output);
+
+      expect(result.success).toBe(true);
+      expect(result.backends).toHaveLength(2);
+      expect(result.backends[0].implemented).toBe(true);
+      expect(result.backends[1].implemented).toBe(true);
     });
 
     it("errors when run outside a workspace", () => {
