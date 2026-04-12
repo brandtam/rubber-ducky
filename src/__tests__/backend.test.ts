@@ -65,11 +65,21 @@ describe("Backend interface", () => {
       expect(backend.capabilities).toContain("comment");
     });
 
-    it("throws for unimplemented backend type", () => {
-      expect(() =>
-        getBackend({ type: "jira", mcp_server: "atlassian-remote" })
-      ).toThrow('Backend "jira" is not yet implemented');
+    it("returns a jira backend for jira config", () => {
+      const backend = getBackend({
+        type: "jira",
+        mcp_server: "atlassian-remote",
+        server_url: "https://myorg.atlassian.net",
+      });
+      expect(backend.name).toBe("jira");
+      expect(backend.capabilities).toContain("ingest");
+      expect(backend.capabilities).toContain("pull");
+      expect(backend.capabilities).toContain("push");
+      expect(backend.capabilities).toContain("comment");
+      expect(backend.capabilities).toContain("transition");
+    });
 
+    it("throws for unimplemented backend type", () => {
       expect(() =>
         getBackend({ type: "asana", mcp_server: "asana" })
       ).toThrow('Backend "asana" is not yet implemented');
@@ -86,10 +96,19 @@ describe("Backend interface", () => {
       expect(result.authenticated).toBe(true);
     });
 
+    it("delegates to Jira for jira backend config", () => {
+      const exec = () => JSON.stringify({ user: "alice@myorg.com" });
+      const result = checkConnectivity(
+        { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net" },
+        { exec }
+      );
+      expect(result.authenticated).toBe(true);
+    });
+
     it("returns not-implemented for unimplemented backends", () => {
       const result = checkConnectivity({
-        type: "jira",
-        mcp_server: "atlassian-remote",
+        type: "asana",
+        mcp_server: "asana",
       });
       expect(result.authenticated).toBe(false);
       expect(result.error).toMatch(/not yet implemented/);

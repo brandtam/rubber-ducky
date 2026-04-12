@@ -23,6 +23,10 @@ import {
   createGitHubBackend,
   checkGitHubConnectivity,
 } from "./github-backend.js";
+import {
+  createJiraBackend,
+  checkJiraConnectivity,
+} from "./jira-backend.js";
 
 export type Capability = "ingest" | "pull" | "push" | "comment" | "transition";
 
@@ -153,6 +157,12 @@ export function getBackend(
   switch (config.type) {
     case "github":
       return createGitHubBackend(options);
+    case "jira":
+      return createJiraBackend({
+        serverUrl: config.server_url ?? "",
+        projectKey: config.project_key,
+        exec: options?.exec,
+      });
     default:
       throw new Error(`Backend "${config.type}" is not yet implemented`);
   }
@@ -169,6 +179,8 @@ export function checkConnectivity(
   switch (config.type) {
     case "github":
       return checkGitHubConnectivity(options?.exec);
+    case "jira":
+      return checkJiraConnectivity(config.server_url ?? "", options?.exec);
     default:
       return {
         authenticated: false,
