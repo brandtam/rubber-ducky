@@ -3,6 +3,7 @@ import { stringify as yamlStringify } from "yaml";
 export interface BackendConfig {
   type: "github" | "jira" | "asana";
   mcp_server: string;
+  repos?: string[];
   server_url?: string;
   project_key?: string;
   workspace_id?: string;
@@ -22,10 +23,11 @@ export interface TemplateOptions {
 
 export function generateWorkspaceMd(opts: TemplateOptions): string {
   const backends = (opts.backends ?? []).map((b) => {
-    const entry: Record<string, string> = {
+    const entry: Record<string, string | string[]> = {
       type: b.type,
       mcp_server: b.mcp_server,
     };
+    if (b.repos && b.repos.length > 0) entry.repos = b.repos;
     if (b.server_url) entry.server_url = b.server_url;
     if (b.project_key) entry.project_key = b.project_key;
     if (b.workspace_id) entry.workspace_id = b.workspace_id;
@@ -161,6 +163,30 @@ All commands support \`--json\` for structured output. Run these via bash.
 | "What's on my plate?" | Read today's daily page + task pages, synthesize a summary |
 | "What did I do yesterday?" | Read yesterday's daily page, summarize |
 | "Run a health check" | \`rubber-ducky doctor\` |
+
+## Ingesting from backends
+
+When the user connects a repo or asks to pull in issues/tickets, **always ask before ingesting**. Never auto-ingest.
+
+### Flow
+
+1. **Create a project page first.** Each repo (or Jira project, or Asana project) becomes a project page:
+   \`rubber-ducky page create project "<repo-or-project-name>"\`
+
+2. **Show a summary.** List the issues/tickets grouped by category, label, or area. Show counts, not full details.
+
+3. **Ask what to ingest.** "Want me to pull all of these in as task pages, or just specific groups?" Let the user choose all, a subset, or none.
+
+4. **Ingest selected issues as task pages.** For each issue:
+   - \`rubber-ducky page create task "<title>" --source <backend> --ref <id>\`
+   - Link the task to the project by adding the task slug to the project page's body under \`## Tasks\`
+   - Update the task page body with the issue description and any relevant context
+
+5. **Rebuild the index.** After ingesting, run \`rubber-ducky index rebuild\`.
+
+### Multiple repos
+
+\`workspace.md\` may list multiple repos under a single GitHub backend. Each repo should be its own project page. When the user says "pull in issues from all my repos," iterate through each repo, create its project page, then ask about issues per repo.
 `;
 }
 

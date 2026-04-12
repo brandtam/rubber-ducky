@@ -65,6 +65,28 @@ async function collectBackendConfig(backendType: string): Promise<BackendConfig>
 
   config.mcp_server = (mcpServer as string) || (MCP_DEFAULTS[backendType] ?? backendType);
 
+  if (backendType === "github") {
+    const reposInput = await clack.text({
+      message: "GitHub repos to track (comma-separated, owner/repo format):",
+      placeholder: "myorg/project-a, myorg/project-b",
+      validate: (value) => {
+        if (!value.trim()) return "At least one repo is required (e.g., myorg/my-project)";
+        const repos = value.split(",").map((s) => s.trim()).filter(Boolean);
+        for (const repo of repos) {
+          if (!repo.includes("/")) return `"${repo}" must be in owner/repo format`;
+        }
+        return undefined;
+      },
+    });
+
+    if (clack.isCancel(reposInput)) {
+      clack.cancel("Setup cancelled.");
+      process.exit(0);
+    }
+
+    config.repos = (reposInput as string).split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
   if (backendType === "jira") {
     const serverUrl = await clack.text({
       message: "Jira server URL:",

@@ -21,7 +21,8 @@
       "Bash(pnpm --version)",
       "Bash(pnpm install:*)",
       "Bash(pnpm run:*)",
-      "Bash(pnpm test:*)"
+      "Bash(pnpm test:*)",
+      "Bash(pnpm build:*)"
     ]
   }
 }
