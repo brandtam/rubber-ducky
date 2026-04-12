@@ -1,0 +1,5 @@
+{
+	"dependencies": {
+		"@ai-hero/sandcastle": "^0.4.0"
+	}
+}
