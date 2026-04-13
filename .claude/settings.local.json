@@ -23,7 +23,10 @@
       "Bash(pnpm run:*)",
       "Bash(pnpm test:*)",
       "Bash(pnpm build:*)",
-      "Bash(rubber-ducky:*)"
+      "Bash(rubber-ducky:*)",
+      "Bash(xargs ls:*)",
+      "Bash(grep:*)",
+      "Bash(find src:*)"
     ]
   }
 }
