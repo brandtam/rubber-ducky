@@ -219,6 +219,11 @@ export function generateBackendSkills(
     }
   }
 
+  skills.push({
+    path: ".claude/commands/get-setup.md",
+    content: generateGetSetupSkill(backends),
+  });
+
   return skills;
 }
 
@@ -429,6 +434,99 @@ Example: \`/ingest-jira WEB-288\`
 
 To ingest all issues from the default project: \`/ingest-jira project\`
 To ingest issues matching a JQL query: \`/ingest-jira jql:<query>\`
+`;
+}
+
+function generateGetSetupSkill(backends: BackendConfig[]): string {
+  const backendChecks = backends
+    .map((b) => `rubber-ducky backend check ${b.type}`)
+    .join("\n");
+
+  const setupSteps: string[] = [];
+
+  for (const backend of backends) {
+    if (backend.type === "github") {
+      setupSteps.push(`#### GitHub
+
+GitHub uses the \`gh\` CLI. Tell the user to run this in their terminal:
+
+\`\`\`bash
+gh auth login
+\`\`\`
+
+Then verify: \`rubber-ducky backend check github\``);
+    }
+    if (backend.type === "asana") {
+      setupSteps.push(`#### Asana
+
+Asana uses a remote MCP server with OAuth. Tell the user to run this in their terminal:
+
+\`\`\`bash
+claude mcp add --transport sse asana https://mcp.asana.com/sse
+\`\`\`
+
+Then tell them to run \`/mcp\` inside Claude Code to complete OAuth authentication in their browser.
+
+Verify: \`rubber-ducky backend check asana\``);
+    }
+    if (backend.type === "jira") {
+      const serverUrl = backend.server_url;
+      const urlNote = serverUrl ? ` (configured instance: \`${serverUrl}\`)` : "";
+      setupSteps.push(`#### Jira
+
+Jira uses the Atlassian Remote MCP server with OAuth${urlNote}. Tell the user to run this in their terminal:
+
+\`\`\`bash
+claude mcp add --transport sse atlassian-remote https://mcp.atlassian.com/v1/sse
+\`\`\`
+
+Then tell them to run \`/mcp\` inside Claude Code to complete OAuth authentication in their browser.
+
+Verify: \`rubber-ducky backend check jira\``);
+    }
+  }
+
+  return `# Get Setup
+
+Walk through connecting the backends configured in this workspace.
+
+**IMPORTANT: Never ask the user to paste API tokens, passwords, or credentials into the chat.** All authentication happens through CLI auth flows or OAuth in the browser.
+
+## Steps
+
+### Step 1 — Check current connectivity
+
+Run each backend check via Bash to see what is already connected:
+
+\`\`\`bash
+${backendChecks}
+\`\`\`
+
+Report which backends are connected and which need setup.
+
+If all backends are connected, tell the user they are ready to go and suggest trying \`/good-morning\` to start their first day. Stop here.
+
+### Step 2 — Set up unconnected backends
+
+For each backend that failed the connectivity check, walk the user through setup one at a time. **The user must run these commands themselves** — they involve interactive auth flows that cannot run inside Claude Code.
+
+${setupSteps.join("\n\n")}
+
+### Step 3 — Verify
+
+After the user completes setup, re-run the connectivity checks:
+
+\`\`\`bash
+${backendChecks}
+\`\`\`
+
+Report the results. If all backends are now connected, tell the user they are ready to go and suggest \`/good-morning\` to start their first day.
+
+If any backend still fails, refer the user to @references/backend-setup.md for detailed troubleshooting.
+
+## Output
+
+Keep it conversational and concise. One backend at a time. Wait for the user to confirm they have run each command before moving to the next.
 `;
 }
 
