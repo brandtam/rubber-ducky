@@ -184,6 +184,16 @@ rubber-ducky frontmatter set wiki/daily/YYYY-MM-DD.md wrap_up true
 rubber-ducky frontmatter set wiki/daily/YYYY-MM-DD.md active_task null
 \`\`\`
 
+### Step 8 — Vocabulary check (optional, non-blocking)
+
+After the daily summary is complete, check if any undefined terms came up during the day:
+
+1. Read \`UBIQUITOUS_LANGUAGE.md\` to get the current set of defined terms.
+2. Scan today's daily page body and the task pages touched today for domain-specific terms not in the vocabulary.
+3. If new terms are found, suggest additions: "I noticed these terms aren't in your controlled vocabulary yet: [terms]. Want to add definitions?"
+4. If the user accepts, append the terms to the appropriate table (brands, teams, or labels) in \`UBIQUITOUS_LANGUAGE.md\`.
+5. If the user declines or skips, proceed without changes — this step does not block wrap-up completion.
+
 ## Redirect behavior
 
 If the user triggers this skill but has an \`active_task\` set in today's daily page, confirm they want to wrap up: "You still have [active task] marked as active — ready to wrap up for the day?" This prevents accidental wrap-up mid-flow.
@@ -825,6 +835,398 @@ Load the appropriate template for the target system:
 These templates define the tone, structure, field mappings, and status mappings for each system. If a template file does not exist for the target system, inform the user that the backend's ticket template needs to be created in \`references/\`.
 `,
       description: "Ticket writer agent — draft backend-appropriate ticket content from wiki pages",
+    },
+    {
+      relativePath: ".claude/commands/asap-process.md",
+      content: `# ASAP Process
+
+Interactive triage of the ASAP list.
+
+## Arguments
+
+\`$ARGUMENTS\` — Optional: an integer index to start from (resumes triage from that item). Omit to start from the first pending item.
+
+## Behavior
+
+### Step 1 — Load the ASAP list
+
+Run via Bash:
+
+\`\`\`
+rubber-ducky asap list --json
+\`\`\`
+
+This returns an array of items from \`wiki/asap.md\`. Each item has \`index\` (integer), \`message\` (string), \`createdAt\` (ISO timestamp), and \`resolved\` (boolean). Filter to only pending items (\`resolved: false\`).
+
+Present a numbered summary:
+
+\`\`\`
+ASAP items (N pending):
+1. message (added: date)
+2. message (added: date)
+...
+\`\`\`
+
+If \`$ARGUMENTS\` specifies an index, skip items with an index less than that value (they were already processed in a previous run).
+
+If there are no pending items, report "No pending ASAP items." and stop.
+
+### Step 2 — Walk through items one at a time
+
+For each pending ASAP item, present it with four options:
+
+\`\`\`
+[N/total] #index — message
+Added: date
+
+What would you like to do?
+  (a) Act on it now — drop into this item immediately
+  (c) Convert to task — create a wiki task page and resolve this item
+  (d) Defer — skip for now, keep on ASAP list
+  (x) Dismiss — resolve and remove from ASAP list
+\`\`\`
+
+Wait for the user's choice before proceeding.
+
+### Step 3 — Execute the chosen action
+
+**Act (a)**: Report "Switching to this item. Run \`/asap-process <next-index>\` to resume triage." and stop processing. The user will handle the item and can resume later.
+
+**Convert (c)**: Create a task page from the ASAP item. Run via Bash:
+
+\`\`\`
+rubber-ducky page create task "<message>"
+\`\`\`
+
+Then resolve the ASAP item so it no longer appears as pending:
+
+\`\`\`
+rubber-ducky asap resolve <index>
+\`\`\`
+
+Confirm: "Converted to task and resolved from ASAP list."
+
+**Defer (d)**: No action needed — the item stays pending on the ASAP list. Confirm: "Deferred." Move to the next item.
+
+**Dismiss (x)**: Resolve the item without creating a task. Run via Bash:
+
+\`\`\`
+rubber-ducky asap resolve <index>
+\`\`\`
+
+Confirm: "Dismissed." Move to the next item.
+
+### Step 4 — Progress tracking
+
+After each item, show progress: "Processed N of M items."
+
+Resolved items (converted or dismissed) are removed from the pending list immediately. If the user runs the skill again, only unprocessed pending items remain. If the user stops partway through (chooses "act" or interrupts), already-resolved items stay resolved. No progress is lost.
+
+### Step 5 — Completion
+
+When all pending items are processed, summarize:
+
+\`\`\`
+ASAP triage complete:
+- Acted on: N
+- Converted to tasks: N
+- Deferred: N
+- Dismissed: N
+\`\`\`
+
+## Output
+
+Interactive, one-at-a-time triage flow. Keep each item presentation concise. Progress is saved as items are processed — stopping partway through is safe.
+`,
+      description: "ASAP process skill — interactive ASAP list triage",
+    },
+    {
+      relativePath: ".claude/commands/ubiquitous-language.md",
+      content: `# Ubiquitous Language
+
+Evolve the controlled vocabulary by identifying and defining new domain terms.
+
+## Arguments
+
+\`$ARGUMENTS\` — Optional: path to a specific page to scan (e.g., \`wiki/daily/2024-03-15.md\`). If omitted, scans recent conversation context.
+
+## Behavior
+
+### Step 1 — Load the current vocabulary
+
+Read \`UBIQUITOUS_LANGUAGE.md\` from the workspace root. Parse the three tables:
+- **Brands** — product and company names
+- **Teams** — team and group names
+- **Labels** — domain-specific terms, acronyms, and jargon
+
+Build a set of all currently defined terms.
+
+### Step 2 — Scan for undefined terms
+
+If \`$ARGUMENTS\` specifies a page, read that page. Otherwise, review the recent conversation context.
+
+Identify candidate terms that:
+- Appear to be domain-specific (not common English words)
+- Are used consistently (not one-off mentions)
+- Are not already defined in UBIQUITOUS_LANGUAGE.md
+- Could be brands, teams, or labels based on context
+
+### Step 3 — Propose additions
+
+For each candidate term, propose a definition in the correct table format:
+
+\`\`\`
+Proposed additions to UBIQUITOUS_LANGUAGE.md:
+
+Brands:
+| Term | Definition | Aliases |
+| ---- | ---------- | ------- |
+| NewBrand | Description of the brand | NB, nb |
+
+Teams:
+| Term | Definition | Aliases |
+| ---- | ---------- | ------- |
+| PlatformTeam | The infrastructure team | platform, plat |
+
+Labels:
+| Term | Definition | Aliases |
+| ---- | ---------- | ------- |
+| spike | Time-boxed investigation task | research spike |
+\`\`\`
+
+If no new terms are found, report: "No new terms identified — vocabulary is up to date."
+
+### Step 4 — Write after confirmation
+
+Present the proposed additions and ask: "Add these terms to UBIQUITOUS_LANGUAGE.md? You can accept all, select specific terms, or decline."
+
+Only after explicit confirmation, append the accepted terms to the appropriate tables in \`UBIQUITOUS_LANGUAGE.md\` by editing the file directly.
+
+## Output
+
+A list of proposed vocabulary additions with definitions, written only after user confirmation.
+`,
+      description: "Ubiquitous language skill — evolve controlled vocabulary",
+    },
+    {
+      relativePath: ".claude/commands/grill-me.md",
+      content: `# Grill Me
+
+Challenge my thinking. Take my stated plan and relentlessly question assumptions, surface risks, identify missing considerations, and stress-test the approach.
+
+## Arguments
+
+\`$ARGUMENTS\` — The plan, idea, or decision to challenge. Can be a brief description, a path to a file (e.g., a PRD or task page), or empty (you'll ask what to grill).
+
+## Behavior
+
+If \`$ARGUMENTS\` is empty, ask: "What plan or decision do you want me to challenge?"
+
+If \`$ARGUMENTS\` is a file path, read the file and use its content as the plan to challenge.
+
+Then adopt a skeptical, rigorous perspective:
+
+- **Question assumptions**: What are you taking for granted? What if those assumptions are wrong?
+- **Surface risks**: What could go wrong? What are the failure modes? What's the blast radius?
+- **Identify gaps**: What haven't you considered? What's missing from this plan?
+- **Challenge scope**: Is this too ambitious? Too conservative? Are you solving the right problem?
+- **Stress-test dependencies**: What are you depending on that's outside your control?
+- **Probe alternatives**: Why this approach and not another? What did you reject and why?
+- **Check reversibility**: Can you undo this if it doesn't work? What's the cost of being wrong?
+
+Be direct and specific — no softening, no "great plan but..." preamble. Ask hard questions. Push back on hand-wavy answers. If the user's responses reveal new weaknesses, follow up.
+
+This is domain-agnostic — works for technical implementation plans, project approaches, PRD reviews, business decisions, hiring strategies, or any other context where rigorous thinking matters.
+
+## Output
+
+A series of pointed questions and challenges. Keep responses focused — one or two challenges at a time, then wait for the user's response before pressing further. The goal is a dialogue, not a monologue.
+`,
+      description: "Grill-me skill — challenge thinking and stress-test plans",
+    },
+    {
+      relativePath: ".claude/commands/link.md",
+      content: `# Link
+
+Create a same-backend relationship between two tickets and reflect the link in both wiki task pages.
+
+## Arguments
+
+\`$ARGUMENTS\` — Two task references and a relationship type: \`<ref-a> <ref-b> <relationship>\`
+
+Examples:
+- \`wiki/tasks/fix-login-bug.md wiki/tasks/auth-rewrite.md blocks\`
+- \`WEB-288 WEB-291 blocks\`
+- \`owner/repo#12 owner/repo#15 relates-to\`
+
+Supported relationship types: **blocks**, **blocked-by**, **relates-to**, **duplicates**, **duplicated-by**
+
+If \`$ARGUMENTS\` is empty, ask the user to provide two task references and a relationship type.
+
+## Behavior
+
+### Step 1 — Parse arguments
+
+Extract the two task references and the relationship type from \`$ARGUMENTS\`. If any are missing, prompt the user.
+
+### Step 2 — Resolve wiki task pages
+
+For each reference, find the corresponding wiki task page:
+- If the reference is a wiki path (e.g., \`wiki/tasks/foo.md\`), read it directly.
+- If the reference is a backend key (e.g., \`WEB-288\` or \`owner/repo#12\`), scan \`wiki/tasks/\` for a task page with a matching \`jira_ref\`, \`gh_ref\`, or \`asana_ref\` in frontmatter.
+
+If a wiki page cannot be found for a reference, inform the user and stop.
+
+### Step 3 — Identify the backend
+
+Both tasks must share the same backend. Read the backend reference from each wiki task page (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`).
+
+If the tasks use different backends or have no backend reference, inform the user: "Both tasks must have a backend reference in the same system to create a link."
+
+Read \`workspace.md\` to confirm the backend is configured.
+
+### Step 4 — Show write-back preview
+
+**MANDATORY**: Before executing ANY external write, show a structured preview:
+
+\`\`\`
+Action:  link
+Backend: <backend-name>
+Source:  <ref-a>
+Target:  <ref-b>
+Type:    <relationship>
+\`\`\`
+
+Ask the user to confirm: "Create this link? (yes/no)"
+
+**Do NOT proceed without explicit confirmation.**
+
+### Step 5 — Create the relationship in the backend
+
+Only after confirmation, use the appropriate backend API:
+
+**GitHub**: Add a cross-reference comment on both issues:
+\`\`\`
+gh issue comment <number-a> --body "Related: <relationship> #<number-b>"
+gh issue comment <number-b> --body "Related: <inverse-relationship> #<number-a>"
+\`\`\`
+
+**Jira**: Use the Atlassian Remote MCP to create an issue link:
+- Link type: map relationship to Jira link type (blocks → Blocks, relates-to → Relates, duplicates → Duplicate)
+- Inward issue: ref-a
+- Outward issue: ref-b
+
+**Asana**: Use the Asana MCP to set a dependency:
+- blocks/blocked-by → \`addDependency\` / \`addDependent\`
+- relates-to → add a comment on both tasks noting the relationship
+- duplicates → mark as duplicate if supported, otherwise comment
+
+### Step 6 — Update both wiki task pages
+
+Add a \`## Relationships\` section (or append to it if it already exists) on both task pages:
+
+For ref-a:
+\`\`\`
+- <relationship> [[wiki/tasks/<ref-b-slug>.md|<ref-b-title>]]
+\`\`\`
+
+For ref-b (inverse relationship):
+\`\`\`
+- <inverse-relationship> [[wiki/tasks/<ref-a-slug>.md|<ref-a-title>]]
+\`\`\`
+
+Inverse mapping:
+- blocks ↔ blocked-by
+- relates-to ↔ relates-to
+- duplicates ↔ duplicated-by
+
+### Step 7 — Log and rebuild
+
+1. Append an audit entry to \`wiki/log.md\`:
+   \`\`\`
+   rubber-ducky log append "[write-back] link → <backend> (<ref-a> <relationship> <ref-b>)"
+   \`\`\`
+2. Run \`rubber-ducky index rebuild\` to update the index
+`,
+      description: "Link skill — create same-backend relationships between tickets",
+    },
+    {
+      relativePath: ".claude/agents/research-partner.md",
+      content: `# Research Partner
+
+A generic research agent that searches the web, reads documentation, and synthesizes answers with source citations.
+
+## Role
+
+You are a research-partner agent. Your job is to research topics thoroughly using web search, documentation reading, and file analysis, then return a synthesized answer with source citations. You are not tied to any specific domain — you can research technical topics, business questions, competitive analysis, or anything else.
+
+## Constraints
+
+- **Read-only within the workspace**: Never create, edit, or delete files in the workspace. You may read workspace files for context.
+- **Citation required**: Every factual claim must include a source citation (URL, file path, or document reference).
+- **Transparent sourcing**: Distinguish between information from authoritative sources, community sources, and your own synthesis.
+
+## Tools Available
+
+Use these tools to research effectively:
+
+1. **WebSearch** — Search the web for current information. Use specific, targeted queries. Run multiple searches with different phrasings to get comprehensive results.
+
+2. **WebFetch** — Read specific web pages, documentation, API references, blog posts, or any URL. Use this to get full content from search results.
+
+3. **Read** — Read workspace files for context. Use this to understand the user's project, existing documentation, or related code.
+
+4. **Grep** — Search workspace files for specific patterns or terms related to the research topic.
+
+## Research Strategy
+
+1. **Understand the question**: Parse the research request to identify the core question, constraints, and what form the answer should take.
+
+2. **Search broadly first**: Run 2-3 web searches with different phrasings to get a variety of results.
+
+3. **Go deep on promising sources**: Fetch and read the most relevant pages in full. Don't rely on search snippets alone.
+
+4. **Cross-reference**: Verify claims across multiple sources. Note where sources agree and disagree.
+
+5. **Check workspace context**: If the research relates to the user's project, read relevant workspace files to ground the answer in their specific context.
+
+6. **Synthesize**: Combine findings into a clear, structured answer. Don't just list sources — extract insights and draw conclusions.
+
+## Response Format
+
+Structure your response as:
+
+1. **Answer**: A clear, synthesized answer to the research question. Lead with the key finding.
+
+2. **Key findings**: Bullet points of the most important discoveries, each with inline source citations.
+
+3. **Sources**: A numbered list of all sources consulted:
+   - \`[1]\` URL or file path — what was found there
+   - \`[2]\` URL or file path — what was found there
+
+4. **Confidence level**: Note any uncertainty, conflicting information, or areas where more research would help.
+
+5. **Related questions** (optional): Suggest follow-up research questions the user might want to explore.
+
+## Example
+
+**Q: "What's the current best practice for rate limiting in Node.js APIs?"**
+
+> **Answer**: The current consensus is to use a token bucket algorithm with Redis as the backing store for distributed rate limiting. Express-rate-limit is the most popular middleware but is single-process only — for production systems, rate-limiter-flexible with Redis provides distributed limiting with sliding window support.
+>
+> **Key findings**:
+> - express-rate-limit has 3.2M weekly downloads but only supports in-memory stores by default [1]
+> - rate-limiter-flexible supports Redis, Memcached, and MongoDB backends with atomic operations [2]
+> - OWASP recommends rate limiting at both API gateway and application layers [3]
+>
+> **Sources**:
+> - [1] https://www.npmjs.com/package/express-rate-limit — package docs and download stats
+> - [2] https://github.com/animir/node-rate-limiter-flexible — README and architecture docs
+> - [3] https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html
+>
+> **Confidence**: High for the library recommendations (well-established packages with active maintenance). Medium for the specific architecture pattern — depends on scale requirements.
+`,
+      description: "Research partner agent — web research with source citations",
     },
   ];
 }

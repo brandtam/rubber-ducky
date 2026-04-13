@@ -310,7 +310,6 @@ describe("executeMigration", () => {
 
     expect(content).toMatch(/^---\n/);
     expect(content).toContain("title: my-note");
-    expect(content).toContain("adopted: true");
     // Original content preserved
     expect(content).toContain("# My Note");
     expect(content).toContain("Some content here.");
@@ -339,11 +338,9 @@ describe("executeMigration", () => {
     expect(content).toContain("More stuff.");
   });
 
-  it("updates existing frontmatter with adopted flag without losing fields", () => {
-    fs.writeFileSync(
-      path.join(tmpDir, "existing.md"),
-      "---\ntitle: My Task\nstatus: in-progress\ntags:\n  - work\n---\n\n# My Task\nDescription here."
-    );
+  it("preserves existing frontmatter without modification", () => {
+    const original = "---\ntitle: My Task\nstatus: in-progress\ntags:\n  - work\n---\n\n# My Task\nDescription here.";
+    fs.writeFileSync(path.join(tmpDir, "existing.md"), original);
 
     const scan = scanExistingContent(tmpDir);
     const plan = buildMigrationPlan(scan);
@@ -355,20 +352,9 @@ describe("executeMigration", () => {
     });
 
     const content = fs.readFileSync(path.join(tmpDir, "existing.md"), "utf-8");
-    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
 
-    expect(fmMatch).not.toBeNull();
-    const fm = parseYaml(fmMatch![1]);
-
-    // Original fields preserved
-    expect(fm.title).toBe("My Task");
-    expect(fm.status).toBe("in-progress");
-    expect(fm.tags).toEqual(["work"]);
-    // Adopted flag added
-    expect(fm.adopted).toBe(true);
-    // Body preserved
-    expect(content).toContain("# My Task");
-    expect(content).toContain("Description here.");
+    // File should be completely untouched — no adopted stamp, no rewriting
+    expect(content).toBe(original);
   });
 
   it("does not overwrite existing template files", () => {
@@ -386,11 +372,11 @@ describe("executeMigration", () => {
 
     const content = fs.readFileSync(path.join(tmpDir, "workspace.md"), "utf-8");
 
-    // Should still have the original content (with adopted flag added)
+    // Should still have the original content
     expect(content).toContain("My Vault");
   });
 
-  it("generates an index from adopted content", () => {
+  it("generates an index of migrated content", () => {
     fs.writeFileSync(path.join(tmpDir, "notes.md"), "# Notes\nSome notes.");
     fs.writeFileSync(
       path.join(tmpDir, "task-1.md"),
@@ -409,6 +395,7 @@ describe("executeMigration", () => {
     // Index file should be created
     expect(fs.existsSync(path.join(tmpDir, "wiki", "index.md"))).toBe(true);
     const index = fs.readFileSync(path.join(tmpDir, "wiki", "index.md"), "utf-8");
+    expect(index).toContain("Migrated Content Index");
     expect(index).toContain("notes.md");
     expect(index).toContain("task-1.md");
   });
@@ -429,5 +416,84 @@ describe("executeMigration", () => {
     expect(result.filesCreated.length).toBeGreaterThan(0);
     expect(result.dirsCreated.length).toBeGreaterThan(0);
     expect(result.filesAdopted).toContain("note.md");
+  });
+
+  it("does not stamp adopted: true on files without frontmatter", () => {
+    fs.writeFileSync(path.join(tmpDir, "my-note.md"), "# My Note\n\nSome content here.");
+
+    const scan = scanExistingContent(tmpDir);
+    const plan = buildMigrationPlan(scan);
+
+    executeMigration(plan, {
+      name: "Test Workspace",
+      purpose: "Testing",
+      targetDir: tmpDir,
+    });
+
+    const content = fs.readFileSync(path.join(tmpDir, "my-note.md"), "utf-8");
+    expect(content).toContain("title: my-note");
+    expect(content).not.toContain("adopted");
+    expect(content).not.toContain("adopted_date");
+  });
+
+  it("does not stamp adopted: true on files with existing frontmatter", () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "existing.md"),
+      "---\ntitle: My Task\nstatus: in-progress\ntags:\n  - work\n---\n\n# My Task\nDescription here."
+    );
+
+    const scan = scanExistingContent(tmpDir);
+    const plan = buildMigrationPlan(scan);
+
+    executeMigration(plan, {
+      name: "Test Workspace",
+      purpose: "Testing",
+      targetDir: tmpDir,
+    });
+
+    const content = fs.readFileSync(path.join(tmpDir, "existing.md"), "utf-8");
+    expect(content).not.toContain("adopted");
+    expect(content).not.toContain("adopted_date");
+  });
+
+  it("preserves existing well-formed frontmatter untouched", () => {
+    const original = "---\ntitle: My Task\nstatus: in-progress\ntags:\n  - work\n---\n\n# My Task\nDescription here.";
+    fs.writeFileSync(path.join(tmpDir, "existing.md"), original);
+
+    const scan = scanExistingContent(tmpDir);
+    const plan = buildMigrationPlan(scan);
+
+    executeMigration(plan, {
+      name: "Test Workspace",
+      purpose: "Testing",
+      targetDir: tmpDir,
+    });
+
+    const content = fs.readFileSync(path.join(tmpDir, "existing.md"), "utf-8");
+    // File should be completely untouched
+    expect(content).toBe(original);
+  });
+
+  it("generates migrated content index without adopted references", () => {
+    fs.writeFileSync(path.join(tmpDir, "notes.md"), "# Notes\nSome notes.");
+    fs.writeFileSync(
+      path.join(tmpDir, "task-1.md"),
+      "---\ntitle: Task One\nstatus: in-progress\n---\n\n# Task One"
+    );
+
+    const scan = scanExistingContent(tmpDir);
+    const plan = buildMigrationPlan(scan);
+
+    executeMigration(plan, {
+      name: "Test Workspace",
+      purpose: "Testing",
+      targetDir: tmpDir,
+    });
+
+    const index = fs.readFileSync(path.join(tmpDir, "wiki", "index.md"), "utf-8");
+    expect(index).toContain("Migrated Content Index");
+    expect(index).not.toContain("Adopted");
+    expect(index).toContain("notes.md");
+    expect(index).toContain("task-1.md");
   });
 });

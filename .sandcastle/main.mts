@@ -56,7 +56,6 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   const plan = await sandcastle.run({
     hooks,
-    copyToSandbox,
     sandbox: docker(),
     name: "planner",
     // One iteration is enough: the planner just needs to read and reason,
@@ -180,7 +179,6 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   await sandcastle.run({
     hooks,
-    copyToSandbox,
     sandbox: docker(),
     name: "merger",
     maxIterations: 10,

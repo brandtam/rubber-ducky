@@ -49,7 +49,35 @@ git branch --no-merged <feature-branch> | grep "sandcastle/claude-code"
 
 For each, check what's on them that's not on the feature branch.
 
-### 4. Audit database migration consistency
+### 4. Check for Sandcastle side effects
+
+Sandcastle may modify local git configuration during runs (e.g., embedding access tokens in remote URLs so Docker containers can push branches). Verify these haven't been left behind:
+
+```bash
+# Check if the git remote URL has credentials embedded
+git remote -v
+```
+
+If the remote URL contains `x-access-token:` or any token/password, flag it:
+
+```
+⚠️ Git remote URL contains embedded credentials:
+  origin  https://x-access-token:ghp_XXXX@github.com/org/repo.git
+
+This was likely set by Sandcastle for container auth. Fix with:
+  git remote set-url origin https://github.com/org/repo.git
+```
+
+Also check for any leftover Sandcastle worktree state:
+
+```bash
+# Check for stale worktrees
+git worktree list
+```
+
+If there are worktrees beyond the main one, note them — they may be leftover from failed Sandcastle runs.
+
+### 5. Audit database migration consistency
 
 Sandcastle runs multiple agents concurrently in separate Docker containers. Each agent may generate Drizzle migrations independently. Since they all start from the same base state, they produce migrations with the **same sequence number** (e.g., two agents both generate `0003_*.sql`). When merged, this creates conflicts in the Drizzle journal and snapshot metadata.
 
@@ -128,7 +156,7 @@ Read each migration and verify:
 - **Indexes exist** — any new indexes defined in the schema should appear in a migration
 - **No DROP without intention** — watch for accidental column drops (can happen when two agents modify the same table and one agent's migration doesn't know about the other's new column)
 
-### 5. Verify user stories against code
+### 6. Verify user stories against code
 
 For each user story group in the PRD, verify the implementation actually exists in the codebase. Don't just trust that a closed issue means the code is there.
 
@@ -148,7 +176,7 @@ Focus on **high-value checks**:
 
 Don't exhaustively test every detail — look for the smoking guns that indicate a user story was or wasn't implemented.
 
-### 6. Check for implementation gaps not covered by issues
+### 7. Check for implementation gaps not covered by issues
 
 Some PRD requirements may not have had a dedicated issue created. Scan the PRD for:
 
@@ -156,7 +184,7 @@ Some PRD requirements may not have had a dedicated issue created. Scan the PRD f
 - User stories that aren't covered by any child issue's "User stories addressed" section
 - Infrastructure or migration steps described in the PRD that may have been assumed but not tracked
 
-### 7. Present findings
+### 8. Present findings
 
 Organize findings into four categories:
 
@@ -189,11 +217,19 @@ For each user story where code evidence is missing:
 - Whether a closed issue claims to cover it
 - Possible explanations (might be in an unmerged branch, might never have been built, might be covered by a different mechanism)
 
+#### 🟠 Sandcastle side effects (if any)
+
+For each side effect found:
+
+- What changed (e.g., embedded credentials in git remote URL, stale worktrees)
+- The fix command
+- Whether it affects security (credential exposure) or just cleanup (stale worktrees)
+
 #### 🟢 Verified complete
 
 Summary count of user stories confirmed in code.
 
-### 8. Recommend actions
+### 9. Recommend actions
 
 For each gap found, recommend:
 
@@ -213,7 +249,7 @@ Suggest an order of operations when multiple actions are needed. Typically:
 
 Ask the user how to proceed with each gap.
 
-### 9. Fix all findings
+### 10. Fix all findings
 
 **Do not stop at reporting.** Every issue surfaced in steps 3–8 must be resolved before the verification is complete. This includes cosmetic issues (trailing commas in JSON, duplicate object properties), not just functional gaps. Treat the findings like a code review checklist — iterate through each one, fix it, and confirm the fix.
 

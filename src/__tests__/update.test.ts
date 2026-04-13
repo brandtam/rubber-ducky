@@ -286,7 +286,6 @@ describe("scanWorkspace", () => {
       "purpose: testing",
       "version: 0.1.0",
       "created: 2026-04-12",
-      "cli_mode: true",
       "backends:",
       "  - type: github",
       "    mcp_server: github",
@@ -658,5 +657,200 @@ describe("ticket-writer agent template", () => {
     const t = getTemplate();
     // Ticket writer drafts content but does not write to backends
     expect(t.content).toMatch(/draft|generate|produce/i);
+  });
+});
+
+describe("asap-process skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/asap-process.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("presents the ASAP list and offers act/convert/defer/dismiss for each item", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/ASAP/i);
+    expect(t.content).toMatch(/act/i);
+    expect(t.content).toMatch(/convert/i);
+    expect(t.content).toMatch(/defer/i);
+    expect(t.content).toMatch(/dismiss/i);
+  });
+
+  it("calls appropriate CLI commands for task creation and resolution", () => {
+    const t = getTemplate();
+    expect(t.content).toContain("rubber-ducky page create task");
+    expect(t.content).toContain("rubber-ducky asap resolve");
+  });
+
+  it("uses rubber-ducky asap list to load items", () => {
+    const t = getTemplate();
+    expect(t.content).toContain("rubber-ducky asap list --json");
+  });
+
+  it("uses integer index for asap resolve, not slugs", () => {
+    const t = getTemplate();
+    expect(t.content).toContain("rubber-ducky asap resolve <index>");
+  });
+
+  it("can be stopped partway through without losing progress", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/stop|partway|resume|progress/i);
+  });
+});
+
+describe("ubiquitous-language skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/ubiquitous-language.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("scans for undefined terms and proposes additions", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/UBIQUITOUS_LANGUAGE\.md/);
+    expect(t.content).toMatch(/scan/i);
+    expect(t.content).toMatch(/propos|suggest/i);
+  });
+
+  it("writes additions only after user confirmation", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/confirm/i);
+  });
+
+  it("supports brands, teams, and labels table format", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/brands/i);
+    expect(t.content).toMatch(/teams/i);
+    expect(t.content).toMatch(/labels/i);
+  });
+});
+
+describe("grill-me skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/grill-me.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("is domain-agnostic", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/domain.agnostic|any (kind of )?plan|technical|business|PRD/i);
+  });
+
+  it("challenges assumptions and surfaces risks", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/assumption/i);
+    expect(t.content).toMatch(/risk/i);
+  });
+
+  it("is concise (behavioral prompt, not multi-step workflow)", () => {
+    const t = getTemplate();
+    // Should not have numbered Step sections like workflow skills
+    expect(t.content).not.toMatch(/### Step \d/);
+  });
+});
+
+describe("research-partner agent template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/agents/research-partner.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("returns synthesized answers with source citations", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/source|citation/i);
+    expect(t.content).toMatch(/synthe/i);
+  });
+
+  it("is read-only within the workspace", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/read.only/i);
+  });
+
+  it("uses web search and documentation reading", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/web.*search|search.*web/i);
+    expect(t.content).toMatch(/documentation/i);
+  });
+});
+
+describe("wrap-up vocabulary check", () => {
+  function getWrapUpTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/wrap-up.md"
+    )!;
+  }
+
+  it("includes a vocabulary-check step after daily summary", () => {
+    const wu = getWrapUpTemplate();
+    expect(wu.content).toMatch(/UBIQUITOUS_LANGUAGE\.md/);
+    expect(wu.content).toMatch(/vocabulary|term/i);
+  });
+
+  it("vocabulary step is non-blocking", () => {
+    const wu = getWrapUpTemplate();
+    expect(wu.content).toMatch(/non.blocking|optional|decline|skip/i);
+  });
+});
+
+describe("link skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/link.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("accepts two task references and a relationship type", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/two|both|pair/i);
+    expect(t.content).toMatch(/blocks|relates|duplicates/i);
+  });
+
+  it("identifies the backend from task references", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/backend/i);
+    expect(t.content).toMatch(/gh_ref|jira_ref|asana_ref/i);
+  });
+
+  it("creates the relationship in the external system", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/relationship|link/i);
+  });
+
+  it("updates both wiki task pages to reflect the new relationship", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/both.*wiki|both.*task|update.*both/i);
+  });
+
+  it("requires write-back safety: preview before confirmation", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/preview/i);
+    expect(t.content).toMatch(/confirm/i);
+  });
+
+  it("requires audit logging", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/log/i);
   });
 });

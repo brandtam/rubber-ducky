@@ -268,7 +268,7 @@ async function runInteractive(directory: string | undefined): Promise<void> {
       clack.log.info(
         `Migration plan:\n` +
         `  ${chalk.green(String(migrationPlan.filesToAddFrontmatter.length))} file(s) will get frontmatter added\n` +
-        `  ${chalk.green(String(migrationPlan.filesToUpdateFrontmatter.length))} file(s) will get frontmatter updated\n` +
+        `  ${chalk.green(String(migrationPlan.filesToUpdateFrontmatter.length))} file(s) with existing frontmatter will be preserved\n` +
         `  ${chalk.green(String(migrationPlan.dirsToCreate.length))} directories will be created\n` +
         `  ${chalk.green(String(migrationPlan.templateFilesToCreate.length))} template file(s) will be created`
       );
@@ -298,7 +298,8 @@ async function runInteractive(directory: string | undefined): Promise<void> {
       const noteLines = [
         `${chalk.bold("Directories created:")} ${result.dirsCreated.join(", ") || "none"}`,
         `${chalk.bold("Files created:")} ${result.filesCreated.join(", ") || "none"}`,
-        `${chalk.bold("Files adopted:")} ${result.filesAdopted?.length ?? 0}`,
+        `${chalk.bold("Files migrated:")} ${result.filesAdopted?.length ?? 0}`,
+        ...(result.claudeMdBackedUp ? [`${chalk.bold("CLAUDE.md backup:")} CLAUDE.md.backup (original preserved)`] : []),
         "",
         chalk.bold("Next steps:"),
         `  1. Open ${chalk.cyan(fullPath)} as a vault in Obsidian`,
@@ -308,7 +309,7 @@ async function runInteractive(directory: string | undefined): Promise<void> {
       ];
 
       clack.note(noteLines.join("\n"), result.workspacePath);
-      clack.outro(chalk.green("Done! Your workspace is ready with adopted content."));
+      clack.outro(chalk.green("Done! Your workspace is ready with migrated content."));
     } catch (error) {
       spinner.stop("Failed!");
       clack.log.error(
@@ -406,10 +407,11 @@ async function runNonInteractive(
           filesCreated: result.filesCreated,
           dirsCreated: result.dirsCreated,
           filesAdopted: result.filesAdopted,
+          claudeMdBackedUp: result.claudeMdBackedUp,
         },
         {
           json: jsonMode,
-          humanReadable: `Workspace migrated at ${result.workspacePath} (${result.filesAdopted?.length ?? 0} files adopted)`,
+          humanReadable: `Workspace migrated at ${result.workspacePath} (${result.filesAdopted?.length ?? 0} files migrated)`,
         }
       );
       console.log(output);

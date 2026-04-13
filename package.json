@@ -1,5 +1,23 @@
 {
   "name": "rubber-ducky",
+  "author": "Brandt Milczewski",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/brandtam/rubber-ducky"
+  },
+  "homepage": "https://github.com/brandtam/rubber-ducky",
+  "bugs": {
+    "url": "https://github.com/brandtam/rubber-ducky/issues"
+  },
+  "keywords": [
+    "ai",
+    "assistant",
+    "cli",
+    "obsidian",
+    "claude code",
+    "llm wiki"
+  ],
   "version": "0.1.0",
   "description": "AI-assisted work log & second brain CLI",
   "type": "module",

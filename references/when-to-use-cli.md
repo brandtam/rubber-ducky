@@ -75,11 +75,3 @@ Ask these questions:
 3. **Is it a new operation on an existing page type?** Probably CLI — add a subcommand.
 4. **Is it a new workflow that combines multiple operations?** Probably a skill — it orchestrates CLI commands + AI synthesis.
 5. **Is it something the user will want to customize or override?** Skill — the user can edit the `.claude/commands/` file.
-
-## The cli_mode toggle
-
-`workspace.md` frontmatter includes `cli_mode: true`. When set to `false`, Claude Code performs all operations directly (reading/writing files, managing frontmatter by hand) instead of calling the `rubber-ducky` CLI. This is useful for:
-
-- A/B testing whether the CLI actually helps
-- Debugging when you suspect the CLI is causing an issue
-- Working in environments where the CLI isn't installed
