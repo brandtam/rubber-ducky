@@ -15,6 +15,7 @@ Always run `git diff HEAD` and `git status` fresh — never reuse results from e
 - Use clear, concise language in the imperative mood ("Add X", "Extract Y", "Update Z")
 - Group related changes into single bullets rather than listing every file touched
 - Omit intermediate steps, failed approaches, and iterative fixes — only describe what the code does now
+- Do NOT describe corrections to things that were never committed. If a value was wrong in the working tree but never made it into git history, the commit message should describe the current (correct) state, not "fix X to Y." The reader has no context for what X was.
 - Keep it to 8-15 bullets for a large change, fewer for small ones
 - Always run `git diff HEAD` and `git status` fresh on every invocation — never reuse results from earlier in the conversation, even if it looks like nothing changed
 - NEVER commit yourself. Never run git commit. Never run git -C. I will want to review the message that you generate and decide if i want to use it on the commit that I create when I'm ready.
