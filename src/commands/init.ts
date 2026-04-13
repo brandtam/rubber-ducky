@@ -343,6 +343,21 @@ async function runInteractive(directory: string | undefined): Promise<void> {
 
     if (backends.length > 0) {
       notes.push(`${chalk.bold("Backends:")} ${backends.map((b) => b.type).join(", ")}`);
+      notes.push(
+        "",
+        chalk.bold("Backend setup:"),
+      );
+      for (const b of backends) {
+        if (b.type === "github") {
+          notes.push(`  - GitHub: Run ${chalk.cyan("gh auth login")} if you haven't already`);
+        }
+        if (b.type === "asana") {
+          notes.push(`  - Asana: Set up the Asana MCP server — see ${chalk.cyan("references/backend-setup.md")}`);
+        }
+        if (b.type === "jira") {
+          notes.push(`  - Jira: Set up the Atlassian Remote MCP server — see ${chalk.cyan("references/backend-setup.md")}`);
+        }
+      }
     }
 
     notes.push(

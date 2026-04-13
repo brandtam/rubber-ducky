@@ -186,7 +186,7 @@ export function checkGitHubConnectivity(
     return {
       authenticated: false,
       error:
-        "GitHub CLI is not authenticated. Run `gh auth login` to authenticate.",
+        "GitHub CLI is not authenticated. Run `gh auth login` to authenticate. See references/backend-setup.md for setup instructions.",
     };
   }
 }

@@ -157,6 +157,23 @@ describe("generateClaudeMd", () => {
     expect(content).toContain("rubber-ducky backend check");
   });
 
+  it("includes credential safety guardrail when backends configured", () => {
+    const content = generateClaudeMd({
+      name: "Test",
+      purpose: "Testing",
+      backends: [{ type: "asana", mcp_server: "asana" }],
+    });
+
+    expect(content).toContain("Never ask the user to paste API tokens");
+    expect(content).toContain("@references/backend-setup.md");
+  });
+
+  it("does not include credential guardrail when no backends configured", () => {
+    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+
+    expect(content).not.toContain("Never ask the user to paste API tokens");
+  });
+
   it("does not include cli_mode references", () => {
     const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
 
@@ -397,6 +414,21 @@ describe("generateBackendSkills", () => {
       expect(skill.content).toContain("author");
     }
   });
+
+  it("all generated skills include prerequisites section with credential safety", () => {
+    const backends: BackendConfig[] = [
+      { type: "github", mcp_server: "github" },
+      { type: "asana", mcp_server: "asana" },
+      { type: "jira", mcp_server: "atlassian-remote" },
+    ];
+    const skills = generateBackendSkills(backends);
+
+    for (const skill of skills) {
+      expect(skill.content).toContain("## Prerequisites");
+      expect(skill.content).toContain("@references/backend-setup.md");
+      expect(skill.content).toContain("do NOT ask for credentials");
+    }
+  });
 });
 
 describe("generateReferenceFiles", () => {
@@ -418,17 +450,18 @@ describe("generateReferenceFiles", () => {
     expect(paths).toHaveLength(2);
   });
 
-  it("includes github ticket template when github backend configured", () => {
+  it("includes github ticket template and backend-setup when github backend configured", () => {
     const backends: BackendConfig[] = [{ type: "github", mcp_server: "github" }];
     const refs = generateReferenceFiles(backends);
     const paths = refs.map((r) => r.path);
 
     expect(paths).toContain("references/github-ticket-template.md");
+    expect(paths).toContain("references/backend-setup.md");
     expect(paths).not.toContain("references/jira-ticket-template.md");
     expect(paths).not.toContain("references/asana-ticket-template.md");
   });
 
-  it("includes jira ticket template when jira backend configured", () => {
+  it("includes jira ticket template and backend-setup when jira backend configured", () => {
     const backends: BackendConfig[] = [
       { type: "jira", mcp_server: "atlassian-remote", server_url: "https://example.atlassian.net" },
     ];
@@ -436,16 +469,18 @@ describe("generateReferenceFiles", () => {
     const paths = refs.map((r) => r.path);
 
     expect(paths).toContain("references/jira-ticket-template.md");
+    expect(paths).toContain("references/backend-setup.md");
     expect(paths).not.toContain("references/github-ticket-template.md");
     expect(paths).not.toContain("references/asana-ticket-template.md");
   });
 
-  it("includes asana ticket template when asana backend configured", () => {
+  it("includes asana ticket template and backend-setup when asana backend configured", () => {
     const backends: BackendConfig[] = [{ type: "asana", mcp_server: "asana" }];
     const refs = generateReferenceFiles(backends);
     const paths = refs.map((r) => r.path);
 
     expect(paths).toContain("references/asana-ticket-template.md");
+    expect(paths).toContain("references/backend-setup.md");
   });
 
   it("includes all ticket templates when all backends configured", () => {
@@ -457,9 +492,10 @@ describe("generateReferenceFiles", () => {
     const refs = generateReferenceFiles(backends);
     const paths = refs.map((r) => r.path);
 
-    expect(paths).toHaveLength(5);
+    expect(paths).toHaveLength(6);
     expect(paths).toContain("references/frontmatter-templates.md");
     expect(paths).toContain("references/when-to-use-cli.md");
+    expect(paths).toContain("references/backend-setup.md");
     expect(paths).toContain("references/github-ticket-template.md");
     expect(paths).toContain("references/jira-ticket-template.md");
     expect(paths).toContain("references/asana-ticket-template.md");
@@ -513,5 +549,39 @@ describe("generateReferenceFiles", () => {
     const cli = refs.find((r) => r.path === "references/when-to-use-cli.md")!;
 
     expect(cli.content).not.toContain("cli_mode");
+  });
+
+  it("backend-setup reference includes sections for each configured backend", () => {
+    const backends: BackendConfig[] = [
+      { type: "github", mcp_server: "github" },
+      { type: "asana", mcp_server: "asana" },
+      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://example.atlassian.net" },
+    ];
+    const refs = generateReferenceFiles(backends);
+    const setup = refs.find((r) => r.path === "references/backend-setup.md")!;
+
+    expect(setup.content).toContain("## GitHub");
+    expect(setup.content).toContain("## Asana");
+    expect(setup.content).toContain("## Jira");
+    expect(setup.content).toContain("Never paste API tokens");
+  });
+
+  it("backend-setup reference only includes configured backends", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", mcp_server: "asana" },
+    ];
+    const refs = generateReferenceFiles(backends);
+    const setup = refs.find((r) => r.path === "references/backend-setup.md")!;
+
+    expect(setup.content).toContain("## Asana");
+    expect(setup.content).not.toContain("## GitHub");
+    expect(setup.content).not.toContain("## Jira");
+  });
+
+  it("backend-setup reference is not generated when no backends configured", () => {
+    const refs = generateReferenceFiles();
+    const paths = refs.map((r) => r.path);
+
+    expect(paths).not.toContain("references/backend-setup.md");
   });
 });

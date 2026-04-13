@@ -373,7 +373,7 @@ export function checkAsanaConnectivity(mcp?: McpCall): ConnectivityResult {
     return {
       authenticated: false,
       error:
-        "Asana MCP server is not configured. Ensure the Asana MCP server is running.",
+        "Asana MCP server is not configured. Ensure the Asana MCP server is running. See references/backend-setup.md for setup instructions.",
     };
   }
 
@@ -387,7 +387,7 @@ export function checkAsanaConnectivity(mcp?: McpCall): ConnectivityResult {
     return {
       authenticated: false,
       error:
-        "Asana MCP server is not responding. Ensure the Asana MCP server is running and authenticated.",
+        "Asana MCP server is not responding. Ensure the Asana MCP server is running and authenticated. See references/backend-setup.md for setup instructions.",
     };
   }
 }

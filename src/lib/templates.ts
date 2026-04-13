@@ -65,7 +65,7 @@ See \`rubber-ducky doctor\` to verify configuration.
 export function generateClaudeMd(opts: TemplateOptions): string {
   const backendNames = (opts.backends ?? []).map((b) => b.type);
   const backendSection = backendNames.length > 0
-    ? `\nConfigured backends: ${backendNames.join(", ")}. Check connectivity with \`rubber-ducky backend check\`.\n`
+    ? `\nConfigured backends: ${backendNames.join(", ")}. Check connectivity with \`rubber-ducky backend check\`.\n\n**IMPORTANT: Never ask the user to paste API tokens, passwords, or credentials into the chat.** If a backend connectivity check fails, refer the user to @references/backend-setup.md for setup instructions.\n`
     : "";
 
   return `# ${opts.name}
@@ -233,6 +233,13 @@ Ingest a GitHub issue or pull request into the wiki as a task page with full fie
 /ingest-github <issue-or-pr-number>
 \`\`\`
 
+## Prerequisites
+
+- The \`gh\` CLI must be installed and authenticated (\`gh auth login\`)
+- Verify with: \`rubber-ducky backend check github\`
+- See @references/backend-setup.md for full setup instructions
+- **If connectivity fails, do NOT ask for credentials — refer the user to the setup guide.**
+
 ## Steps
 
 1. **Verify connectivity.** Run \`rubber-ducky backend check github\`.
@@ -297,6 +304,13 @@ ${workspaceIdNote}## Usage
 \`\`\`
 /ingest-asana <task-id-or-url>
 \`\`\`
+
+## Prerequisites
+
+- The Asana MCP server must be configured and running in Claude Code
+- Verify with: \`rubber-ducky backend check asana\`
+- See @references/backend-setup.md for full setup instructions
+- **If connectivity fails, do NOT ask for credentials — refer the user to the setup guide.**
 
 ## Steps
 
@@ -366,6 +380,13 @@ ${configNotes}## Usage
 
 Example: \`/ingest-jira WEB-288\`
 
+## Prerequisites
+
+- The Atlassian Remote MCP server must be configured and running in Claude Code
+- Verify with: \`rubber-ducky backend check jira\`
+- See @references/backend-setup.md for full setup instructions
+- **If connectivity fails, do NOT ask for credentials — refer the user to the setup guide.**
+
 ## Steps
 
 1. **Verify connectivity.** Run \`rubber-ducky backend check jira\`.
@@ -425,6 +446,13 @@ export function generateReferenceFiles(
   ];
 
   const backendTypes = (backends ?? []).map((b) => b.type);
+
+  if (backendTypes.length > 0) {
+    files.push({
+      path: "references/backend-setup.md",
+      content: generateBackendSetupRef(backends!),
+    });
+  }
 
   if (backendTypes.includes("github")) {
     files.push({
@@ -764,6 +792,117 @@ Asana maps status via the task's **section** within a project and the **complete
 | done | Completed = true |
 | deferred | Section: Later / Deferred |
 `;
+}
+
+function generateBackendSetupRef(backends: BackendConfig[]): string {
+  const backendTypes = backends.map((b) => b.type);
+  const sections: string[] = [];
+
+  sections.push(`# Backend Setup
+
+How to install, authenticate, and verify each configured backend.
+Reference this file with \`@references/backend-setup.md\` in skills and agents.
+
+> **Never paste API tokens, passwords, or credentials into the Claude Code chat.**
+> All credentials belong in MCP server configuration or CLI auth — not in conversation.
+
+## Adding MCP servers to Claude Code
+
+Claude Code has a built-in CLI for managing MCP servers:
+
+\`\`\`bash
+# Add a remote MCP server (HTTP or SSE transport)
+claude mcp add --transport sse <name> <url>
+claude mcp add --transport http <name> <url>
+
+# Add a local MCP server (stdio transport)
+claude mcp add --transport stdio <name> -- <command> [args...]
+
+# List configured servers
+claude mcp list
+
+# Check server status inside Claude Code
+/mcp
+\`\`\`
+
+Use \`--scope\` to control where the config is stored:
+- \`local\` (default) — private to you in this project
+- \`project\` — shared via \`.mcp.json\` in version control
+- \`user\` — available across all your projects
+`);
+
+  if (backendTypes.includes("github")) {
+    sections.push(`## GitHub
+
+GitHub uses the \`gh\` CLI directly — no MCP server needed.
+
+### Install
+
+Install the GitHub CLI: https://cli.github.com/
+
+### Authenticate
+
+\`\`\`bash
+gh auth login
+\`\`\`
+
+Follow the interactive prompts to authenticate via browser or token.
+
+### Verify
+
+\`\`\`bash
+gh auth status
+rubber-ducky backend check github
+\`\`\`
+`);
+  }
+
+  if (backendTypes.includes("asana")) {
+    sections.push(`## Asana
+
+Asana connects via a remote MCP server with OAuth. Add it using the Claude Code CLI:
+
+\`\`\`bash
+claude mcp add --transport sse asana https://mcp.asana.com/sse
+\`\`\`
+
+### Authenticate
+
+After adding the server, open Claude Code and run \`/mcp\`. Claude Code will walk you through OAuth authentication with Asana in your browser.
+
+### Verify
+
+\`\`\`bash
+rubber-ducky backend check asana
+\`\`\`
+`);
+  }
+
+  if (backendTypes.includes("jira")) {
+    const serverUrl = backends.find((b) => b.type === "jira")?.server_url;
+    const serverNote = serverUrl ? `Configured Jira instance: \`${serverUrl}\`\n\n` : "";
+
+    sections.push(`## Jira
+
+Jira connects via the Atlassian Remote MCP server with OAuth. Add it using the Claude Code CLI:
+
+${serverNote}\`\`\`bash
+claude mcp add --transport sse atlassian-remote https://mcp.atlassian.com/v1/sse
+\`\`\`
+
+### Authenticate
+
+After adding the server, open Claude Code and run \`/mcp\`. Claude Code will walk you through OAuth authentication with Atlassian in your browser.
+
+### Verify
+
+\`\`\`bash
+rubber-ducky backend check jira
+\`\`\`
+`);
+  }
+
+  return sections.join("\n");
 }
 
 function generateWhenToUseCliRef(): string {
