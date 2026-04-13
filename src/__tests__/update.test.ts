@@ -799,3 +799,48 @@ describe("wrap-up vocabulary check", () => {
     expect(wu.content).toMatch(/non.blocking|optional|decline|skip/i);
   });
 });
+
+describe("link skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/link.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("accepts two task references and a relationship type", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/two|both|pair/i);
+    expect(t.content).toMatch(/blocks|relates|duplicates/i);
+  });
+
+  it("identifies the backend from task references", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/backend/i);
+    expect(t.content).toMatch(/gh_ref|jira_ref|asana_ref/i);
+  });
+
+  it("creates the relationship in the external system", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/relationship|link/i);
+  });
+
+  it("updates both wiki task pages to reflect the new relationship", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/both.*wiki|both.*task|update.*both/i);
+  });
+
+  it("requires write-back safety: preview before confirmation", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/preview/i);
+    expect(t.content).toMatch(/confirm/i);
+  });
+
+  it("requires audit logging", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/log/i);
+  });
+});

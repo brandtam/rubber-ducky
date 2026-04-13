@@ -69,6 +69,7 @@ function createWorkspace(tmpDir: string): void {
   fs.writeFileSync(path.join(tmpDir, ".claude/commands/asap-process.md"), "# ASAP Process\n", "utf-8");
   fs.writeFileSync(path.join(tmpDir, ".claude/commands/ubiquitous-language.md"), "# Ubiquitous Language\n", "utf-8");
   fs.writeFileSync(path.join(tmpDir, ".claude/commands/grill-me.md"), "# Grill Me\n", "utf-8");
+  fs.writeFileSync(path.join(tmpDir, ".claude/commands/link.md"), "# Link\n", "utf-8");
 
   // Agent files
   fs.mkdirSync(path.join(tmpDir, ".claude", "agents"), { recursive: true });

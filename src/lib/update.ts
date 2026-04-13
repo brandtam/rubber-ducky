@@ -1036,6 +1036,112 @@ A series of pointed questions and challenges. Keep responses focused — one or 
       description: "Grill-me skill — challenge thinking and stress-test plans",
     },
     {
+      relativePath: ".claude/commands/link.md",
+      content: `# Link
+
+Create a same-backend relationship between two tickets and reflect the link in both wiki task pages.
+
+## Arguments
+
+\`$ARGUMENTS\` — Two task references and a relationship type: \`<ref-a> <ref-b> <relationship>\`
+
+Examples:
+- \`wiki/tasks/fix-login-bug.md wiki/tasks/auth-rewrite.md blocks\`
+- \`WEB-288 WEB-291 blocks\`
+- \`owner/repo#12 owner/repo#15 relates-to\`
+
+Supported relationship types: **blocks**, **blocked-by**, **relates-to**, **duplicates**, **duplicated-by**
+
+If \`$ARGUMENTS\` is empty, ask the user to provide two task references and a relationship type.
+
+## Behavior
+
+### Step 1 — Parse arguments
+
+Extract the two task references and the relationship type from \`$ARGUMENTS\`. If any are missing, prompt the user.
+
+### Step 2 — Resolve wiki task pages
+
+For each reference, find the corresponding wiki task page:
+- If the reference is a wiki path (e.g., \`wiki/tasks/foo.md\`), read it directly.
+- If the reference is a backend key (e.g., \`WEB-288\` or \`owner/repo#12\`), scan \`wiki/tasks/\` for a task page with a matching \`jira_ref\`, \`gh_ref\`, or \`asana_ref\` in frontmatter.
+
+If a wiki page cannot be found for a reference, inform the user and stop.
+
+### Step 3 — Identify the backend
+
+Both tasks must share the same backend. Read the backend reference from each wiki task page (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`).
+
+If the tasks use different backends or have no backend reference, inform the user: "Both tasks must have a backend reference in the same system to create a link."
+
+Read \`workspace.md\` to confirm the backend is configured.
+
+### Step 4 — Show write-back preview
+
+**MANDATORY**: Before executing ANY external write, show a structured preview:
+
+\`\`\`
+Action:  link
+Backend: <backend-name>
+Source:  <ref-a>
+Target:  <ref-b>
+Type:    <relationship>
+\`\`\`
+
+Ask the user to confirm: "Create this link? (yes/no)"
+
+**Do NOT proceed without explicit confirmation.**
+
+### Step 5 — Create the relationship in the backend
+
+Only after confirmation, use the appropriate backend API:
+
+**GitHub**: Add a cross-reference comment on both issues:
+\`\`\`
+gh issue comment <number-a> --body "Related: <relationship> #<number-b>"
+gh issue comment <number-b> --body "Related: <inverse-relationship> #<number-a>"
+\`\`\`
+
+**Jira**: Use the Atlassian Remote MCP to create an issue link:
+- Link type: map relationship to Jira link type (blocks → Blocks, relates-to → Relates, duplicates → Duplicate)
+- Inward issue: ref-a
+- Outward issue: ref-b
+
+**Asana**: Use the Asana MCP to set a dependency:
+- blocks/blocked-by → \`addDependency\` / \`addDependent\`
+- relates-to → add a comment on both tasks noting the relationship
+- duplicates → mark as duplicate if supported, otherwise comment
+
+### Step 6 — Update both wiki task pages
+
+Add a \`## Relationships\` section (or append to it if it already exists) on both task pages:
+
+For ref-a:
+\`\`\`
+- <relationship> [[wiki/tasks/<ref-b-slug>.md|<ref-b-title>]]
+\`\`\`
+
+For ref-b (inverse relationship):
+\`\`\`
+- <inverse-relationship> [[wiki/tasks/<ref-a-slug>.md|<ref-a-title>]]
+\`\`\`
+
+Inverse mapping:
+- blocks ↔ blocked-by
+- relates-to ↔ relates-to
+- duplicates ↔ duplicated-by
+
+### Step 7 — Log and rebuild
+
+1. Append an audit entry to \`wiki/log.md\`:
+   \`\`\`
+   rubber-ducky log append "[write-back] link → <backend> (<ref-a> <relationship> <ref-b>)"
+   \`\`\`
+2. Run \`rubber-ducky index rebuild\` to update the index
+`,
+      description: "Link skill — create same-backend relationships between tickets",
+    },
+    {
       relativePath: ".claude/agents/research-partner.md",
       content: `# Research Partner
 
