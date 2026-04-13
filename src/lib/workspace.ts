@@ -165,6 +165,14 @@ export async function migrateWorkspace(opts: WorkspaceOptions): Promise<Workspac
     fs.writeFileSync(templatePath, template.content, "utf-8");
   }
 
+  // Generate backend-specific skill files (same as createWorkspace)
+  const skills = generateBackendSkills(opts.backends);
+  for (const skill of skills) {
+    const skillPath = path.join(targetDir, skill.path);
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.writeFileSync(skillPath, skill.content, "utf-8");
+  }
+
   // Generate reference files (same as createWorkspace)
   const refs = generateReferenceFiles(opts.backends);
   for (const ref of refs) {
@@ -180,7 +188,7 @@ export async function migrateWorkspace(opts: WorkspaceOptions): Promise<Workspac
 
   return {
     workspacePath: result.workspacePath,
-    filesCreated: [...result.filesCreated, ...bundled.map((t) => t.relativePath), ...refs.map((r) => r.path), ".claude/settings.json"],
+    filesCreated: [...result.filesCreated, ...bundled.map((t) => t.relativePath), ...skills.map((s) => s.path), ...refs.map((r) => r.path), ".claude/settings.json"],
     dirsCreated: result.dirsCreated,
     filesAdopted: result.filesAdopted,
     migrated: true,
