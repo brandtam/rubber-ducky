@@ -176,7 +176,6 @@ export interface WorkspaceConfig {
   purpose: string;
   version: string;
   created: string;
-  cli_mode: boolean;
   backends: BackendConfig[];
   workspaceRoot: string;
 }
@@ -228,7 +227,6 @@ export function loadWorkspaceConfig(workspaceRoot: string): WorkspaceConfig {
     purpose: frontmatter.purpose,
     version: frontmatter.version,
     created: frontmatter.created,
-    cli_mode: frontmatter.cli_mode ?? true,
     backends: frontmatter.backends ?? [],
     workspaceRoot,
   };

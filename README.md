@@ -144,15 +144,6 @@ Every workspace includes a `references/` directory with shared templates that Cl
 
 These keep Claude Code's instructions DRY — the CLAUDE.md file stays concise and points to references when it needs detailed schemas or formatting rules. You can edit the reference files to customize how Claude formats content for your specific systems.
 
-### The cli_mode toggle
-
-`workspace.md` frontmatter includes a `cli_mode` flag (default: `true`). When enabled, Claude Code uses the `rubber-ducky` CLI for mechanical operations like creating pages and updating frontmatter. Set it to `false` to have Claude Code do everything by hand — useful for A/B testing, debugging, or environments where the CLI isn't installed:
-
-```yaml
-# workspace.md frontmatter
-cli_mode: false    # Claude Code will read/write files directly instead of using the CLI
-```
-
 ## Using it day to day
 
 Your primary interface is Claude Code. You stay in a Claude Code session all day, and just talk to it. When something needs AI — synthesizing a morning brief, writing a summary — Claude does that directly. When something is mechanical — creating a page, updating a status, logging an entry — Claude runs the `rubber-ducky` CLI behind the scenes so you don't burn tokens on bookkeeping. You don't need to learn the CLI commands; Claude knows them.

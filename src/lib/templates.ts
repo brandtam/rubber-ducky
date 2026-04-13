@@ -39,7 +39,6 @@ export function generateWorkspaceMd(opts: TemplateOptions): string {
     purpose: opts.purpose,
     version: "0.1.0",
     created: new Date().toISOString().split("T")[0],
-    cli_mode: true,
     backends,
   };
 
@@ -77,9 +76,7 @@ ${opts.purpose}
 
 This is a Rubber-Ducky workspace. The user works by talking to you inside Claude Code. When they describe what they want — creating tasks, logging work, capturing ideas — you make it happen.
 
-**Check \`workspace.md\` frontmatter for \`cli_mode\`:**
-- **\`cli_mode: true\`** (default) — Use the \`rubber-ducky\` CLI commands listed below for all mechanical operations (page creation, frontmatter updates, logging). This is faster, more reliable, and preserves your context window.
-- **\`cli_mode: false\`** — Perform all operations directly by reading and writing files yourself. Do not call the \`rubber-ducky\` CLI. Same workflows, just manual execution.
+Use the \`rubber-ducky\` CLI commands listed below for all mechanical operations (page creation, frontmatter updates, logging). This is faster, more reliable, and preserves your context window.
 
 See @references/when-to-use-cli.md for the full rationale on what goes to CLI vs. what stays in Claude Code.
 
@@ -713,14 +710,6 @@ Ask these questions:
 3. **Is it a new operation on an existing page type?** Probably CLI — add a subcommand.
 4. **Is it a new workflow that combines multiple operations?** Probably a skill — it orchestrates CLI commands + AI synthesis.
 5. **Is it something the user will want to customize or override?** Skill — the user can edit the \`.claude/commands/\` file.
-
-## The cli_mode toggle
-
-\`workspace.md\` frontmatter includes \`cli_mode: true\`. When set to \`false\`, Claude Code performs all operations directly (reading/writing files, managing frontmatter by hand) instead of calling the \`rubber-ducky\` CLI. This is useful for:
-
-- A/B testing whether the CLI actually helps
-- Debugging when you suspect the CLI is causing an issue
-- Working in environments where the CLI isn't installed
 `;
 }
 

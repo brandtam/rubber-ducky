@@ -92,6 +92,15 @@ describe("generateWorkspaceMd", () => {
     expect(frontmatter.backends[0].mcp_server).toBe("asana");
     expect(frontmatter.backends[0].workspace_id).toBe("12345");
   });
+
+  it("does not include cli_mode in frontmatter", () => {
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing" });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter).not.toHaveProperty("cli_mode");
+    expect(content).not.toContain("cli_mode");
+  });
 });
 
 describe("generateClaudeMd", () => {
@@ -146,6 +155,12 @@ describe("generateClaudeMd", () => {
 
     expect(content).toContain("Configured backends: github");
     expect(content).toContain("rubber-ducky backend check");
+  });
+
+  it("does not include cli_mode references", () => {
+    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+
+    expect(content).not.toContain("cli_mode");
   });
 });
 
@@ -433,6 +448,12 @@ describe("generateReferenceFiles", () => {
 
     expect(cli.content).toContain("## The rule");
     expect(cli.content).toContain("## Decision guide");
-    expect(cli.content).toContain("cli_mode");
+  });
+
+  it("when-to-use-cli reference does not contain cli_mode toggle section", () => {
+    const refs = generateReferenceFiles();
+    const cli = refs.find((r) => r.path === "references/when-to-use-cli.md")!;
+
+    expect(cli.content).not.toContain("cli_mode");
   });
 });

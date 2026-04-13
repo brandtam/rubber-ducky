@@ -286,7 +286,6 @@ describe("scanWorkspace", () => {
       "purpose: testing",
       "version: 0.1.0",
       "created: 2026-04-12",
-      "cli_mode: true",
       "backends:",
       "  - type: github",
       "    mcp_server: github",
