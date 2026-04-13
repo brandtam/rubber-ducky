@@ -284,7 +284,7 @@ export function checkJiraConnectivity(
   } catch {
     return {
       authenticated: false,
-      error: `Cannot connect to Jira at ${serverUrl}. Ensure the atlassian-remote MCP server is configured and running.`,
+      error: `Cannot connect to Jira at ${serverUrl}. Ensure the atlassian-remote MCP server is configured and running. See references/backend-setup.md for setup instructions.`,
     };
   }
 }
