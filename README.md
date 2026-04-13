@@ -2,15 +2,17 @@
 
 An AI-assisted work log and second brain CLI, built on [Obsidian](https://obsidian.md) and [Claude Code](https://claude.ai/claude-code).
 
-The name comes from [rubber duck debugging](https://en.wikipedia.org/wiki/Rubber_duck_debugging) — the engineering technique where you explain your problem out loud to a rubber duck on your desk, and the act of articulating it helps you find the answer. Rubber-Ducky started after a shoulder surgery that took me off the keyboard. I was coding almost entirely through speech-to-text with Claude Code, and I realized I was doing the rubber duck technique all day — talking through my work, narrating decisions, thinking out loud into the microphone. It was an incredibly effective way to work, but the problem was that all of that context evaporated at the end of every conversation. This tool makes the duck remember — and unlike the one on your desk, this one actually answers back.
+**Why this exists:** When you use Claude Code with an Obsidian vault as a persistent workspace, the AI can maintain a knowledge base across sessions. But it's slow and expensive — every page creation, frontmatter update, and index rebuild burns tokens on work that doesn't need intelligence. Rubber-Ducky adds a CLI that handles the mechanical bookkeeping (50-200ms, zero tokens) and ships pre-built skills, agents, and workspace structure so you don't have to design it all yourself.
 
-Inspired by Andrej Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern — the idea that the tedious part of maintaining a knowledge base isn't the reading or thinking, it's the bookkeeping. Rubber-Ducky gives that bookkeeping to the LLM: CLI commands handle the mechanical work (creating pages, updating frontmatter, rebuilding indexes) at zero token cost, while Claude Code skills handle the intelligent work (morning briefs, end-of-day summaries, PRD authoring) using the workspace as context.
+The name comes from [rubber duck debugging](https://en.wikipedia.org/wiki/Rubber_duck_debugging). The project started after a shoulder surgery forced me off the keyboard — I was coding entirely through speech-to-text with Claude Code, narrating my work like talking to a rubber duck that actually talked back. It worked, but the context evaporated at the end of every session. That's when I discovered what Andrej Karpathy calls the [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern — using Obsidian as a persistent workspace that the AI maintains across sessions.
+
+I had such a good experience with the pattern that I decided to build a tool around it: CLI commands handle the mechanical work (creating pages, updating frontmatter, rebuilding indexes) at zero token cost, while Claude Code skills handle the intelligent work (morning briefs, end-of-day summaries, PRD authoring) using the workspace as context.
 
 The architecture follows Karpathy's three-layer model: **raw sources** (immutable, in `raw/`) → **wiki** (LLM-maintained markdown, in `wiki/`) → **schema** (configuration in `workspace.md` + `CLAUDE.md`). The operations map directly too: **ingest** external tickets into wiki pages, **query** across the wiki, and **lint** for contradictions, stale claims, and orphan pages.
 
 ## Why Obsidian
 
-Rubber-Ducky workspaces are Obsidian vaults. The workspace is plain markdown and YAML frontmatter — you *could* read it in any editor — but Obsidian turns it into something more:
+Rubber-Ducky workspaces are Obsidian vaults. The workspace is plain markdown and YAML frontmatter — you _could_ read it in any editor — but Obsidian turns it into something more:
 
 - **`[[Wikilinks]]`** — Pages cross-reference each other with `[[wikilinks]]`. Obsidian resolves these into clickable navigation and a backlinks panel, so you can see every page that references a task without searching.
 - **Graph view** — Obsidian's graph visualizes how daily logs, tasks, and projects connect. Over time the graph becomes a map of where your attention has gone.
@@ -21,29 +23,60 @@ The `init` wizard creates an `.obsidian/` directory so the workspace is ready to
 
 ## Getting started
 
-### Step 1: Install the prerequisites
+### Prerequisites
 
 You need three things installed before you start:
 
 1. **[Node.js](https://nodejs.org/) 18+** — Rubber-Ducky is a Node CLI. If you don't have Node, download the LTS version from [nodejs.org](https://nodejs.org/).
 
-2. **[Obsidian](https://obsidian.md/)** — Download and install it. You don't need to create a vault yet — Rubber-Ducky will create one for you.
+2. **[Obsidian](https://obsidian.md/)** — Download and install it. You don't need to create a vault yet — Rubber-Ducky will create one for you (or adopt your existing one).
 
-3. **[Claude Code](https://claude.ai/claude-code)** — The AI skills (`/good-morning`, `/wrap-up`, etc.) run inside Claude Code. Install it if you haven't:
+3. **[Claude Code](https://claude.ai/claude-code)** — The AI skills (`/good-morning`, `/wrap-up`, etc.) run inside Claude Code. Getting set up takes three steps:
+
+   **a) Get a Claude account.** You need either a [Claude Pro or Max](https://claude.com/pricing) subscription, or a [Claude Console](https://console.anthropic.com/) account with pre-paid credits. If you're new to Claude, sign up at [claude.com/pricing](https://claude.com/pricing).
+
+   **b) Install Claude Code.** Use the native installer (recommended — it auto-updates in the background):
+
    ```bash
-   npm install -g @anthropic-ai/claude-code
+   # macOS / Linux / WSL
+   curl -fsSL https://claude.ai/install.sh | bash
+
+   # Windows PowerShell
+   irm https://claude.ai/install.ps1 | iex
+
+   # Or via Homebrew
+   brew install --cask claude-code
    ```
 
-### Step 2: Install Rubber-Ducky
+   **c) Authenticate.** The first time you run `claude` in any directory, it will open your browser and prompt you to log in. Credentials are stored locally — you only need to do this once.
+
+   ```bash
+   claude          # opens browser login on first run
+   ```
+
+   Once you see the Claude Code prompt, you're authenticated. You can close it for now — we'll come back to it after setting up the workspace.
+
+### Install Rubber-Ducky
+
+Clone the repo and build it:
 
 ```bash
 git clone https://github.com/brandtam/rubber-ducky.git
 cd rubber-ducky
-pnpm install          # or: npm install
-pnpm build            # or: npm run build
+npm install
+npm run build
 ```
 
-Now make the `rubber-ducky` command available globally. Pick whichever matches your package manager:
+If you prefer pnpm:
+
+```bash
+git clone https://github.com/brandtam/rubber-ducky.git
+cd rubber-ducky
+pnpm install
+pnpm build
+```
+
+Now make the `rubber-ducky` command available globally so you can run it from any directory:
 
 ```bash
 # npm — works out of the box, no PATH changes needed
@@ -61,21 +94,48 @@ Verify it worked:
 rubber-ducky --version
 ```
 
-### Step 3: Create your workspace
+You should see the version number. If you get "command not found," check that the link step completed without errors.
 
-Pick a directory where you want your work log to live. This will become an Obsidian vault. Run the init wizard from wherever you want the directory created:
+### Choose your path
+
+Now that the prerequisites and CLI are installed, pick the scenario that matches your situation:
+
+- **[Scenario A: Starting fresh](#scenario-a-starting-fresh)** — You want a new work log from scratch. No existing files, no existing vault.
+- **[Scenario B: Migrating an existing vault](#scenario-b-migrating-an-existing-vault)** — You already have an Obsidian vault, markdown second brain, or work log and want to add Rubber-Ducky to it.
+
+---
+
+### Scenario A: Starting fresh
+
+You want a brand new work log. No existing files, no existing vault.
+
+#### A1. Create your workspace
+
+Pick a directory name for your work log. This will become an Obsidian vault. Run the init wizard from wherever you want the directory created:
 
 ```bash
 rubber-ducky init my-work-log
 ```
 
-The wizard asks you three things:
+The wizard walks you through four things:
 
-1. **Workspace name** — a name for your work log (e.g., "My Work Log")
-2. **Purpose** — a one-liner describing what this workspace is for (e.g., "Track daily engineering work and tasks")
-3. **Backends** — optionally connect GitHub Issues, Jira, or Asana. You can skip this and add them later. If you're just getting started, skip it.
+1. **Workspace name** — A friendly name for your work log (e.g., "My Work Log"). This appears in your `workspace.md` config file.
 
-When it finishes, you'll have a new `my-work-log/` directory:
+2. **Purpose** — A one-liner describing what this workspace is for (e.g., "Track daily engineering work and tasks"). This gives Claude Code context about your workspace.
+
+3. **Backends** — Optionally connect external tools. Use Space to select, Enter to confirm:
+   - **GitHub** — Tracks issues and PRs via the `gh` CLI. You'll be asked which repos to track (e.g., `myorg/project-a`).
+   - **Jira** — Tracks issues via the Atlassian Remote MCP server. You'll be asked for your Jira server URL (e.g., `https://myorg.atlassian.net`) and optionally a default project key.
+   - **Asana** — Tracks tasks via the Asana MCP server. You'll optionally be asked for a workspace ID.
+   - You can skip all backends and add them later by editing `workspace.md`.
+
+4. **Controlled vocabulary** — Define brands, teams, and labels for consistent metadata across your workspace. For example:
+   - Brands: `Acme Corp, Widget Co`
+   - Teams: `Frontend, Backend, DevOps`
+   - Labels: `urgent, bug, feature`
+   - Press Enter to skip any of these. You can always add terms later via the `/ubiquitous-language` skill.
+
+When the wizard finishes, you'll have a new `my-work-log/` directory:
 
 ```
 my-work-log/
@@ -94,10 +154,10 @@ my-work-log/
 │   └── log.md                   # Timestamped activity log
 ├── references/                  # Shared templates (frontmatter schemas, ticket formats)
 ├── raw/                         # Screenshots, attachments
-└── .obsidian/                   # Obsidian config (pre-created)
+└── .obsidian/                   # Obsidian vault marker (pre-created)
 ```
 
-### Step 4: Open it in Obsidian
+#### A2. Open it in Obsidian
 
 1. Open Obsidian
 2. Click **"Open folder as vault"**
@@ -105,7 +165,7 @@ my-work-log/
 
 You'll see your workspace files in the sidebar. The `wiki/` folder is where everything lives — daily logs, tasks, and projects will accumulate here as you use the tool.
 
-### Step 5: Start Claude Code in your workspace
+#### A3. Start Claude Code in your workspace
 
 Open a terminal, `cd` into your workspace, and start Claude Code:
 
@@ -116,29 +176,165 @@ claude
 
 Claude Code reads the `CLAUDE.md` file in the workspace root, which tells it about the workspace structure, conventions, and available commands. This is what makes Claude Code workspace-aware — it knows about your pages, your tasks, and your vocabulary.
 
-### Step 6: Start your first day
+#### A4. Start your first day
 
-Inside Claude Code, type:
+Inside Claude Code, say good morning (literally type it or use the slash command):
 
 ```
-/good-morning
+good morning
 ```
 
-This creates today's daily page (e.g., `wiki/daily/2026-04-12.md`), scans for any existing tasks, and gives you a prioritized morning brief. On day one it'll be mostly empty — that's fine.
+This creates today's daily page (e.g., `wiki/daily/2026-04-13.md`), scans for any existing tasks, and gives you a prioritized morning brief. On day one it'll be mostly empty — that's fine.
 
-Now you're set up. Obsidian is open showing your vault, Claude Code is running in the workspace, and you have a daily page for today.
+You're set up. Obsidian is open showing your vault, Claude Code is running in the workspace, and you have a daily page for today. Start talking to Claude about your work.
 
-### Already have an Obsidian vault?
+---
 
-If you have an existing vault with markdown notes, point `init` at it instead of creating a new directory:
+### Scenario B: Migrating an existing vault
+
+You already have an Obsidian vault, a collection of markdown notes, or an earlier version of a work log. You want to add Rubber-Ducky's structure, skills, and CLI to it without losing any of your existing content.
+
+#### B1. Make sure your existing vault is in a clean state
+
+If your vault is a git repo (recommended), commit or stash any pending changes first:
+
+```bash
+cd ~/path/to/my-vault
+git status              # check for uncommitted changes
+git add -A && git commit -m "Pre-migration snapshot"
+```
+
+This gives you a safety net. If anything goes wrong during migration, you can `git checkout .` to get back to exactly where you were.
+
+If your vault isn't a git repo, consider initializing one before migrating:
+
+```bash
+cd ~/path/to/my-vault
+git init
+git add -A && git commit -m "Pre-migration snapshot"
+```
+
+#### B2. Run the init wizard on your existing directory
+
+Point `rubber-ducky init` at your vault's directory:
 
 ```bash
 rubber-ducky init ~/path/to/my-vault
 ```
 
-The wizard detects existing markdown files and offers to adopt them — adding YAML frontmatter where needed without changing your content. Your existing notes become part of the Rubber-Ducky workspace alongside the new `wiki/` structure.
+The wizard detects your existing markdown files and shows you what it found:
 
-If you already have a `CLAUDE.md`, the wizard backs it up to `CLAUDE.md.backup` before writing the bundled version, so you don't lose your customizations. You can diff the two and merge at your leisure.
+```
+Found existing content in /Users/you/path/to/my-vault:
+  47 markdown file(s)
+  12 with YAML frontmatter
+
+Migration plan:
+  35 file(s) will get frontmatter added
+  12 file(s) with existing frontmatter will be preserved
+  3 directories will be created
+  2 template file(s) will be created
+```
+
+It asks you to confirm before proceeding. After confirmation, the wizard walks through the same questions as a fresh install (workspace name, purpose, backends, vocabulary).
+
+Here's what happens to your files:
+
+- **Markdown files without frontmatter** get a minimal `title` field added (derived from the filename). Your content is not modified.
+- **Markdown files with existing frontmatter** are preserved untouched.
+- **Non-markdown files** (images, PDFs, etc.) are left alone.
+- **`CLAUDE.md`** — If you have one, it's backed up to `CLAUDE.md.backup` before the bundled version is written. You can diff the two and merge your customizations at your leisure.
+- **`UBIQUITOUS_LANGUAGE.md`** and **`workspace.md`** — Created if they don't exist. If they do, the existing versions are preserved.
+- **`.claude/commands/` and `.claude/agents/`** — Bundled skills and agents are installed. If you had custom skills, they're overwritten by the bundled versions for skills that share the same name. Custom skills with unique names are untouched.
+- **New directories** (`wiki/daily/`, `wiki/tasks/`, `wiki/projects/`, `raw/`, `references/`, `.obsidian/`) are created if they don't already exist. Existing directories are left alone.
+
+#### B3. Review the changes
+
+After migration completes, review what changed:
+
+```bash
+cd ~/path/to/my-vault
+git diff                # see all changes
+git diff --stat         # summary of changed files
+```
+
+If you had a custom `CLAUDE.md`, compare it with the bundled version:
+
+```bash
+diff CLAUDE.md.backup CLAUDE.md
+```
+
+You can selectively revert any changes you don't want:
+
+```bash
+# Example: restore your original version of a specific file
+git checkout -- path/to/file.md
+```
+
+When you're happy, commit:
+
+```bash
+git add -A && git commit -m "Add Rubber-Ducky workspace structure"
+```
+
+#### B4. Reorganize your files (optional)
+
+Rubber-Ducky expects task pages in `wiki/tasks/`, daily logs in `wiki/daily/`, and project pages in `wiki/projects/`. Your existing files are wherever you left them — the migration doesn't move anything.
+
+You can reorganize manually, or just start using the new structure going forward. Any new tasks, dailies, and projects created by the CLI or Claude Code will land in the right directories. Your old files will still be searchable and linkable via wikilinks.
+
+If you want to move existing files into the `wiki/` structure:
+
+```bash
+# Example: move existing task notes into wiki/tasks/
+mv my-tasks/*.md wiki/tasks/
+
+# Rebuild the index after moving files
+rubber-ducky index rebuild
+```
+
+#### B5. Open in Obsidian and start Claude Code
+
+If your vault is already open in Obsidian, it will pick up the new files automatically. If not:
+
+1. Open Obsidian
+2. Click **"Open folder as vault"**
+3. Select your vault directory
+
+Then start Claude Code:
+
+```bash
+cd ~/path/to/my-vault
+claude
+```
+
+#### B6. Start your first day
+
+Inside Claude Code:
+
+```
+good morning
+```
+
+Claude will create today's daily page, scan your existing tasks (if any are in `wiki/tasks/`), and give you a morning brief. It might be sparse at first — that's normal. The workspace fills up as you use it.
+
+#### B7. Verify everything works
+
+Run the health check to make sure everything is wired up:
+
+```bash
+rubber-ducky doctor
+```
+
+This verifies workspace structure, config validity, and backend connectivity (if you configured backends). If anything is off, it tells you what to fix.
+
+You can also run the linter to check your migrated content:
+
+```bash
+rubber-ducky doctor lint
+```
+
+This flags stale tasks, broken wikilinks, missing frontmatter fields, and vocabulary drift — useful for getting your existing content into shape.
 
 ### Reference templates
 
@@ -168,12 +364,12 @@ Creates today's daily page, scans for urgent items, deadlines, and carried-over 
 
 Just talk to Claude Code like you would a colleague:
 
-- *"Create a task for fixing the auth timeout"* — Claude runs the CLI to scaffold the page
-- *"I'm starting on the auth task"* — Claude marks it in-progress and logs it to your daily page
-- *"Client just reported a 500 on checkout, need to deal with that first"* — Claude captures it as an ASAP item and switches your active task
-- *"Remind me Friday to follow up on the deployment"* — Claude sets a date-keyed reminder
-- *"Had an idea — we should add rate limiting to API v2"* — Claude files it in your ideas list
-- *"The timeout was caused by missing refresh token rotation"* — Claude logs the finding
+- _"Create a task for fixing the auth timeout"_ — Claude runs the CLI to scaffold the page
+- _"I'm starting on the auth task"_ — Claude marks it in-progress and logs it to your daily page
+- _"Client just reported a 500 on checkout, need to deal with that first"_ — Claude captures it as an ASAP item and switches your active task
+- _"Remind me Friday to follow up on the deployment"_ — Claude sets a date-keyed reminder
+- _"Had an idea — we should add rate limiting to API v2"_ — Claude files it in your ideas list
+- _"The timeout was caused by missing refresh token rotation"_ — Claude logs the finding
 
 Everything you say gets captured in your workspace. Pages appear and update in Obsidian as you work. Click into any task or daily page to add your own notes — Rubber-Ducky manages the frontmatter, you own the content.
 
@@ -187,7 +383,7 @@ Updates task statuses, stamps today's daily page with what you completed, what's
 
 ### The CLI is still there
 
-You don't *have* to go through Claude Code for everything. The `rubber-ducky` CLI works directly from any terminal in your workspace directory. This is useful for scripting, automation, or if you just prefer typing commands:
+You don't _have_ to go through Claude Code for everything. The `rubber-ducky` CLI works directly from any terminal in your workspace directory. This is useful for scripting, automation, or if you just prefer typing commands:
 
 ```bash
 rubber-ducky page create task "Fix auth timeout"
@@ -200,25 +396,25 @@ Every command supports `--json` for structured output, so you can pipe them into
 
 ## CLI reference
 
-| Command | What it does |
-|---|---|
-| `init [directory]` | Create a new workspace (interactive wizard) |
-| `page create <type> [args]` | Create a daily, task, or project page |
-| `task start <file>` | Transition task to in-progress |
-| `task close <file>` | Transition task to done |
-| `asap add\|list\|resolve` | Manage urgent items |
-| `remind add\|list\|resolve` | Date-keyed reminders |
-| `idea add\|list` | Someday/maybe ideas |
-| `screenshot ingest <path> <title>` | Capture a screenshot with a linked task page |
-| `index rebuild` | Regenerate wiki/index.md |
-| `log append <message>` | Add timestamped entry to wiki/log.md |
-| `wiki search <query>` | Search across all wiki pages |
-| `frontmatter get\|set\|validate` | Read/write YAML frontmatter on any page |
-| `backend list\|check` | Show configured backends, verify connectivity |
-| `update` | Update workspace skills to latest bundled versions |
-| `status` | Show workspace info |
-| `doctor` | Run workspace health checks |
-| `doctor lint` | Lint wiki pages (stale tasks, orphans, broken links, schema) |
+| Command                            | What it does                                                 |
+| ---------------------------------- | ------------------------------------------------------------ |
+| `init [directory]`                 | Create a new workspace (interactive wizard)                  |
+| `page create <type> [args]`        | Create a daily, task, or project page                        |
+| `task start <file>`                | Transition task to in-progress                               |
+| `task close <file>`                | Transition task to done                                      |
+| `asap add\|list\|resolve`          | Manage urgent items                                          |
+| `remind add\|list\|resolve`        | Date-keyed reminders                                         |
+| `idea add\|list`                   | Someday/maybe ideas                                          |
+| `screenshot ingest <path> <title>` | Capture a screenshot with a linked task page                 |
+| `index rebuild`                    | Regenerate wiki/index.md                                     |
+| `log append <message>`             | Add timestamped entry to wiki/log.md                         |
+| `wiki search <query>`              | Search across all wiki pages                                 |
+| `frontmatter get\|set\|validate`   | Read/write YAML frontmatter on any page                      |
+| `backend list\|check`              | Show configured backends, verify connectivity                |
+| `update`                           | Update workspace skills to latest bundled versions           |
+| `status`                           | Show workspace info                                          |
+| `doctor`                           | Run workspace health checks                                  |
+| `doctor lint`                      | Lint wiki pages (stale tasks, orphans, broken links, schema) |
 
 ## Backends
 
@@ -238,11 +434,11 @@ backends:
     workspace_id: "12345"
 ```
 
-| Backend | Requires | Capabilities |
-|---|---|---|
-| GitHub | `gh` CLI, authenticated | ingest, push, comment |
-| Jira | atlassian-remote MCP server | ingest, pull, push, comment, transition |
-| Asana | Asana MCP server | ingest, pull, push, comment |
+| Backend | Requires                    | Capabilities                            |
+| ------- | --------------------------- | --------------------------------------- |
+| GitHub  | `gh` CLI, authenticated     | ingest, push, comment                   |
+| Jira    | atlassian-remote MCP server | ingest, pull, push, comment, transition |
+| Asana   | Asana MCP server            | ingest, pull, push, comment             |
 
 Check connectivity:
 
@@ -266,57 +462,57 @@ These skills run inside [Claude Code](https://claude.ai/claude-code) and use the
 
 ### Daily workflow
 
-| Skill | What it does |
-|---|---|
-| `/good-morning` | Prioritized morning brief — ASAP items, deadlines, carried-over work |
-| `/wrap-up` | End-of-day summary — updates tasks, logs completions, checks for new vocabulary, suggests tomorrow's focus |
-| `/asap-process` | Interactive triage of your ASAP list — act, convert to task, defer, or dismiss each item |
-| `/grill-me` | Stress-test your plan — challenges assumptions, surfaces risks, identifies blind spots |
-| `/ubiquitous-language` | Scan conversation for domain terms and propose additions to your controlled vocabulary |
+| Skill                  | What it does                                                                                               |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `/good-morning`        | Prioritized morning brief — ASAP items, deadlines, carried-over work                                       |
+| `/wrap-up`             | End-of-day summary — updates tasks, logs completions, checks for new vocabulary, suggests tomorrow's focus |
+| `/asap-process`        | Interactive triage of your ASAP list — act, convert to task, defer, or dismiss each item                   |
+| `/grill-me`            | Stress-test your plan — challenges assumptions, surfaces risks, identifies blind spots                     |
+| `/ubiquitous-language` | Scan conversation for domain terms and propose additions to your controlled vocabulary                     |
 
 ### Task and backend operations
 
-| Skill | What it does |
-|---|---|
-| `/start` | Begin a task — transitions to in-progress, syncs with backend |
-| `/close` | Finish a task — transitions to done, syncs with backend |
-| `/push` | Create an external ticket from a wiki task page |
-| `/comment` | Add a comment to an external ticket from the wiki |
-| `/transition` | Sync a task's status between wiki and backend |
-| `/pull-active` | Refresh all active tasks from external backends |
-| `/reconcile` | Surface status drift and new comments between wiki and backends |
-| `/link` | Create a same-backend relationship between two tickets (blocks, relates to, etc.) |
-| `/ingest-jira` | Pull a Jira issue into the wiki with comments, attachments, and vocabulary-aware tagging |
-| `/ingest-asana` | Pull an Asana task into the wiki with comments, attachments, and vocabulary-aware tagging |
+| Skill            | What it does                                                                                  |
+| ---------------- | --------------------------------------------------------------------------------------------- |
+| `/start`         | Begin a task — transitions to in-progress, syncs with backend                                 |
+| `/close`         | Finish a task — transitions to done, syncs with backend                                       |
+| `/push`          | Create an external ticket from a wiki task page                                               |
+| `/comment`       | Add a comment to an external ticket from the wiki                                             |
+| `/transition`    | Sync a task's status between wiki and backend                                                 |
+| `/pull-active`   | Refresh all active tasks from external backends                                               |
+| `/reconcile`     | Surface status drift and new comments between wiki and backends                               |
+| `/link`          | Create a same-backend relationship between two tickets (blocks, relates to, etc.)             |
+| `/ingest-jira`   | Pull a Jira issue into the wiki with comments, attachments, and vocabulary-aware tagging      |
+| `/ingest-asana`  | Pull an Asana task into the wiki with comments, attachments, and vocabulary-aware tagging     |
 | `/ingest-github` | Pull a GitHub issue/PR into the wiki with comments, attachments, and vocabulary-aware tagging |
 
 ### Development and planning
 
-| Skill | What it does |
-|---|---|
-| `/commit` | Generates a structured commit message from the current diff |
-| `/write-pr [number]` | Generates or updates a PR description from the branch diff |
-| `/write-a-prd` | Interactive PRD authoring with user stories and implementation decisions |
-| `/prd-to-issues` | Breaks a PRD into vertical-slice GitHub issues |
-| `/verify-prd` | Post-implementation audit — finds unmerged branches, migration conflicts, missing features |
-| `/add-integration <name>` | Research and scaffold a new external service integration (Slack, Linear, etc.) |
+| Skill                     | What it does                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------------ |
+| `/commit`                 | Generates a structured commit message from the current diff                                |
+| `/write-pr [number]`      | Generates or updates a PR description from the branch diff                                 |
+| `/write-a-prd`            | Interactive PRD authoring with user stories and implementation decisions                   |
+| `/prd-to-issues`          | Breaks a PRD into vertical-slice GitHub issues                                             |
+| `/verify-prd`             | Post-implementation audit — finds unmerged branches, migration conflicts, missing features |
+| `/add-integration <name>` | Research and scaffold a new external service integration (Slack, Linear, etc.)             |
 
 ### Utility
 
-| Skill | What it does |
-|---|---|
-| `/query` | Natural language search across your work history via the work-historian agent |
-| `/lint` | Check workspace health — stale tasks, broken links, frontmatter errors, vocabulary drift |
+| Skill    | What it does                                                                             |
+| -------- | ---------------------------------------------------------------------------------------- |
+| `/query` | Natural language search across your work history via the work-historian agent            |
+| `/lint`  | Check workspace health — stale tasks, broken links, frontmatter errors, vocabulary drift |
 
 ### Agents
 
 Agents are specialized sub-agents that skills invoke for focused work. They live in `.claude/agents/`.
 
-| Agent | What it does |
-|---|---|
-| **work-historian** | Read-only historical queries with citation support — powers `/query` |
-| **linter** | Wiki health and drift detection — powers `/lint` and the morning brief |
-| **ticket-writer** | Drafts backend-appropriate ticket content — powers `/push` |
+| Agent                | What it does                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------- |
+| **work-historian**   | Read-only historical queries with citation support — powers `/query`                  |
+| **linter**           | Wiki health and drift detection — powers `/lint` and the morning brief                |
+| **ticket-writer**    | Drafts backend-appropriate ticket content — powers `/push`                            |
 | **research-partner** | Generic web research agent — searches docs, synthesizes answers with source citations |
 
 ## Page types and frontmatter
@@ -331,10 +527,10 @@ title: "2026-04-12"
 type: daily
 created: 2026-04-12T08:00:00Z
 updated: 2026-04-12T14:30:00Z
-active_task: fix-auth-timeout  # slug of current focus task, or null
-morning_brief: true            # set by /good-morning
-wrap_up: false                 # set by /wrap-up
-tasks_touched:                 # populated throughout the day
+active_task: fix-auth-timeout # slug of current focus task, or null
+morning_brief: true # set by /good-morning
+wrap_up: false # set by /wrap-up
+tasks_touched: # populated throughout the day
   - fix-auth-timeout
   - update-api-docs
 ---
@@ -346,20 +542,20 @@ tasks_touched:                 # populated throughout the day
 ---
 title: Fix auth timeout
 type: task
-ref: "42"                      # external ID (issue number, task ID), or null
-source: github                 # backend that originated this task, or null
-status: in-progress            # backlog | to-do | in-progress | in-review | pending | blocked | done | deferred
+ref: "42" # external ID (issue number, task ID), or null
+source: github # backend that originated this task, or null
+status: in-progress # backlog | to-do | in-progress | in-review | pending | blocked | done | deferred
 priority: high
 assignee: brandt
 tags: [auth, backend]
 created: 2026-04-12T10:00:00Z
 updated: 2026-04-12T14:30:00Z
-closed: null                   # ISO timestamp when completed
-pushed: null                   # ISO timestamp when pushed to backend
+closed: null # ISO timestamp when completed
+pushed: null # ISO timestamp when pushed to backend
 due: 2026-04-15
-gh_ref: null                   # GitHub issue/PR URL
-jira_ref: null                 # Jira ticket URL
-asana_ref: null                # Asana task URL
+gh_ref: null # GitHub issue/PR URL
+jira_ref: null # Jira ticket URL
+asana_ref: null # Asana task URL
 comment_count: 0
 ---
 ```
@@ -372,7 +568,7 @@ title: API v2
 type: project
 created: 2026-04-12T10:00:00Z
 updated: 2026-04-12T10:00:00Z
-status: backlog                # same status vocabulary as tasks
+status: backlog # same status vocabulary as tasks
 tags: [api, backend]
 ---
 ```
@@ -413,7 +609,7 @@ You could. Claude Code can read files, write YAML, and update markdown. The CLI 
 
 **Speed.** A CLI command finishes in 50-200ms. Claude Code reading a file, reasoning about the YAML, and writing it back takes 3-10 seconds with multiple round trips. When you say "log this" or "start this task" ten times a day, the CLI makes the tool feel instant instead of sluggish.
 
-**Reliability.** `rubber-ducky frontmatter set` produces valid YAML every single time. Claude Code *almost always* will — but "almost always" across hundreds of operations per week means occasional malformed frontmatter, a forgotten field, or a status value with a typo. The CLI follows the schema deterministically.
+**Reliability.** `rubber-ducky frontmatter set` produces valid YAML every single time. Claude Code _almost always_ will — but "almost always" across hundreds of operations per week means occasional malformed frontmatter, a forgotten field, or a status value with a typo. The CLI follows the schema deterministically.
 
 **Atomicity.** `rubber-ducky task start` does three things in one shot: updates the task frontmatter, logs to the daily page, and appends to the activity log. If Claude Code did those as three separate tool calls and failed on the second, your workspace is in an inconsistent state.
 
@@ -423,11 +619,11 @@ You could. Claude Code can read files, write YAML, and update markdown. The CLI 
 
 The split follows a simple rule:
 
-| Good fit for CLI | Stays in Claude Code |
-|---|---|
-| High-frequency (many times/day) | Low-frequency (once a week, once ever) |
-| Deterministic (same input = same output) | Context-dependent (needs understanding) |
-| Schema-bound (frontmatter, statuses) | Creative (synthesis, summarization) |
+| Good fit for CLI                           | Stays in Claude Code                      |
+| ------------------------------------------ | ----------------------------------------- |
+| High-frequency (many times/day)            | Low-frequency (once a week, once ever)    |
+| Deterministic (same input = same output)   | Context-dependent (needs understanding)   |
+| Schema-bound (frontmatter, statuses)       | Creative (synthesis, summarization)       |
 | Composable (chains into larger operations) | Conversational (back-and-forth with user) |
 
 Page creation, task transitions, frontmatter updates, index rebuilds, health checks — all CLI. Morning briefs, end-of-day summaries, PRD authoring, integration research — all Claude Code. Each tool does what it's best at.

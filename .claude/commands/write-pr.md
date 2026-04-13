@@ -16,7 +16,7 @@ Fill in the template from `.github/pull_request_template.md` with these rules:
 ### Summary
 
 - 2-5 bullet points covering what the PR does and why
-- Always use `Closes #N` (not `Fix #N`) to reference GitHub issues — this is the only keyword that reliably auto-closes issues on merge across all GitHub contexts
+- Always use `Closes #N` to reference GitHub issues that should auto-close on merge. Only `Closes`, `Fixes`, and `Resolves` are GitHub closing keywords — words like "Implements", "Addresses", or "Related to" will NOT auto-close the issue. If a PR fully addresses an issue, use `Closes`. If it only partially addresses it, don't use a closing keyword at all — just reference it as `#N` inline
 - Lead with the user-facing or system-level impact, not implementation details
 
 ### What changed
