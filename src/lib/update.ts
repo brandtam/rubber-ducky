@@ -184,6 +184,16 @@ rubber-ducky frontmatter set wiki/daily/YYYY-MM-DD.md wrap_up true
 rubber-ducky frontmatter set wiki/daily/YYYY-MM-DD.md active_task null
 \`\`\`
 
+### Step 8 — Vocabulary check (optional, non-blocking)
+
+After the daily summary is complete, check if any undefined terms came up during the day:
+
+1. Read \`UBIQUITOUS_LANGUAGE.md\` to get the current set of defined terms.
+2. Scan today's daily page body and the task pages touched today for domain-specific terms not in the vocabulary.
+3. If new terms are found, suggest additions: "I noticed these terms aren't in your controlled vocabulary yet: [terms]. Want to add definitions?"
+4. If the user accepts, append the terms to the appropriate table (brands, teams, or labels) in \`UBIQUITOUS_LANGUAGE.md\`.
+5. If the user declines or skips, proceed without changes — this step does not block wrap-up completion.
+
 ## Redirect behavior
 
 If the user triggers this skill but has an \`active_task\` set in today's daily page, confirm they want to wrap up: "You still have [active task] marked as active — ready to wrap up for the day?" This prevents accidental wrap-up mid-flow.
@@ -825,6 +835,283 @@ Load the appropriate template for the target system:
 These templates define the tone, structure, field mappings, and status mappings for each system. If a template file does not exist for the target system, inform the user that the backend's ticket template needs to be created in \`references/\`.
 `,
       description: "Ticket writer agent — draft backend-appropriate ticket content from wiki pages",
+    },
+    {
+      relativePath: ".claude/commands/asap-process.md",
+      content: `# ASAP Process
+
+Interactive triage of the ASAP list.
+
+## Arguments
+
+\`$ARGUMENTS\` — Optional: a specific ASAP item slug to start from (resumes triage from that point).
+
+## Behavior
+
+### Step 1 — Load the ASAP list
+
+Scan \`wiki/tasks/\` for tasks with \`priority: asap\` or tagged \`asap\`. Sort by \`created\` date (oldest first). Present a numbered summary:
+
+\`\`\`
+ASAP items (N total):
+1. [slug] — title (created: date)
+2. [slug] — title (created: date)
+...
+\`\`\`
+
+If \`$ARGUMENTS\` specifies a slug, skip items before it in the list (they were already processed in a previous run).
+
+### Step 2 — Walk through items one at a time
+
+For each ASAP item, read the full task page and present it with four options:
+
+\`\`\`
+[N/total] slug — title
+Status: <status> | Created: <date>
+<brief description>
+
+What would you like to do?
+  (a) Act on it now — drop into this task immediately
+  (c) Convert to task — create a wiki task and remove ASAP priority
+  (d) Defer — keep on ASAP list for later
+  (x) Dismiss — resolve and remove from ASAP list
+\`\`\`
+
+Wait for the user's choice before proceeding.
+
+### Step 3 — Execute the chosen action
+
+**Act (a)**: Report "Switching to [task]. Run /asap-process [next-slug] to resume triage." and stop processing. The user will work on the task and can resume later.
+
+**Convert (c)**: Run via Bash:
+
+\`\`\`
+rubber-ducky task create
+\`\`\`
+
+Then update the original task's priority away from asap:
+
+\`\`\`
+rubber-ducky frontmatter set wiki/tasks/<slug>.md priority normal
+\`\`\`
+
+Confirm: "Converted [slug] to a regular task."
+
+**Defer (d)**: No action needed — the item stays on the ASAP list. Confirm: "Deferred [slug]." Move to the next item.
+
+**Dismiss (x)**: Run via Bash:
+
+\`\`\`
+rubber-ducky asap resolve <slug>
+\`\`\`
+
+Confirm: "Dismissed [slug]." Move to the next item.
+
+### Step 4 — Progress tracking
+
+After each item, show progress: "Processed N of M ASAP items." Items already processed (converted, deferred, dismissed) are reflected immediately — if the user runs the skill again, only unprocessed items remain.
+
+If the user stops partway through (chooses "act" or interrupts), already-processed items retain their updated state. No progress is lost.
+
+### Step 5 — Completion
+
+When all items are processed, summarize:
+
+\`\`\`
+ASAP triage complete:
+- Acted on: N
+- Converted: N
+- Deferred: N
+- Dismissed: N
+\`\`\`
+
+## Output
+
+Interactive, one-at-a-time triage flow. Keep each item presentation concise. Progress is saved as items are processed — stopping partway through is safe.
+`,
+      description: "ASAP process skill — interactive ASAP list triage",
+    },
+    {
+      relativePath: ".claude/commands/ubiquitous-language.md",
+      content: `# Ubiquitous Language
+
+Evolve the controlled vocabulary by identifying and defining new domain terms.
+
+## Arguments
+
+\`$ARGUMENTS\` — Optional: path to a specific page to scan (e.g., \`wiki/daily/2024-03-15.md\`). If omitted, scans recent conversation context.
+
+## Behavior
+
+### Step 1 — Load the current vocabulary
+
+Read \`UBIQUITOUS_LANGUAGE.md\` from the workspace root. Parse the three tables:
+- **Brands** — product and company names
+- **Teams** — team and group names
+- **Labels** — domain-specific terms, acronyms, and jargon
+
+Build a set of all currently defined terms.
+
+### Step 2 — Scan for undefined terms
+
+If \`$ARGUMENTS\` specifies a page, read that page. Otherwise, review the recent conversation context.
+
+Identify candidate terms that:
+- Appear to be domain-specific (not common English words)
+- Are used consistently (not one-off mentions)
+- Are not already defined in UBIQUITOUS_LANGUAGE.md
+- Could be brands, teams, or labels based on context
+
+### Step 3 — Propose additions
+
+For each candidate term, propose a definition in the correct table format:
+
+\`\`\`
+Proposed additions to UBIQUITOUS_LANGUAGE.md:
+
+Brands:
+| Term | Definition | Aliases |
+| ---- | ---------- | ------- |
+| NewBrand | Description of the brand | NB, nb |
+
+Teams:
+| Term | Definition | Aliases |
+| ---- | ---------- | ------- |
+| PlatformTeam | The infrastructure team | platform, plat |
+
+Labels:
+| Term | Definition | Aliases |
+| ---- | ---------- | ------- |
+| spike | Time-boxed investigation task | research spike |
+\`\`\`
+
+If no new terms are found, report: "No new terms identified — vocabulary is up to date."
+
+### Step 4 — Write after confirmation
+
+Present the proposed additions and ask: "Add these terms to UBIQUITOUS_LANGUAGE.md? You can accept all, select specific terms, or decline."
+
+Only after explicit confirmation, append the accepted terms to the appropriate tables in \`UBIQUITOUS_LANGUAGE.md\` by editing the file directly.
+
+## Output
+
+A list of proposed vocabulary additions with definitions, written only after user confirmation.
+`,
+      description: "Ubiquitous language skill — evolve controlled vocabulary",
+    },
+    {
+      relativePath: ".claude/commands/grill-me.md",
+      content: `# Grill Me
+
+Challenge my thinking. Take my stated plan and relentlessly question assumptions, surface risks, identify missing considerations, and stress-test the approach.
+
+## Arguments
+
+\`$ARGUMENTS\` — The plan, idea, or decision to challenge. Can be a brief description, a path to a file (e.g., a PRD or task page), or empty (you'll ask what to grill).
+
+## Behavior
+
+If \`$ARGUMENTS\` is empty, ask: "What plan or decision do you want me to challenge?"
+
+If \`$ARGUMENTS\` is a file path, read the file and use its content as the plan to challenge.
+
+Then adopt a skeptical, rigorous perspective:
+
+- **Question assumptions**: What are you taking for granted? What if those assumptions are wrong?
+- **Surface risks**: What could go wrong? What are the failure modes? What's the blast radius?
+- **Identify gaps**: What haven't you considered? What's missing from this plan?
+- **Challenge scope**: Is this too ambitious? Too conservative? Are you solving the right problem?
+- **Stress-test dependencies**: What are you depending on that's outside your control?
+- **Probe alternatives**: Why this approach and not another? What did you reject and why?
+- **Check reversibility**: Can you undo this if it doesn't work? What's the cost of being wrong?
+
+Be direct and specific — no softening, no "great plan but..." preamble. Ask hard questions. Push back on hand-wavy answers. If the user's responses reveal new weaknesses, follow up.
+
+This is domain-agnostic — works for technical implementation plans, project approaches, PRD reviews, business decisions, hiring strategies, or any other context where rigorous thinking matters.
+
+## Output
+
+A series of pointed questions and challenges. Keep responses focused — one or two challenges at a time, then wait for the user's response before pressing further. The goal is a dialogue, not a monologue.
+`,
+      description: "Grill-me skill — challenge thinking and stress-test plans",
+    },
+    {
+      relativePath: ".claude/agents/research-partner.md",
+      content: `# Research Partner
+
+A generic research agent that searches the web, reads documentation, and synthesizes answers with source citations.
+
+## Role
+
+You are a research-partner agent. Your job is to research topics thoroughly using web search, documentation reading, and file analysis, then return a synthesized answer with source citations. You are not tied to any specific domain — you can research technical topics, business questions, competitive analysis, or anything else.
+
+## Constraints
+
+- **Read-only within the workspace**: Never create, edit, or delete files in the workspace. You may read workspace files for context.
+- **Citation required**: Every factual claim must include a source citation (URL, file path, or document reference).
+- **Transparent sourcing**: Distinguish between information from authoritative sources, community sources, and your own synthesis.
+
+## Tools Available
+
+Use these tools to research effectively:
+
+1. **WebSearch** — Search the web for current information. Use specific, targeted queries. Run multiple searches with different phrasings to get comprehensive results.
+
+2. **WebFetch** — Read specific web pages, documentation, API references, blog posts, or any URL. Use this to get full content from search results.
+
+3. **Read** — Read workspace files for context. Use this to understand the user's project, existing documentation, or related code.
+
+4. **Grep** — Search workspace files for specific patterns or terms related to the research topic.
+
+## Research Strategy
+
+1. **Understand the question**: Parse the research request to identify the core question, constraints, and what form the answer should take.
+
+2. **Search broadly first**: Run 2-3 web searches with different phrasings to get a variety of results.
+
+3. **Go deep on promising sources**: Fetch and read the most relevant pages in full. Don't rely on search snippets alone.
+
+4. **Cross-reference**: Verify claims across multiple sources. Note where sources agree and disagree.
+
+5. **Check workspace context**: If the research relates to the user's project, read relevant workspace files to ground the answer in their specific context.
+
+6. **Synthesize**: Combine findings into a clear, structured answer. Don't just list sources — extract insights and draw conclusions.
+
+## Response Format
+
+Structure your response as:
+
+1. **Answer**: A clear, synthesized answer to the research question. Lead with the key finding.
+
+2. **Key findings**: Bullet points of the most important discoveries, each with inline source citations.
+
+3. **Sources**: A numbered list of all sources consulted:
+   - \`[1]\` URL or file path — what was found there
+   - \`[2]\` URL or file path — what was found there
+
+4. **Confidence level**: Note any uncertainty, conflicting information, or areas where more research would help.
+
+5. **Related questions** (optional): Suggest follow-up research questions the user might want to explore.
+
+## Example
+
+**Q: "What's the current best practice for rate limiting in Node.js APIs?"**
+
+> **Answer**: The current consensus is to use a token bucket algorithm with Redis as the backing store for distributed rate limiting. Express-rate-limit is the most popular middleware but is single-process only — for production systems, rate-limiter-flexible with Redis provides distributed limiting with sliding window support.
+>
+> **Key findings**:
+> - express-rate-limit has 3.2M weekly downloads but only supports in-memory stores by default [1]
+> - rate-limiter-flexible supports Redis, Memcached, and MongoDB backends with atomic operations [2]
+> - OWASP recommends rate limiting at both API gateway and application layers [3]
+>
+> **Sources**:
+> - [1] https://www.npmjs.com/package/express-rate-limit — package docs and download stats
+> - [2] https://github.com/animir/node-rate-limiter-flexible — README and architecture docs
+> - [3] https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html
+>
+> **Confidence**: High for the library recommendations (well-established packages with active maintenance). Medium for the specific architecture pattern — depends on scale requirements.
+`,
+      description: "Research partner agent — web research with source citations",
     },
   ];
 }
