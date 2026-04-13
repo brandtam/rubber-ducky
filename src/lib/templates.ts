@@ -211,6 +211,12 @@ export function generateBackendSkills(
         content: generateIngestAsanaSkill(backend),
       });
     }
+    if (backend.type === "jira") {
+      skills.push({
+        path: ".claude/commands/ingest-jira.md",
+        content: generateIngestJiraSkill(backend),
+      });
+    }
   }
 
   return skills;
@@ -219,7 +225,7 @@ export function generateBackendSkills(
 function generateIngestGitHubSkill(): string {
   return `# Ingest GitHub Issue or PR
 
-Ingest a GitHub issue or pull request into the wiki as a task page.
+Ingest a GitHub issue or pull request into the wiki as a task page with full field coverage, comment history, attachments, and vocabulary-aware tagging.
 
 ## Usage
 
@@ -229,15 +235,44 @@ Ingest a GitHub issue or pull request into the wiki as a task page.
 
 ## Steps
 
-1. Run \`rubber-ducky backend check github\` to verify connectivity
-2. Use the \`gh\` CLI to fetch the issue or PR by number
-3. Run \`rubber-ducky page create task "<title>" --source github --ref <number>\` to scaffold the page
-4. Update the page frontmatter with fields from GitHub:
-   - \`gh_ref\`: The GitHub URL
-   - \`status\`: Mapped from GitHub state and labels
+1. **Verify connectivity.** Run \`rubber-ducky backend check github\`.
+
+2. **Fetch full issue/PR data.** Use the \`gh\` CLI:
+   \`\`\`bash
+   gh issue view <number> --json title,body,state,labels,assignees,milestone,comments,createdAt,updatedAt
+   \`\`\`
+   For PRs: \`gh pr view <number> --json title,body,state,labels,assignees,comments,createdAt,updatedAt\`
+
+3. **Scaffold the task page.**
+   \`rubber-ducky page create task "<title>" --source github --ref <number>\`
+
+4. **Update frontmatter** with all fields from GitHub:
+   - \`gh_ref\`: The GitHub issue/PR URL
+   - \`status\`: Mapped from GitHub state and labels (open → to-do, closed/merged → done, "in-progress" label → in-progress, etc.)
+   - \`priority\`: From priority labels if present (priority:high, priority:low, etc.)
+   - \`assignee\`: From GitHub assignees
    - \`tags\`: From GitHub labels
-5. Write the issue/PR description and comments into the page body
-6. Run \`rubber-ducky index rebuild\` to update the index
+   - \`comment_count\`: Number of comments
+
+5. **Write the body.** Under \`## Description\`, write the issue/PR body. Under \`## Comments\`, write each comment with timestamp and author:
+   \`\`\`markdown
+   ## Comments
+
+   **@octocat** — 2026-04-12T14:30:00Z
+   > Comment body here
+
+   **@contributor** — 2026-04-12T15:00:00Z
+   > Another comment
+   \`\`\`
+
+6. **Handle attachments.** Scan the issue body and comments for image URLs and file links. Download each to \`raw/\` and replace the URL in the wiki page body with a relative link:
+   \`\`\`markdown
+   ![screenshot](../raw/issue-42-screenshot.png)
+   \`\`\`
+
+7. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan the ingested title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter. Do not duplicate tags already present from GitHub labels.
+
+8. **Rebuild index.** Run \`rubber-ducky index rebuild\`.
 `;
 }
 
@@ -248,7 +283,7 @@ function generateIngestAsanaSkill(config: BackendConfig): string {
 
   return `# Ingest Asana Task
 
-Ingest an Asana task into the wiki as a task page.
+Ingest an Asana task into the wiki as a task page with full field coverage, comment history, attachments, and vocabulary-aware tagging.
 
 ${workspaceIdNote}## Usage
 
@@ -258,22 +293,114 @@ ${workspaceIdNote}## Usage
 
 ## Steps
 
-1. Run \`rubber-ducky backend check asana\` to verify connectivity
-2. Use the Asana MCP server to fetch the task by ID or URL
-3. Run \`rubber-ducky page create task "<title>" --source asana --ref <task-gid>\` to scaffold the page
-4. Update the page frontmatter with fields from the Asana task:
+1. **Verify connectivity.** Run \`rubber-ducky backend check asana\`.
+
+2. **Fetch full task data.** Use the Asana MCP server to retrieve the task by ID or URL. Request all fields: name, notes (description), completed, assignee, due_on, tags, memberships (for section/status), custom_fields, attachments, and stories (comments).
+
+3. **Scaffold the task page.**
+   \`rubber-ducky page create task "<name>" --source asana --ref <task-gid>\`
+
+4. **Update frontmatter** with all fields from Asana:
    - \`asana_ref\`: The Asana permalink URL
-   - \`status\`: Mapped from Asana section/completion state
+   - \`status\`: Mapped from section name and completion state (completed → done, section "In Progress" → in-progress, etc.)
+   - \`priority\`: From custom field if present
    - \`assignee\`: From Asana assignee
-   - \`due\`: From Asana due date
+   - \`due\`: From Asana due_on date
    - \`tags\`: From Asana tags
-5. Write the task description and comments into the page body
-6. Run \`rubber-ducky index rebuild\` to update the index
+   - \`comment_count\`: Number of comment stories
+
+5. **Write the body.** Under \`## Description\`, write the task notes. Under \`## Comments\`, write each comment story with timestamp and author:
+   \`\`\`markdown
+   ## Comments
+
+   **Jane Smith** — 2026-04-12T14:30:00Z
+   > Comment body here
+
+   **Alex Lee** — 2026-04-12T15:00:00Z
+   > Another comment
+   \`\`\`
+
+6. **Handle attachments.** Fetch the task's attachments via MCP. Download each file to \`raw/\` and reference it from the wiki page body:
+   \`\`\`markdown
+   ![design-mockup](../raw/task-12345-design-mockup.png)
+   \`\`\`
+
+7. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan the ingested title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter. Do not duplicate tags already present from Asana.
+
+8. **Rebuild index.** Run \`rubber-ducky index rebuild\`.
 
 ## Bulk ingest
 
 To ingest all tasks from a project: \`/ingest-asana project:<project-gid>\`
 To ingest all tasks from a section: \`/ingest-asana section:<section-gid>\`
+`;
+}
+
+function generateIngestJiraSkill(config: BackendConfig): string {
+  const serverNote = config.server_url
+    ? `Jira instance: \`${config.server_url}\`\n`
+    : "";
+  const projectNote = config.project_key
+    ? `Default project key: \`${config.project_key}\`\n`
+    : "";
+  const configNotes = serverNote || projectNote
+    ? `${serverNote}${projectNote}\n`
+    : "";
+
+  return `# Ingest Jira Issue
+
+Ingest a Jira issue into the wiki as a task page with full field coverage, comment history, attachments, and vocabulary-aware tagging.
+
+${configNotes}## Usage
+
+\`\`\`
+/ingest-jira <issue-key>
+\`\`\`
+
+Example: \`/ingest-jira WEB-288\`
+
+## Steps
+
+1. **Verify connectivity.** Run \`rubber-ducky backend check jira\`.
+
+2. **Fetch full issue data.** Use the Atlassian Remote MCP server to retrieve the issue by key. Request all fields: summary, description, status, priority, assignee, reporter, labels, components, fix versions, comments, attachments, created, and updated.
+
+3. **Scaffold the task page.**
+   \`rubber-ducky page create task "<summary>" --source jira --ref <issue-key>\`
+
+4. **Update frontmatter** with all fields from Jira:
+   - \`jira_ref\`: The Jira issue URL
+   - \`status\`: Mapped from Jira status (Open/To Do → to-do, In Progress → in-progress, Done/Resolved → done, etc.)
+   - \`priority\`: From Jira priority field (Highest → asap, High → high, Medium → medium, Low → low)
+   - \`assignee\`: From Jira assignee
+   - \`due\`: From Jira due date if set
+   - \`tags\`: From Jira labels and components
+   - \`comment_count\`: Number of comments
+
+5. **Write the body.** Under \`## Description\`, write the issue description. Under \`## Comments\`, write each comment with timestamp and author:
+   \`\`\`markdown
+   ## Comments
+
+   **Jane Smith** — 2026-04-12T14:30:00Z
+   > Comment body here
+
+   **Alex Lee** — 2026-04-12T15:00:00Z
+   > Another comment
+   \`\`\`
+
+6. **Handle attachments.** Fetch the issue's attachments via MCP. Download each file to \`raw/\` and reference it from the wiki page body:
+   \`\`\`markdown
+   ![screenshot](../raw/WEB-288-screenshot.png)
+   \`\`\`
+
+7. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan the ingested title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter. Do not duplicate tags already present from Jira labels.
+
+8. **Rebuild index.** Run \`rubber-ducky index rebuild\`.
+
+## Bulk ingest
+
+To ingest all issues from the default project: \`/ingest-jira project\`
+To ingest issues matching a JQL query: \`/ingest-jira jql:<query>\`
 `;
 }
 

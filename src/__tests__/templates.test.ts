@@ -317,16 +317,31 @@ describe("generateBackendSkills", () => {
     expect(skills[0].content).toContain("PR");
   });
 
-  it("does not generate skills for jira-only backends", () => {
+  it("generates ingest-jira skill when jira backend is configured", () => {
     const backends: BackendConfig[] = [
-      { type: "jira", mcp_server: "atlassian-remote" },
+      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net", project_key: "WEB" },
     ];
     const skills = generateBackendSkills(backends);
 
-    expect(skills).toHaveLength(0);
+    expect(skills).toHaveLength(1);
+    expect(skills[0].path).toBe(".claude/commands/ingest-jira.md");
+    expect(skills[0].content).toContain("Ingest Jira");
+    expect(skills[0].content).toContain("/ingest-jira");
+    expect(skills[0].content).toContain("rubber-ducky backend check jira");
+    expect(skills[0].content).toContain("Atlassian");
   });
 
-  it("generates skills for github and asana among mixed backends", () => {
+  it("includes server URL and project key in jira skill when configured", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net", project_key: "WEB" },
+    ];
+    const skills = generateBackendSkills(backends);
+
+    expect(skills[0].content).toContain("https://myorg.atlassian.net");
+    expect(skills[0].content).toContain("WEB");
+  });
+
+  it("generates skills for all three backends among mixed backends", () => {
     const backends: BackendConfig[] = [
       { type: "github", mcp_server: "github" },
       { type: "asana", mcp_server: "asana" },
@@ -334,10 +349,53 @@ describe("generateBackendSkills", () => {
     ];
     const skills = generateBackendSkills(backends);
 
-    expect(skills).toHaveLength(2);
+    expect(skills).toHaveLength(3);
     const paths = skills.map((s) => s.path);
     expect(paths).toContain(".claude/commands/ingest-github.md");
     expect(paths).toContain(".claude/commands/ingest-asana.md");
+    expect(paths).toContain(".claude/commands/ingest-jira.md");
+  });
+
+  it("all generated skills include vocabulary scanning instructions", () => {
+    const backends: BackendConfig[] = [
+      { type: "github", mcp_server: "github" },
+      { type: "asana", mcp_server: "asana" },
+      { type: "jira", mcp_server: "atlassian-remote" },
+    ];
+    const skills = generateBackendSkills(backends);
+
+    for (const skill of skills) {
+      expect(skill.content).toContain("UBIQUITOUS_LANGUAGE.md");
+      expect(skill.content).toContain("tags");
+    }
+  });
+
+  it("all generated skills include attachment handling instructions", () => {
+    const backends: BackendConfig[] = [
+      { type: "github", mcp_server: "github" },
+      { type: "asana", mcp_server: "asana" },
+      { type: "jira", mcp_server: "atlassian-remote" },
+    ];
+    const skills = generateBackendSkills(backends);
+
+    for (const skill of skills) {
+      expect(skill.content).toContain("raw/");
+    }
+  });
+
+  it("all generated skills include comment ingestion instructions", () => {
+    const backends: BackendConfig[] = [
+      { type: "github", mcp_server: "github" },
+      { type: "asana", mcp_server: "asana" },
+      { type: "jira", mcp_server: "atlassian-remote" },
+    ];
+    const skills = generateBackendSkills(backends);
+
+    for (const skill of skills) {
+      expect(skill.content).toContain("comment");
+      expect(skill.content).toContain("timestamp");
+      expect(skill.content).toContain("author");
+    }
   });
 });
 
