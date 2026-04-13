@@ -82,6 +82,10 @@ my-work-log/
 ├── workspace.md                 # Workspace config (YAML frontmatter)
 ├── CLAUDE.md                    # Claude Code context file
 ├── UBIQUITOUS_LANGUAGE.md       # Controlled vocabulary
+├── .claude/
+│   ├── commands/                # Claude Code skills (good-morning, wrap-up, etc.)
+│   ├── agents/                  # Claude Code agents (work-historian, linter, etc.)
+│   └── settings.json            # Claude Code permissions
 ├── wiki/
 │   ├── daily/                   # Daily work logs (YYYY-MM-DD.md)
 │   ├── tasks/                   # Task pages
@@ -133,6 +137,8 @@ rubber-ducky init ~/path/to/my-vault
 ```
 
 The wizard detects existing markdown files and offers to adopt them — adding YAML frontmatter where needed without changing your content. Your existing notes become part of the Rubber-Ducky workspace alongside the new `wiki/` structure.
+
+If you already have a `CLAUDE.md`, the wizard backs it up to `CLAUDE.md.backup` before writing the bundled version, so you don't lose your customizations. You can diff the two and merge at your leisure.
 
 ### Reference templates
 
@@ -256,18 +262,62 @@ This is non-configurable and baked into every skill that touches external system
 
 ## Claude Code skills
 
-These skills run inside [Claude Code](https://claude.ai/claude-code) and use the workspace as context.
+These skills run inside [Claude Code](https://claude.ai/claude-code) and use the workspace as context. They live in `.claude/commands/` as markdown files — you can edit them to customize behavior.
+
+### Daily workflow
 
 | Skill | What it does |
 |---|---|
 | `/good-morning` | Prioritized morning brief — ASAP items, deadlines, carried-over work |
-| `/wrap-up` | End-of-day summary — updates tasks, logs completions, suggests tomorrow's focus |
+| `/wrap-up` | End-of-day summary — updates tasks, logs completions, checks for new vocabulary, suggests tomorrow's focus |
+| `/asap-process` | Interactive triage of your ASAP list — act, convert to task, defer, or dismiss each item |
+| `/grill-me` | Stress-test your plan — challenges assumptions, surfaces risks, identifies blind spots |
+| `/ubiquitous-language` | Scan conversation for domain terms and propose additions to your controlled vocabulary |
+
+### Task and backend operations
+
+| Skill | What it does |
+|---|---|
+| `/start` | Begin a task — transitions to in-progress, syncs with backend |
+| `/close` | Finish a task — transitions to done, syncs with backend |
+| `/push` | Create an external ticket from a wiki task page |
+| `/comment` | Add a comment to an external ticket from the wiki |
+| `/transition` | Sync a task's status between wiki and backend |
+| `/pull-active` | Refresh all active tasks from external backends |
+| `/reconcile` | Surface status drift and new comments between wiki and backends |
+| `/link` | Create a same-backend relationship between two tickets (blocks, relates to, etc.) |
+| `/ingest-jira` | Pull a Jira issue into the wiki with comments, attachments, and vocabulary-aware tagging |
+| `/ingest-asana` | Pull an Asana task into the wiki with comments, attachments, and vocabulary-aware tagging |
+| `/ingest-gh` | Pull a GitHub issue/PR into the wiki with comments, attachments, and vocabulary-aware tagging |
+
+### Development and planning
+
+| Skill | What it does |
+|---|---|
 | `/commit` | Generates a structured commit message from the current diff |
 | `/write-pr [number]` | Generates or updates a PR description from the branch diff |
-| `/verify-prd` | Post-implementation audit — finds unmerged branches, migration conflicts, missing features |
 | `/write-a-prd` | Interactive PRD authoring with user stories and implementation decisions |
 | `/prd-to-issues` | Breaks a PRD into vertical-slice GitHub issues |
+| `/verify-prd` | Post-implementation audit — finds unmerged branches, migration conflicts, missing features |
 | `/add-integration <name>` | Research and scaffold a new external service integration (Slack, Linear, etc.) |
+
+### Utility
+
+| Skill | What it does |
+|---|---|
+| `/query` | Natural language search across your work history via the work-historian agent |
+| `/lint` | Check workspace health — stale tasks, broken links, frontmatter errors, vocabulary drift |
+
+### Agents
+
+Agents are specialized sub-agents that skills invoke for focused work. They live in `.claude/agents/`.
+
+| Agent | What it does |
+|---|---|
+| **work-historian** | Read-only historical queries with citation support — powers `/query` |
+| **linter** | Wiki health and drift detection — powers `/lint` and the morning brief |
+| **ticket-writer** | Drafts backend-appropriate ticket content — powers `/push` |
+| **research-partner** | Generic web research agent — searches docs, synthesizes answers with source citations |
 
 ## Page types and frontmatter
 
