@@ -34,6 +34,7 @@ export interface WorkspaceResult {
   dirsCreated: string[];
   filesAdopted?: string[];
   migrated?: boolean;
+  claudeMdBackedUp?: boolean;
 }
 
 const DIRS = [
@@ -137,9 +138,24 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
 export async function migrateWorkspace(opts: WorkspaceOptions): Promise<WorkspaceResult> {
   const { name, purpose, targetDir } = opts;
 
+  // Back up existing CLAUDE.md before migration overwrites it
+  const claudeMdPath = path.join(targetDir, "CLAUDE.md");
+  let claudeMdBackedUp: boolean | undefined;
+  if (fs.existsSync(claudeMdPath)) {
+    fs.copyFileSync(claudeMdPath, path.join(targetDir, "CLAUDE.md.backup"));
+    claudeMdBackedUp = true;
+  }
+
   const scanResult = scanExistingContent(targetDir);
   const plan = buildMigrationPlan(scanResult);
   const result = executeMigration(plan, { name, purpose, targetDir });
+
+  // Always write the bundled CLAUDE.md (executeMigration skips it if one existed)
+  if (!result.filesCreated.includes("CLAUDE.md")) {
+    const templateOpts = { name, purpose, backends: opts.backends };
+    fs.writeFileSync(claudeMdPath, generateClaudeMd(templateOpts), "utf-8");
+    result.filesCreated.push("CLAUDE.md");
+  }
 
   // Install bundled skills and agents (same as createWorkspace)
   const bundled = getBundledTemplates();
@@ -168,6 +184,7 @@ export async function migrateWorkspace(opts: WorkspaceOptions): Promise<Workspac
     dirsCreated: result.dirsCreated,
     filesAdopted: result.filesAdopted,
     migrated: true,
+    claudeMdBackedUp,
   };
 }
 
