@@ -16,8 +16,10 @@ import {
 } from "./commands/capture.js";
 import { registerTaskCommand } from "./commands/task.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
+import { createRequire } from "node:module";
 
-const VERSION = "0.1.0";
+const require = createRequire(import.meta.url);
+const { version: VERSION } = require("../package.json");
 
 export function createProgram(): Command {
   const program = new Command();

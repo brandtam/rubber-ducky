@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+
+const require = createRequire(import.meta.url);
+const { version: PKG_VERSION } = require("../../package.json");
 import { parse as parseYaml } from "yaml";
 
 const CLI_PATH = path.resolve(__dirname, "..", "cli.ts");
@@ -30,7 +34,7 @@ describe("CLI", () => {
   it("prints version with --version", () => {
     const output = runCli(["--version"]);
 
-    expect(output.trim()).toBe("0.1.0");
+    expect(output.trim()).toBe(PKG_VERSION);
   });
 
   describe("init --json", () => {
