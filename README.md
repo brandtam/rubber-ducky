@@ -288,7 +288,7 @@ These skills run inside [Claude Code](https://claude.ai/claude-code) and use the
 | `/link` | Create a same-backend relationship between two tickets (blocks, relates to, etc.) |
 | `/ingest-jira` | Pull a Jira issue into the wiki with comments, attachments, and vocabulary-aware tagging |
 | `/ingest-asana` | Pull an Asana task into the wiki with comments, attachments, and vocabulary-aware tagging |
-| `/ingest-gh` | Pull a GitHub issue/PR into the wiki with comments, attachments, and vocabulary-aware tagging |
+| `/ingest-github` | Pull a GitHub issue/PR into the wiki with comments, attachments, and vocabulary-aware tagging |
 
 ### Development and planning
 

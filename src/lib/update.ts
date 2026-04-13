@@ -844,36 +844,45 @@ Interactive triage of the ASAP list.
 
 ## Arguments
 
-\`$ARGUMENTS\` — Optional: a specific ASAP item slug to start from (resumes triage from that point).
+\`$ARGUMENTS\` — Optional: an integer index to start from (resumes triage from that item). Omit to start from the first pending item.
 
 ## Behavior
 
 ### Step 1 — Load the ASAP list
 
-Scan \`wiki/tasks/\` for tasks with \`priority: asap\` or tagged \`asap\`. Sort by \`created\` date (oldest first). Present a numbered summary:
+Run via Bash:
 
 \`\`\`
-ASAP items (N total):
-1. [slug] — title (created: date)
-2. [slug] — title (created: date)
+rubber-ducky asap list --json
+\`\`\`
+
+This returns an array of items from \`wiki/asap.md\`. Each item has \`index\` (integer), \`message\` (string), \`createdAt\` (ISO timestamp), and \`resolved\` (boolean). Filter to only pending items (\`resolved: false\`).
+
+Present a numbered summary:
+
+\`\`\`
+ASAP items (N pending):
+1. message (added: date)
+2. message (added: date)
 ...
 \`\`\`
 
-If \`$ARGUMENTS\` specifies a slug, skip items before it in the list (they were already processed in a previous run).
+If \`$ARGUMENTS\` specifies an index, skip items with an index less than that value (they were already processed in a previous run).
+
+If there are no pending items, report "No pending ASAP items." and stop.
 
 ### Step 2 — Walk through items one at a time
 
-For each ASAP item, read the full task page and present it with four options:
+For each pending ASAP item, present it with four options:
 
 \`\`\`
-[N/total] slug — title
-Status: <status> | Created: <date>
-<brief description>
+[N/total] #index — message
+Added: date
 
 What would you like to do?
-  (a) Act on it now — drop into this task immediately
-  (c) Convert to task — create a wiki task and remove ASAP priority
-  (d) Defer — keep on ASAP list for later
+  (a) Act on it now — drop into this item immediately
+  (c) Convert to task — create a wiki task page and resolve this item
+  (d) Defer — skip for now, keep on ASAP list
   (x) Dismiss — resolve and remove from ASAP list
 \`\`\`
 
@@ -881,46 +890,46 @@ Wait for the user's choice before proceeding.
 
 ### Step 3 — Execute the chosen action
 
-**Act (a)**: Report "Switching to [task]. Run /asap-process [next-slug] to resume triage." and stop processing. The user will work on the task and can resume later.
+**Act (a)**: Report "Switching to this item. Run \`/asap-process <next-index>\` to resume triage." and stop processing. The user will handle the item and can resume later.
 
-**Convert (c)**: Run via Bash:
-
-\`\`\`
-rubber-ducky task create
-\`\`\`
-
-Then update the original task's priority away from asap:
+**Convert (c)**: Create a task page from the ASAP item. Run via Bash:
 
 \`\`\`
-rubber-ducky frontmatter set wiki/tasks/<slug>.md priority normal
+rubber-ducky page create task "<message>"
 \`\`\`
 
-Confirm: "Converted [slug] to a regular task."
-
-**Defer (d)**: No action needed — the item stays on the ASAP list. Confirm: "Deferred [slug]." Move to the next item.
-
-**Dismiss (x)**: Run via Bash:
+Then resolve the ASAP item so it no longer appears as pending:
 
 \`\`\`
-rubber-ducky asap resolve <slug>
+rubber-ducky asap resolve <index>
 \`\`\`
 
-Confirm: "Dismissed [slug]." Move to the next item.
+Confirm: "Converted to task and resolved from ASAP list."
+
+**Defer (d)**: No action needed — the item stays pending on the ASAP list. Confirm: "Deferred." Move to the next item.
+
+**Dismiss (x)**: Resolve the item without creating a task. Run via Bash:
+
+\`\`\`
+rubber-ducky asap resolve <index>
+\`\`\`
+
+Confirm: "Dismissed." Move to the next item.
 
 ### Step 4 — Progress tracking
 
-After each item, show progress: "Processed N of M ASAP items." Items already processed (converted, deferred, dismissed) are reflected immediately — if the user runs the skill again, only unprocessed items remain.
+After each item, show progress: "Processed N of M items."
 
-If the user stops partway through (chooses "act" or interrupts), already-processed items retain their updated state. No progress is lost.
+Resolved items (converted or dismissed) are removed from the pending list immediately. If the user runs the skill again, only unprocessed pending items remain. If the user stops partway through (chooses "act" or interrupts), already-resolved items stay resolved. No progress is lost.
 
 ### Step 5 — Completion
 
-When all items are processed, summarize:
+When all pending items are processed, summarize:
 
 \`\`\`
 ASAP triage complete:
 - Acted on: N
-- Converted: N
+- Converted to tasks: N
 - Deferred: N
 - Dismissed: N
 \`\`\`

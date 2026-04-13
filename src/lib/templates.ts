@@ -270,9 +270,16 @@ Ingest a GitHub issue or pull request into the wiki as a task page with full fie
    ![screenshot](../raw/issue-42-screenshot.png)
    \`\`\`
 
-7. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan the ingested title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter. Do not duplicate tags already present from GitHub labels.
+7. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan the ingested title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter. Do not duplicate tags already present from GitHub labels. If no brands, teams, or labels are defined in \`UBIQUITOUS_LANGUAGE.md\`, skip vocabulary tagging.
 
 8. **Rebuild index.** Run \`rubber-ducky index rebuild\`.
+
+## Bulk ingest
+
+To ingest all open issues from a repo: \`/ingest-github repo:<owner/repo>\`
+To ingest issues with a specific label: \`/ingest-github label:<owner/repo>:<label>\`
+
+For bulk ingest, use \`gh issue list --repo <owner/repo> --json number,title --limit 100\` to enumerate issues, then run the single-issue steps for each. Skip issues that already have a wiki task page (check for existing \`gh_ref\` in \`wiki/tasks/\`).
 `;
 }
 
@@ -325,7 +332,7 @@ ${workspaceIdNote}## Usage
    ![design-mockup](../raw/task-12345-design-mockup.png)
    \`\`\`
 
-7. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan the ingested title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter. Do not duplicate tags already present from Asana.
+7. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan the ingested title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter. Do not duplicate tags already present from Asana. If no brands, teams, or labels are defined in \`UBIQUITOUS_LANGUAGE.md\`, skip vocabulary tagging.
 
 8. **Rebuild index.** Run \`rubber-ducky index rebuild\`.
 
@@ -393,7 +400,7 @@ Example: \`/ingest-jira WEB-288\`
    ![screenshot](../raw/WEB-288-screenshot.png)
    \`\`\`
 
-7. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan the ingested title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter. Do not duplicate tags already present from Jira labels.
+7. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan the ingested title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter. Do not duplicate tags already present from Jira labels. If no brands, teams, or labels are defined in \`UBIQUITOUS_LANGUAGE.md\`, skip vocabulary tagging.
 
 8. **Rebuild index.** Run \`rubber-ducky index rebuild\`.
 

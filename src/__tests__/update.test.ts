@@ -682,8 +682,18 @@ describe("asap-process skill template", () => {
 
   it("calls appropriate CLI commands for task creation and resolution", () => {
     const t = getTemplate();
-    expect(t.content).toContain("rubber-ducky task create");
+    expect(t.content).toContain("rubber-ducky page create task");
     expect(t.content).toContain("rubber-ducky asap resolve");
+  });
+
+  it("uses rubber-ducky asap list to load items", () => {
+    const t = getTemplate();
+    expect(t.content).toContain("rubber-ducky asap list --json");
+  });
+
+  it("uses integer index for asap resolve, not slugs", () => {
+    const t = getTemplate();
+    expect(t.content).toContain("rubber-ducky asap resolve <index>");
   });
 
   it("can be stopped partway through without losing progress", () => {

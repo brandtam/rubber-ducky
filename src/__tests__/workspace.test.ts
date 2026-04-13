@@ -529,6 +529,24 @@ describe("createWorkspace", () => {
       expect(result.claudeMdBackedUp).toBe(true);
     });
 
+    it("does NOT overwrite existing backup on re-run", async () => {
+      const target = path.join(tmpDir, "vault");
+      fs.mkdirSync(target, { recursive: true });
+      const originalContent = "# My custom CLAUDE.md";
+      fs.writeFileSync(path.join(target, "CLAUDE.md"), originalContent);
+
+      // First migration — creates backup
+      await migrateWorkspace({ name: "Test", purpose: "Testing", targetDir: target });
+      const backupAfterFirst = fs.readFileSync(path.join(target, "CLAUDE.md.backup"), "utf-8");
+      expect(backupAfterFirst).toBe(originalContent);
+
+      // Second migration — backup should be preserved, not overwritten
+      const result = await migrateWorkspace({ name: "Test", purpose: "Testing", targetDir: target });
+      const backupAfterSecond = fs.readFileSync(path.join(target, "CLAUDE.md.backup"), "utf-8");
+      expect(backupAfterSecond).toBe(originalContent);
+      expect(result.claudeMdBackedUp).toBeUndefined();
+    });
+
     it("does not set claudeMdBackedUp when no backup was needed", async () => {
       const target = path.join(tmpDir, "vault");
       fs.mkdirSync(target, { recursive: true });
