@@ -475,5 +475,72 @@ describe("createWorkspace", () => {
       expect(content).toContain("# Important");
       expect(content).toContain("Do not lose this content.");
     });
+
+    it("creates CLAUDE.md.backup when CLAUDE.md already exists", async () => {
+      const target = path.join(tmpDir, "vault");
+      fs.mkdirSync(target, { recursive: true });
+      const originalClaudeMd = "# My Custom CLAUDE.md\n\nCustom instructions here.";
+      fs.writeFileSync(path.join(target, "CLAUDE.md"), originalClaudeMd);
+
+      const result = await migrateWorkspace({
+        name: "Test",
+        purpose: "Testing",
+        targetDir: target,
+      });
+
+      // Backup should exist with original content
+      expect(fs.existsSync(path.join(target, "CLAUDE.md.backup"))).toBe(true);
+      const backupContent = fs.readFileSync(path.join(target, "CLAUDE.md.backup"), "utf-8");
+      expect(backupContent).toBe(originalClaudeMd);
+
+      // New CLAUDE.md should be the bundled version (not the original)
+      const newContent = fs.readFileSync(path.join(target, "CLAUDE.md"), "utf-8");
+      expect(newContent).not.toBe(originalClaudeMd);
+    });
+
+    it("does NOT create CLAUDE.md.backup when no CLAUDE.md exists", async () => {
+      const target = path.join(tmpDir, "vault");
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(target, "notes.md"), "# Notes");
+
+      await migrateWorkspace({
+        name: "Test",
+        purpose: "Testing",
+        targetDir: target,
+      });
+
+      // No backup should exist
+      expect(fs.existsSync(path.join(target, "CLAUDE.md.backup"))).toBe(false);
+      // But CLAUDE.md should be created
+      expect(fs.existsSync(path.join(target, "CLAUDE.md"))).toBe(true);
+    });
+
+    it("includes claudeMdBackedUp in result when backup was created", async () => {
+      const target = path.join(tmpDir, "vault");
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(target, "CLAUDE.md"), "# Existing CLAUDE.md");
+
+      const result = await migrateWorkspace({
+        name: "Test",
+        purpose: "Testing",
+        targetDir: target,
+      });
+
+      expect(result.claudeMdBackedUp).toBe(true);
+    });
+
+    it("does not set claudeMdBackedUp when no backup was needed", async () => {
+      const target = path.join(tmpDir, "vault");
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(target, "notes.md"), "# Notes");
+
+      const result = await migrateWorkspace({
+        name: "Test",
+        purpose: "Testing",
+        targetDir: target,
+      });
+
+      expect(result.claudeMdBackedUp).toBeUndefined();
+    });
   });
 });

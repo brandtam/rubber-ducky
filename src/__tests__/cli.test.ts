@@ -101,7 +101,6 @@ describe("CLI", () => {
       expect(content).toContain("Do not lose this.");
       // Should also have frontmatter added
       expect(content).toMatch(/^---\n/);
-      expect(content).toContain("adopted: true");
     });
 
     it("creates workspace structure during migration", () => {
@@ -118,7 +117,7 @@ describe("CLI", () => {
       expect(fs.existsSync(path.join(target, "CLAUDE.md"))).toBe(true);
     });
 
-    it("generates index from adopted content", () => {
+    it("generates index of migrated content", () => {
       const target = path.join(tmpDir, "index-test");
       fs.mkdirSync(target, { recursive: true });
       fs.writeFileSync(path.join(target, "alpha.md"), "# Alpha");

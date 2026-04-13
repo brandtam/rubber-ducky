@@ -194,31 +194,17 @@ export function executeMigration(
     const titleFromFilename = path.basename(relativePath, ".md");
     const frontmatter = {
       title: titleFromFilename,
-      adopted: true,
-      adopted_date: new Date().toISOString().split("T")[0],
     };
     const newContent = `---\n${yamlStringify(frontmatter).trimEnd()}\n---\n\n${content}`;
     fs.writeFileSync(fullPath, newContent, "utf-8");
   }
 
-  // Update frontmatter on files that already have it
-  for (const relativePath of plan.filesToUpdateFrontmatter) {
-    const fullPath = path.join(targetDir, relativePath);
-    const content = fs.readFileSync(fullPath, "utf-8");
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-    if (match) {
-      const existingFm = parseYaml(match[1]) as Record<string, unknown>;
-      existingFm.adopted = true;
-      existingFm.adopted_date = new Date().toISOString().split("T")[0];
-      const newContent = `---\n${yamlStringify(existingFm).trimEnd()}\n---\n${match[2]}`;
-      fs.writeFileSync(fullPath, newContent, "utf-8");
-    }
-  }
+  // Files with existing well-formed frontmatter are preserved untouched
 
-  // Generate index from adopted content
+  // Generate index of content present during migration
   const allAdopted = [...plan.filesToAddFrontmatter, ...plan.filesToUpdateFrontmatter];
   if (allAdopted.length > 0) {
-    const indexLines = ["# Adopted Content Index", "", "Files adopted during migration:", ""];
+    const indexLines = ["# Migrated Content Index", "", "Files present during migration:", ""];
     for (const relativePath of allAdopted.sort()) {
       indexLines.push(`- [[${relativePath}]]`);
     }
