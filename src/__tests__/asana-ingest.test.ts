@@ -130,7 +130,7 @@ describe("ingestAsanaTask", () => {
       const fm = parsed!.data;
       expect(fm.title).toBe("Fix the login bug");
       expect(fm.type).toBe("task");
-      expect(fm.ref).toBe("1234567890");
+      expect(fm.ref).toBe("fix-the-login-bug");
       expect(fm.source).toBe("asana");
       expect(fm.status).toBe("in-progress");
       expect(fm.assignee).toBe("Alice");
@@ -425,7 +425,7 @@ describe("ingestAsanaTask", () => {
 
       const log = fs.readFileSync(logPath, "utf-8");
       expect(log).toContain("Ingested Asana task");
-      expect(log).toContain("1234567890");
+      expect(log).toContain("fix-the-login-bug");
     });
   });
 
@@ -443,7 +443,7 @@ describe("ingestAsanaTask", () => {
       expect(result.filePath).toBeDefined();
       expect(result.taskPage).toBeDefined();
       expect(result.taskPage!.title).toBe("Fix the login bug");
-      expect(result.taskPage!.ref).toBe("1234567890");
+      expect(result.taskPage!.ref).toBe("fix-the-login-bug");
       expect(result.taskPage!.source).toBe("asana");
     });
 
@@ -498,7 +498,7 @@ describe("ingestAsanaTask", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.taskPage!.ref).toBe("ECOMM-4643");
+      expect(result.taskPage!.ref).toBe("ecomm-4643");
       expect(result.filePath).toContain("ecomm-4643.md");
     });
 
@@ -518,7 +518,7 @@ describe("ingestAsanaTask", () => {
         identifierField: "ecomm number",
       });
 
-      expect(result.taskPage!.ref).toBe("ECOMM-100");
+      expect(result.taskPage!.ref).toBe("ecomm-100");
       expect(result.filePath).toContain("ecomm-100.md");
     });
 
@@ -539,8 +539,8 @@ describe("ingestAsanaTask", () => {
       });
 
       expect(result.taskPage!.ref).toBe("1234567890");
-      // Falls back to title-based filename
-      expect(result.filePath).toContain("fix-the-login-bug.md");
+      // Falls back to GID-based filename (centralized in naming module)
+      expect(result.filePath).toContain("1234567890.md");
     });
 
     it("falls back to GID when display_value is null", async () => {
@@ -560,7 +560,8 @@ describe("ingestAsanaTask", () => {
       });
 
       expect(result.taskPage!.ref).toBe("1234567890");
-      expect(result.filePath).toContain("fix-the-login-bug.md");
+      // Falls back to GID-based filename (centralized in naming module)
+      expect(result.filePath).toContain("1234567890.md");
     });
 
     it("falls back to GID when display_value is empty string", async () => {
@@ -624,11 +625,12 @@ describe("ingestAsanaTask", () => {
         workspaceRoot: tmpDir,
       });
 
+      // Asset dir follows the naming scheme (title-based when no identifier)
       const assetPath = path.join(
         tmpDir,
         "raw",
         "assets",
-        "1234567890",
+        "fix-the-login-bug",
         "screenshot.png"
       );
       expect(fs.existsSync(assetPath)).toBe(true);
@@ -659,7 +661,7 @@ describe("ingestAsanaTask", () => {
       );
       expect(content).toContain("## Attachments");
       expect(content).toContain(
-        "![screenshot.png](../../raw/assets/1234567890/screenshot.png)"
+        "![screenshot.png](../../raw/assets/fix-the-login-bug/screenshot.png)"
       );
     });
 
@@ -687,7 +689,7 @@ describe("ingestAsanaTask", () => {
       );
       expect(content).toContain("## Attachments");
       expect(content).toContain(
-        "[spec.pdf](../../raw/assets/1234567890/spec.pdf)"
+        "[spec.pdf](../../raw/assets/fix-the-login-bug/spec.pdf)"
       );
       // Should NOT use image embed syntax
       expect(content).not.toContain("![spec.pdf]");
@@ -779,7 +781,7 @@ describe("ingestAsanaTask", () => {
         workspaceRoot: tmpDir,
       });
 
-      const assetDir = path.join(tmpDir, "raw", "assets", "1234567890");
+      const assetDir = path.join(tmpDir, "raw", "assets", "fix-the-login-bug");
       // Asset directory should not be created for non-downloadable attachments
       expect(fs.existsSync(assetDir)).toBe(false);
       expect(result.attachmentCount).toBe(1);

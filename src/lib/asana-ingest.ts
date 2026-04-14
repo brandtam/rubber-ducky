@@ -16,7 +16,7 @@ import type {
 } from "./asana-client.js";
 import type { Status } from "./backend.js";
 import { asanaTaskToPage, extractTaskGid, mapAsanaToStatus } from "./asana-backend.js";
-import { slugify } from "./page.js";
+import { applyNamingScheme, type NamingScheme, type NamingInput } from "./naming.js";
 import {
   type IngestResult,
   type BulkIngestResult,
@@ -44,6 +44,8 @@ export interface IngestAsanaOptions {
   workspaceRoot: string;
   statusMapping?: Record<string, Status>;
   identifierField?: string;
+  namingSource?: "identifier" | "title" | "gid";
+  namingCase?: "preserve" | "lower";
   /** Pre-fetched task data from bulk list call — avoids redundant API request. */
   prefetchedTask?: AsanaTask;
   /** Pre-built dedup index — avoids re-scanning wiki/tasks/ per task in bulk. */
@@ -58,6 +60,8 @@ export interface BulkIngestOptions {
   workspaceRoot: string;
   statusMapping?: Record<string, Status>;
   identifierField?: string;
+  namingSource?: "identifier" | "title" | "gid";
+  namingCase?: "preserve" | "lower";
   defaultProjectGid?: string;
   scope?: "mine" | "all";
 }
@@ -135,6 +139,8 @@ export async function ingestAsanaTask(
     workspaceRoot,
     statusMapping,
     identifierField,
+    namingSource,
+    namingCase,
     prefetchedTask,
     dedupIndex,
     skipPostProcess,
@@ -179,10 +185,23 @@ export async function ingestAsanaTask(
     };
   }
 
-  // Determine the asset ref (slugified identifier or raw GID)
-  const assetRef = (resolvedIdentifier
-    ? slugify(resolvedIdentifier)
-    : null) || task.gid;
+  // Resolve naming scheme — defaults preserve backwards compatibility
+  const scheme: NamingScheme = {
+    source: namingSource ?? (identifierField ? "identifier" : "title"),
+    case: namingCase ?? "lower",
+  };
+  const namingInput: NamingInput = {
+    gid: task.gid,
+    title: taskPage.title,
+    identifier: resolvedIdentifier,
+  };
+
+  // Apply naming scheme for both filename and asset directory
+  const filenameBase = applyNamingScheme(namingInput, scheme);
+  const assetRef = filenameBase;
+
+  // Update ref to match filename base (one identity per task)
+  taskPage.ref = filenameBase;
 
   // Download attachments in parallel
   const downloadable = attachments.filter(
@@ -204,11 +223,6 @@ export async function ingestAsanaTask(
     name: att.name,
     isImage: isImageFilename(att.name),
   }));
-
-  // Determine filename — fall back to GID if slugify produces an empty string
-  const filenameBase = (resolvedIdentifier
-    ? slugify(resolvedIdentifier)
-    : slugify(taskPage.title)) || task.gid;
   const filename = `${filenameBase}.md`;
   const relativePath = path.join("wiki", "tasks", filename);
   const fullPath = path.join(workspaceRoot, relativePath);
@@ -259,6 +273,8 @@ export async function ingestAsanaBulk(
     workspaceRoot,
     statusMapping,
     identifierField,
+    namingSource,
+    namingCase,
     defaultProjectGid,
     scope,
   } = options;
@@ -274,6 +290,8 @@ export async function ingestAsanaBulk(
         workspaceRoot,
         statusMapping,
         identifierField,
+        namingSource,
+        namingCase,
       });
       return {
         ingested: result.skipped ? 0 : 1,
@@ -316,6 +334,8 @@ export async function ingestAsanaBulk(
       workspaceRoot,
       statusMapping,
       identifierField,
+      namingSource,
+      namingCase,
       prefetchedTask: task,
       dedupIndex,
       skipPostProcess: true,

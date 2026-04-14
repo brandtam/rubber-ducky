@@ -9,6 +9,8 @@ export interface BackendConfig {
   workspace_id?: string;
   project_gid?: string;
   identifier_field?: string;
+  naming_source?: "identifier" | "title" | "gid";
+  naming_case?: "preserve" | "lower";
 }
 
 export interface VocabularyOptions {
