@@ -23,16 +23,14 @@ function mockFetch(
 
 describe("AsanaClient", () => {
   describe("auth", () => {
-    it("throws when ASANA_ACCESS_TOKEN is not set", () => {
-      expect(() =>
-        createAsanaClient({ token: undefined as unknown as string })
-      ).toThrow("ASANA_ACCESS_TOKEN");
+    it("throws on request when ASANA_ACCESS_TOKEN is not set", async () => {
+      const client = createAsanaClient({ token: undefined as unknown as string });
+      await expect(client.getMe()).rejects.toThrow("ASANA_ACCESS_TOKEN");
     });
 
-    it("throws when ASANA_ACCESS_TOKEN is empty string", () => {
-      expect(() => createAsanaClient({ token: "" })).toThrow(
-        "ASANA_ACCESS_TOKEN"
-      );
+    it("throws on request when ASANA_ACCESS_TOKEN is empty string", async () => {
+      const client = createAsanaClient({ token: "" });
+      await expect(client.getMe()).rejects.toThrow("ASANA_ACCESS_TOKEN");
     });
 
     it("sends Bearer token in Authorization header", async () => {
@@ -185,6 +183,102 @@ describe("AsanaClient", () => {
       const client = createAsanaClient({ token: "test-token", fetch });
       const stories = await client.getStories("999");
       expect(stories).toEqual([]);
+    });
+  });
+
+  describe("createTask", () => {
+    it("creates a task via POST /tasks", async () => {
+      let capturedUrl = "";
+      let capturedInit: RequestInit | undefined;
+      const fetch = mockFetch((url, init) => {
+        capturedUrl = url;
+        capturedInit = init;
+        return {
+          status: 201,
+          body: {
+            data: {
+              gid: "9999",
+              name: "New task",
+              permalink_url: "https://app.asana.com/0/project/9999",
+            },
+          },
+        };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const result = await client.createTask({
+        workspace: "ws123",
+        name: "New task",
+        notes: "Task description",
+        completed: false,
+        due_on: "2024-03-15",
+      });
+
+      expect(capturedUrl).toContain("/tasks");
+      expect(capturedInit?.method).toBe("POST");
+      const body = JSON.parse(capturedInit?.body as string);
+      expect(body.data.name).toBe("New task");
+      expect(body.data.notes).toBe("Task description");
+      expect(body.data.workspace).toBe("ws123");
+      expect(body.data.completed).toBe(false);
+      expect(body.data.due_on).toBe("2024-03-15");
+      expect(result.gid).toBe("9999");
+      expect(result.permalink_url).toBe(
+        "https://app.asana.com/0/project/9999"
+      );
+    });
+
+    it("throws on API error", async () => {
+      const fetch = mockFetch(() => ({
+        status: 400,
+        body: { errors: [{ message: "Invalid request" }] },
+      }));
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      await expect(
+        client.createTask({ name: "Bad task" })
+      ).rejects.toThrow("400");
+    });
+  });
+
+  describe("createStory", () => {
+    it("creates a story via POST /tasks/{gid}/stories", async () => {
+      let capturedUrl = "";
+      let capturedInit: RequestInit | undefined;
+      const fetch = mockFetch((url, init) => {
+        capturedUrl = url;
+        capturedInit = init;
+        return {
+          status: 201,
+          body: {
+            data: {
+              gid: "story456",
+              text: "Great work!",
+            },
+          },
+        };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const result = await client.createStory("1234567890", "Great work!");
+
+      expect(capturedUrl).toContain("/tasks/1234567890/stories");
+      expect(capturedInit?.method).toBe("POST");
+      const body = JSON.parse(capturedInit?.body as string);
+      expect(body.data.text).toBe("Great work!");
+      expect(result.gid).toBe("story456");
+    });
+
+    it("throws on API error", async () => {
+      const fetch = mockFetch(() => ({
+        status: 404,
+        body: { errors: [{ message: "task: Unknown object" }] },
+      }));
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      await expect(
+        client.createStory("nonexistent", "comment")
+      ).rejects.toThrow("404");
     });
   });
 });

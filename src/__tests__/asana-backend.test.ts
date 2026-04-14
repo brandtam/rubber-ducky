@@ -9,10 +9,9 @@ import {
   createAsanaBackend,
   mapAsanaToStatus,
   mapStatusToAsanaCompleted,
-  checkAsanaConnectivity,
   checkAsanaConnectivityRest,
-  type McpCall,
 } from "../lib/asana-backend.js";
+import type { AsanaClient } from "../lib/asana-client.js";
 
 function makeTaskPage(overrides?: Partial<TaskPage>): TaskPage {
   return {
@@ -34,6 +33,23 @@ function makeTaskPage(overrides?: Partial<TaskPage>): TaskPage {
     comment_count: 0,
     description: "",
     comments: [],
+    ...overrides,
+  };
+}
+
+function makeMockClient(overrides?: Partial<AsanaClient>): AsanaClient {
+  return {
+    getMe: async () => ({ gid: "me", name: "Test User", email: "test@example.com" }),
+    getTask: async () => {
+      throw new Error("getTask not mocked");
+    },
+    getStories: async () => [],
+    createTask: async () => {
+      throw new Error("createTask not mocked");
+    },
+    createStory: async () => {
+      throw new Error("createStory not mocked");
+    },
     ...overrides,
   };
 }
@@ -105,7 +121,7 @@ describe("Asana backend", () => {
 
   describe("capabilities", () => {
     it("supports ingest, pull, push, and comment", () => {
-      const backend = createAsanaBackend({ mcp: () => ({}) });
+      const backend = createAsanaBackend({ client: makeMockClient() });
       expect(backend.capabilities).toContain("ingest");
       expect(backend.capabilities).toContain("pull");
       expect(backend.capabilities).toContain("push");
@@ -113,7 +129,7 @@ describe("Asana backend", () => {
     });
 
     it("does not support transition", () => {
-      const backend = createAsanaBackend({ mcp: () => ({}) });
+      const backend = createAsanaBackend({ client: makeMockClient() });
       expect(backend.capabilities).not.toContain("transition");
       expect(() => assertCapability(backend, "transition")).toThrow(
         'Backend "asana" does not support "transition"'
@@ -136,28 +152,25 @@ describe("Asana backend", () => {
         ],
         tags: [{ name: "bug" }, { name: "urgent" }],
         permalink_url: "https://app.asana.com/0/project/1234567890",
+        custom_fields: [],
       };
 
       const mockStories = [
         {
+          gid: "s1",
           type: "comment",
           text: "I can reproduce this",
-          created_by: { name: "Bob" },
+          created_by: { name: "Bob", gid: "222" },
           created_at: "2024-01-15T10:00:00Z",
         },
       ];
 
-      const mcp: McpCall = (tool, params) => {
-        if (tool === "asana_get_task") {
-          return mockTask;
-        }
-        if (tool === "asana_get_task_stories") {
-          return mockStories;
-        }
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+      const client = makeMockClient({
+        getTask: async () => mockTask,
+        getStories: async () => mockStories,
+      });
 
-      const backend = createAsanaBackend({ mcp });
+      const backend = createAsanaBackend({ client });
       const page = await backend.ingest("1234567890");
 
       expect(page.title).toBe("Fix the login bug");
@@ -189,15 +202,15 @@ describe("Asana backend", () => {
         memberships: [],
         tags: [],
         permalink_url: "https://app.asana.com/0/project/999",
+        custom_fields: [],
       };
 
-      const mcp: McpCall = (tool) => {
-        if (tool === "asana_get_task") return mockTask;
-        if (tool === "asana_get_task_stories") return [];
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+      const client = makeMockClient({
+        getTask: async () => mockTask,
+        getStories: async () => [],
+      });
 
-      const backend = createAsanaBackend({ mcp });
+      const backend = createAsanaBackend({ client });
       const page = await backend.ingest("999");
 
       expect(page.title).toBe("Simple task");
@@ -220,15 +233,15 @@ describe("Asana backend", () => {
         memberships: [],
         tags: [],
         permalink_url: "https://app.asana.com/0/project/555",
+        custom_fields: [],
       };
 
-      const mcp: McpCall = (tool) => {
-        if (tool === "asana_get_task") return mockTask;
-        if (tool === "asana_get_task_stories") return [];
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+      const client = makeMockClient({
+        getTask: async () => mockTask,
+        getStories: async () => [],
+      });
 
-      const backend = createAsanaBackend({ mcp });
+      const backend = createAsanaBackend({ client });
       const page = await backend.ingest("555");
 
       expect(page.status).toBe("done");
@@ -247,36 +260,39 @@ describe("Asana backend", () => {
         memberships: [],
         tags: [],
         permalink_url: "https://app.asana.com/0/project/777",
+        custom_fields: [],
       };
 
       const mockStories = [
         {
+          gid: "s1",
           type: "comment",
           text: "First comment",
-          created_by: { name: "Alice" },
+          created_by: { name: "Alice", gid: "111" },
           created_at: "2024-01-10T10:00:00Z",
         },
         {
+          gid: "s2",
           type: "system",
           text: "Alice moved this task",
-          created_by: { name: "Alice" },
+          created_by: { name: "Alice", gid: "111" },
           created_at: "2024-01-10T11:00:00Z",
         },
         {
+          gid: "s3",
           type: "comment",
           text: "Second comment",
-          created_by: { name: "Bob" },
+          created_by: { name: "Bob", gid: "222" },
           created_at: "2024-01-11T11:00:00Z",
         },
       ];
 
-      const mcp: McpCall = (tool) => {
-        if (tool === "asana_get_task") return mockTask;
-        if (tool === "asana_get_task_stories") return mockStories;
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+      const client = makeMockClient({
+        getTask: async () => mockTask,
+        getStories: async () => mockStories,
+      });
 
-      const backend = createAsanaBackend({ mcp });
+      const backend = createAsanaBackend({ client });
       const page = await backend.ingest("777");
 
       // Only comment-type stories, not system stories
@@ -298,21 +314,23 @@ describe("Asana backend", () => {
         memberships: [],
         tags: [],
         permalink_url: "https://app.asana.com/0/project/1234567890",
+        custom_fields: [],
       };
 
-      const calls: { tool: string; params: Record<string, unknown> }[] = [];
-      const mcp: McpCall = (tool, params) => {
-        calls.push({ tool, params });
-        if (tool === "asana_get_task") return mockTask;
-        if (tool === "asana_get_task_stories") return [];
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+      const capturedGids: string[] = [];
+      const client = makeMockClient({
+        getTask: async (gid) => {
+          capturedGids.push(gid);
+          return mockTask;
+        },
+        getStories: async () => [],
+      });
 
-      const backend = createAsanaBackend({ mcp });
+      const backend = createAsanaBackend({ client });
       await backend.ingest("https://app.asana.com/0/project/1234567890");
 
       // Should extract the task GID from the URL
-      expect(calls[0].params.task_gid).toBe("1234567890");
+      expect(capturedGids[0]).toBe("1234567890");
     });
 
     it("uses custom status mapping during ingest", async () => {
@@ -329,104 +347,19 @@ describe("Asana backend", () => {
         ],
         tags: [],
         permalink_url: "https://app.asana.com/0/project/888",
+        custom_fields: [],
       };
 
-      const mcp: McpCall = (tool) => {
-        if (tool === "asana_get_task") return mockTask;
-        if (tool === "asana_get_task_stories") return [];
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+      const client = makeMockClient({
+        getTask: async () => mockTask,
+        getStories: async () => [],
+      });
 
       const statusMapping = { "Sprint 42": "in-progress" };
-      const backend = createAsanaBackend({ mcp, statusMapping });
+      const backend = createAsanaBackend({ client, statusMapping });
       const page = await backend.ingest("888");
 
       expect(page.status).toBe("in-progress");
-    });
-  });
-
-  describe("bulk ingest", () => {
-    it("ingests all tasks from an Asana project", async () => {
-      const mockProjectTasks = [
-        {
-          gid: "101",
-          name: "Task 1",
-          notes: "Description 1",
-          completed: false,
-          completed_at: null,
-          assignee: null,
-          due_on: null,
-          memberships: [],
-          tags: [],
-          permalink_url: "https://app.asana.com/0/project/101",
-        },
-        {
-          gid: "102",
-          name: "Task 2",
-          notes: "Description 2",
-          completed: true,
-          completed_at: "2024-01-20T00:00:00Z",
-          assignee: { name: "Alice", gid: "111" },
-          due_on: null,
-          memberships: [],
-          tags: [],
-          permalink_url: "https://app.asana.com/0/project/102",
-        },
-      ];
-
-      const mcp: McpCall = (tool, params) => {
-        if (tool === "asana_get_tasks_for_project") return mockProjectTasks;
-        if (tool === "asana_get_task") {
-          return mockProjectTasks.find(
-            (t) => t.gid === (params as { task_gid: string }).task_gid
-          );
-        }
-        if (tool === "asana_get_task_stories") return [];
-        throw new Error(`unexpected tool: ${tool}`);
-      };
-
-      const backend = createAsanaBackend({ mcp });
-      // Bulk ingest uses the ref format "project:PROJECT_GID"
-      const page = await backend.ingest("project:9876");
-
-      // Bulk ingest returns a special TaskPage with bulk results
-      expect(page.title).toContain("project:9876");
-      expect(page.description).toContain("Task 1");
-      expect(page.description).toContain("Task 2");
-    });
-
-    it("ingests all tasks from an Asana section", async () => {
-      const mockSectionTasks = [
-        {
-          gid: "201",
-          name: "Section Task 1",
-          notes: "Section desc 1",
-          completed: false,
-          completed_at: null,
-          assignee: null,
-          due_on: null,
-          memberships: [],
-          tags: [],
-          permalink_url: "https://app.asana.com/0/project/201",
-        },
-      ];
-
-      const mcp: McpCall = (tool, params) => {
-        if (tool === "asana_get_tasks_for_section") return mockSectionTasks;
-        if (tool === "asana_get_task") {
-          return mockSectionTasks.find(
-            (t) => t.gid === (params as { task_gid: string }).task_gid
-          );
-        }
-        if (tool === "asana_get_task_stories") return [];
-        throw new Error(`unexpected tool: ${tool}`);
-      };
-
-      const backend = createAsanaBackend({ mcp });
-      const page = await backend.ingest("section:5555");
-
-      expect(page.title).toContain("section:5555");
-      expect(page.description).toContain("Section Task 1");
     });
   });
 
@@ -445,24 +378,25 @@ describe("Asana backend", () => {
         ],
         tags: [{ name: "feature" }],
         permalink_url: "https://app.asana.com/0/project/1234567890",
+        custom_fields: [],
       };
 
       const mockStories = [
         {
+          gid: "s1",
           type: "comment",
           text: "New comment",
-          created_by: { name: "Dave" },
+          created_by: { name: "Dave", gid: "333" },
           created_at: "2024-02-01T10:00:00Z",
         },
       ];
 
-      const mcp: McpCall = (tool) => {
-        if (tool === "asana_get_task") return mockTask;
-        if (tool === "asana_get_task_stories") return mockStories;
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+      const client = makeMockClient({
+        getTask: async () => mockTask,
+        getStories: async () => mockStories,
+      });
 
-      const backend = createAsanaBackend({ mcp });
+      const backend = createAsanaBackend({ client });
       const taskPage = makeTaskPage({
         asana_ref: "https://app.asana.com/0/project/1234567890",
         ref: "1234567890",
@@ -491,15 +425,15 @@ describe("Asana backend", () => {
         memberships: [],
         tags: [],
         permalink_url: "https://app.asana.com/0/project/1234567890",
+        custom_fields: [],
       };
 
-      const mcp: McpCall = (tool) => {
-        if (tool === "asana_get_task") return mockTask;
-        if (tool === "asana_get_task_stories") return [];
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+      const client = makeMockClient({
+        getTask: async () => mockTask,
+        getStories: async () => [],
+      });
 
-      const backend = createAsanaBackend({ mcp });
+      const backend = createAsanaBackend({ client });
       const taskPage = makeTaskPage({
         asana_ref: "https://app.asana.com/0/project/1234567890",
         ref: "1234567890",
@@ -515,7 +449,7 @@ describe("Asana backend", () => {
     });
 
     it("throws when task page has no asana_ref", async () => {
-      const backend = createAsanaBackend({ mcp: () => ({}) });
+      const backend = createAsanaBackend({ client: makeMockClient() });
       const taskPage = makeTaskPage({ asana_ref: null, ref: null });
 
       await expect(backend.pull(taskPage)).rejects.toThrow(
@@ -526,19 +460,18 @@ describe("Asana backend", () => {
 
   describe("push", () => {
     it("creates a new Asana task from a wiki task page", async () => {
-      const calls: { tool: string; params: Record<string, unknown> }[] = [];
-      const mcp: McpCall = (tool, params) => {
-        calls.push({ tool, params });
-        if (tool === "asana_create_task") {
+      const capturedParams: Record<string, unknown>[] = [];
+      const client = makeMockClient({
+        createTask: async (params) => {
+          capturedParams.push(params);
           return {
             gid: "9999",
             permalink_url: "https://app.asana.com/0/project/9999",
           };
-        }
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+        },
+      });
 
-      const backend = createAsanaBackend({ mcp, workspaceId: "ws123" });
+      const backend = createAsanaBackend({ client, workspaceId: "ws123" });
       const taskPage = makeTaskPage({
         title: "New feature",
         description: "Build this thing",
@@ -550,25 +483,24 @@ describe("Asana backend", () => {
       expect(result.success).toBe(true);
       expect(result.ref).toBe("9999");
       expect(result.url).toBe("https://app.asana.com/0/project/9999");
-      expect(calls[0].tool).toBe("asana_create_task");
-      expect(calls[0].params.name).toBe("New feature");
-      expect(calls[0].params.notes).toBe("Build this thing");
+      expect(capturedParams[0].name).toBe("New feature");
+      expect(capturedParams[0].notes).toBe("Build this thing");
+      expect(capturedParams[0].workspace).toBe("ws123");
     });
 
     it("sets completed=true when pushing a done task", async () => {
-      const calls: { tool: string; params: Record<string, unknown> }[] = [];
-      const mcp: McpCall = (tool, params) => {
-        calls.push({ tool, params });
-        if (tool === "asana_create_task") {
+      const capturedParams: Record<string, unknown>[] = [];
+      const client = makeMockClient({
+        createTask: async (params) => {
+          capturedParams.push(params);
           return {
             gid: "8888",
             permalink_url: "https://app.asana.com/0/project/8888",
           };
-        }
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+        },
+      });
 
-      const backend = createAsanaBackend({ mcp, workspaceId: "ws123" });
+      const backend = createAsanaBackend({ client, workspaceId: "ws123" });
       const taskPage = makeTaskPage({
         title: "Completed task",
         status: "done",
@@ -576,23 +508,22 @@ describe("Asana backend", () => {
 
       await backend.push(taskPage);
 
-      expect(calls[0].params.completed).toBe(true);
+      expect(capturedParams[0].completed).toBe(true);
     });
 
-    it("includes due date and assignee when available", async () => {
-      const calls: { tool: string; params: Record<string, unknown> }[] = [];
-      const mcp: McpCall = (tool, params) => {
-        calls.push({ tool, params });
-        if (tool === "asana_create_task") {
+    it("includes due date when available", async () => {
+      const capturedParams: Record<string, unknown>[] = [];
+      const client = makeMockClient({
+        createTask: async (params) => {
+          capturedParams.push(params);
           return {
             gid: "7777",
             permalink_url: "https://app.asana.com/0/project/7777",
           };
-        }
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+        },
+      });
 
-      const backend = createAsanaBackend({ mcp, workspaceId: "ws123" });
+      const backend = createAsanaBackend({ client, workspaceId: "ws123" });
       const taskPage = makeTaskPage({
         title: "Due task",
         due: "2024-03-15",
@@ -600,25 +531,21 @@ describe("Asana backend", () => {
 
       await backend.push(taskPage);
 
-      expect(calls[0].params.due_on).toBe("2024-03-15");
+      expect(capturedParams[0].due_on).toBe("2024-03-15");
     });
   });
 
   describe("comment", () => {
     it("adds a story to an Asana task via asana_ref", async () => {
-      const calls: { tool: string; params: Record<string, unknown> }[] = [];
-      const mcp: McpCall = (tool, params) => {
-        calls.push({ tool, params });
-        if (tool === "asana_create_task_story") {
-          return {
-            gid: "story123",
-            text: "Great work!",
-          };
-        }
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+      const capturedCalls: { taskGid: string; text: string }[] = [];
+      const client = makeMockClient({
+        createStory: async (taskGid, text) => {
+          capturedCalls.push({ taskGid, text });
+          return { gid: "story123", text: "Great work!" };
+        },
+      });
 
-      const backend = createAsanaBackend({ mcp });
+      const backend = createAsanaBackend({ client });
       const taskPage = makeTaskPage({
         ref: "1234567890",
         asana_ref: "https://app.asana.com/0/project/1234567890",
@@ -627,29 +554,29 @@ describe("Asana backend", () => {
       const result = await backend.comment(taskPage, "Great work!");
 
       expect(result.success).toBe(true);
-      expect(calls[0].tool).toBe("asana_create_task_story");
-      expect(calls[0].params.task_gid).toBe("1234567890");
-      expect(calls[0].params.text).toBe("Great work!");
+      expect(capturedCalls[0].taskGid).toBe("1234567890");
+      expect(capturedCalls[0].text).toBe("Great work!");
     });
 
     it("uses ref when asana_ref is not set", async () => {
-      const calls: { tool: string; params: Record<string, unknown> }[] = [];
-      const mcp: McpCall = (tool, params) => {
-        calls.push({ tool, params });
-        if (tool === "asana_create_task_story") return { gid: "s1", text: "" };
-        throw new Error(`unexpected tool: ${tool}`);
-      };
+      const capturedCalls: { taskGid: string; text: string }[] = [];
+      const client = makeMockClient({
+        createStory: async (taskGid, text) => {
+          capturedCalls.push({ taskGid, text });
+          return { gid: "s1" };
+        },
+      });
 
-      const backend = createAsanaBackend({ mcp });
+      const backend = createAsanaBackend({ client });
       const taskPage = makeTaskPage({ ref: "5555", asana_ref: null });
 
       await backend.comment(taskPage, "A comment");
 
-      expect(calls[0].params.task_gid).toBe("5555");
+      expect(capturedCalls[0].taskGid).toBe("5555");
     });
 
     it("throws when no reference is available", async () => {
-      const backend = createAsanaBackend({ mcp: () => ({}) });
+      const backend = createAsanaBackend({ client: makeMockClient() });
       const taskPage = makeTaskPage({ ref: null, asana_ref: null });
 
       await expect(backend.comment(taskPage, "oops")).rejects.toThrow(
@@ -660,34 +587,10 @@ describe("Asana backend", () => {
 
   describe("unsupported operations", () => {
     it("throws clear error for transition", async () => {
-      const backend = createAsanaBackend({ mcp: () => ({}) });
+      const backend = createAsanaBackend({ client: makeMockClient() });
       await expect(
         backend.transition(makeTaskPage(), "done")
       ).rejects.toThrow('Backend "asana" does not support "transition"');
-    });
-  });
-
-  describe("checkAsanaConnectivity (MCP, legacy)", () => {
-    it("returns authenticated when MCP server responds", () => {
-      const mcp: McpCall = (tool) => {
-        if (tool === "asana_get_me") {
-          return { name: "Test User", email: "test@example.com" };
-        }
-        throw new Error(`unexpected tool: ${tool}`);
-      };
-      const result = checkAsanaConnectivity(mcp);
-      expect(result.authenticated).toBe(true);
-      expect(result.user).toBe("Test User");
-    });
-
-    it("returns not authenticated when MCP server fails", () => {
-      const mcp: McpCall = () => {
-        throw new Error("MCP server not running");
-      };
-      const result = checkAsanaConnectivity(mcp);
-      expect(result.authenticated).toBe(false);
-      expect(result.error).toBeDefined();
-      expect(result.error).toContain("Asana MCP");
     });
   });
 
@@ -732,7 +635,7 @@ describe("Backend factory — Asana", () => {
   it("getBackend returns an Asana backend for asana config", () => {
     const backend = getBackend(
       { type: "asana", mcp_server: "asana" },
-      { mcp: () => ({}) }
+      { token: "test-token" }
     );
     expect(backend.name).toBe("asana");
     expect(backend.capabilities).toContain("ingest");
