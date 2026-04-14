@@ -481,17 +481,15 @@ Tell the user to open \`.env.local\` in the workspace root (copy from \`.env.exa
 export ASANA_ACCESS_TOKEN=<their-token>
 \`\`\`
 
-Then load it: \`source .env.local\`
+The CLI picks up \`.env.local\` automatically — no need to source it.
 
 **Step 3: Verify connectivity**
-
-Run this in the terminal (use \`!\` prefix to run shell commands from Claude Code):
 
 \`\`\`bash
 rubber-ducky backend check asana
 \`\`\`
 
-If it fails, ask the user to double-check their token and confirm they ran \`source .env.local\` in the same terminal before starting Claude Code.
+If it fails, ask the user to double-check their token value in \`.env.local\`.
 
 **Step 4: Run discovery (if project/workspace not yet configured)**
 
@@ -522,17 +520,15 @@ export JIRA_EMAIL=<their-atlassian-email>
 export JIRA_API_TOKEN=<their-token>
 \`\`\`
 
-Then load it: \`source .env.local\`
+The CLI picks up \`.env.local\` automatically — no need to source it.
 
 **Step 3: Verify connectivity**
-
-Run this in the terminal (use \`!\` prefix to run shell commands from Claude Code):
 
 \`\`\`bash
 rubber-ducky backend check jira
 \`\`\`
 
-If it fails, ask the user to double-check their credentials and confirm they ran \`source .env.local\` in the same terminal before starting Claude Code.
+If it fails, ask the user to double-check their credentials in \`.env.local\`.
 
 **Step 4: Run discovery**
 
@@ -567,7 +563,7 @@ For each backend that failed the connectivity check, tell the user:
 1. Open \`.env.example\` in the workspace root — it lists the exact environment variables needed for their configured backends, with links to create tokens
 2. Copy it to \`.env.local\`: \`cp .env.example .env.local\`
 3. Fill in the values (instructions for creating each token are below)
-4. Load the variables: \`source .env.local\`
+4. The CLI picks up \`.env.local\` automatically — no manual sourcing needed
 
 Then walk through each backend's token creation steps. **The user must create tokens and set env vars themselves** — never accept credentials pasted in the chat.
 
@@ -1013,7 +1009,7 @@ Copy \`.env.example\` to \`.env.local\` if it doesn't exist, then add your token
 export ASANA_ACCESS_TOKEN="<your-token>"
 \`\`\`
 
-Load it: \`source .env.local\`
+The CLI picks up \`.env.local\` automatically — no manual sourcing needed.
 
 ### Verify
 
@@ -1048,7 +1044,7 @@ export JIRA_EMAIL="<your-atlassian-email>"
 export JIRA_API_TOKEN="<your-token>"
 \`\`\`
 
-Load it: \`source .env.local\`
+The CLI picks up \`.env.local\` automatically — no manual sourcing needed.
 
 ### Verify
 
@@ -1279,7 +1275,7 @@ export function generateEnvExample(backends?: BackendConfig[]): string {
     "# Rubber-Ducky environment variables",
     "# Copy this file to .env.local and fill in your values:",
     "#   cp .env.example .env.local",
-    "#   source .env.local",
+    "# The rubber-ducky CLI picks up this file automatically.",
     "",
   ];
 

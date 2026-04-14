@@ -484,8 +484,7 @@ async function runInteractive(directory: string | undefined): Promise<void> {
     if (needsSetup) {
       notes.push(
         `  3. Copy ${chalk.cyan(".env.example")} to ${chalk.cyan(".env.local")} and add your API tokens`,
-        `  4. Run ${chalk.cyan("source .env.local")}`,
-        `  5. Run ${chalk.cyan("claude")} and type ${chalk.cyan("/get-setup")} to connect your backends`,
+        `  4. Run ${chalk.cyan("claude")} and type ${chalk.cyan("/get-setup")} to connect your backends`,
       );
     } else {
       notes.push(
