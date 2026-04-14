@@ -17,10 +17,13 @@ export interface VocabularyOptions {
   labels?: string[];
 }
 
+export type IngestScope = "mine" | "all" | "ask";
+
 export interface TemplateOptions {
   name: string;
   purpose: string;
   backends?: BackendConfig[];
+  ingest_scope?: IngestScope;
 }
 
 export function generateWorkspaceMd(opts: TemplateOptions): string {
@@ -34,16 +37,21 @@ export function generateWorkspaceMd(opts: TemplateOptions): string {
     if (b.project_key) entry.project_key = b.project_key;
     if (b.workspace_id) entry.workspace_id = b.workspace_id;
     if (b.project_gid) entry.project_gid = b.project_gid;
+    if (b.identifier_field) entry.identifier_field = b.identifier_field;
     return entry;
   });
 
-  const frontmatter = {
+  const frontmatter: Record<string, unknown> = {
     name: opts.name,
     purpose: opts.purpose,
     version: "0.1.0",
     created: new Date().toISOString().split("T")[0],
     backends,
   };
+
+  if (opts.ingest_scope) {
+    frontmatter.ingest_scope = opts.ingest_scope;
+  }
 
   const body = `# ${opts.name}
 
@@ -462,30 +470,63 @@ Then verify: \`rubber-ducky backend check github\``);
     if (backend.type === "asana") {
       setupSteps.push(`#### Asana
 
-Asana uses a remote MCP server with OAuth. Tell the user to run this in their terminal:
+Asana uses a Personal Access Token (PAT) for authentication.
+
+**Step 1: Create a PAT**
+
+Tell the user to go to **My Settings → Apps → Developer apps → Personal access tokens** in Asana (or visit the Asana developer console), then create a new token. They should name it something descriptive like "rubber-ducky".
+
+**Step 2: Set the environment variable**
+
+Tell the user to add this to their shell profile (\`~/.zshrc\`, \`~/.bashrc\`, etc.):
 
 \`\`\`bash
-claude mcp add --transport sse asana https://mcp.asana.com/sse
+export ASANA_ACCESS_TOKEN="<their-token>"
 \`\`\`
 
-Then tell them to run \`/mcp\` inside Claude Code to complete OAuth authentication in their browser.
+Then source the file or open a new terminal.
 
-Verify: \`rubber-ducky backend check asana\``);
+**Step 3: Verify connectivity**
+
+\`\`\`bash
+rubber-ducky backend check asana
+\`\`\`
+
+**Step 4: Run discovery (if project/workspace not yet configured)**
+
+If the workspace config is missing \`workspace_id\` or \`project_gid\`, tell the user to run \`rubber-ducky init\` again — it will auto-discover workspaces, projects, and custom fields via the API.`);
     }
     if (backend.type === "jira") {
       const serverUrl = backend.server_url;
       const urlNote = serverUrl ? ` (configured instance: \`${serverUrl}\`)` : "";
       setupSteps.push(`#### Jira
 
-Jira uses the Atlassian Remote MCP server with OAuth${urlNote}. Tell the user to run this in their terminal:
+Jira uses an API token with Basic Auth for authentication${urlNote}.
+
+**Step 1: Create an API token**
+
+Tell the user to go to **Atlassian account → Security → API tokens** (or visit the Atlassian account security page), then create a new token.
+
+**Step 2: Set the environment variables**
+
+Tell the user to add these to their shell profile (\`~/.zshrc\`, \`~/.bashrc\`, etc.):
 
 \`\`\`bash
-claude mcp add --transport sse atlassian-remote https://mcp.atlassian.com/v1/sse
+export JIRA_EMAIL="<their-atlassian-email>"
+export JIRA_API_TOKEN="<their-token>"
 \`\`\`
 
-Then tell them to run \`/mcp\` inside Claude Code to complete OAuth authentication in their browser.
+Then source the file or open a new terminal.
 
-Verify: \`rubber-ducky backend check jira\``);
+**Step 3: Verify connectivity**
+
+\`\`\`bash
+rubber-ducky backend check jira
+\`\`\`
+
+**Step 4: Run discovery (if project not yet configured)**
+
+If the workspace config is missing \`project_key\`, tell the user to run \`rubber-ducky init\` again — it will auto-discover projects via the API.`);
     }
   }
 
@@ -493,7 +534,7 @@ Verify: \`rubber-ducky backend check jira\``);
 
 Walk through connecting the backends configured in this workspace.
 
-**IMPORTANT: Never ask the user to paste API tokens, passwords, or credentials into the chat.** All authentication happens through CLI auth flows or OAuth in the browser.
+**IMPORTANT: Never ask the user to paste API tokens, passwords, or credentials into the chat.** All authentication happens through environment variables set in the user's shell profile. Guide the user to create tokens in their browser and set them as env vars.
 
 ## Steps
 
@@ -511,7 +552,7 @@ If all backends are connected, tell the user they are ready to go and suggest tr
 
 ### Step 2 — Set up unconnected backends
 
-For each backend that failed the connectivity check, walk the user through setup one at a time. **The user must run these commands themselves** — they involve interactive auth flows that cannot run inside Claude Code.
+For each backend that failed the connectivity check, walk the user through setup one at a time. **The user must set environment variables themselves** — never accept tokens or credentials pasted in the chat.
 
 ${setupSteps.join("\n\n")}
 
@@ -529,7 +570,7 @@ If any backend still fails, refer the user to @references/backend-setup.md for d
 
 ## Output
 
-Keep it conversational and concise. One backend at a time. Wait for the user to confirm they have run each command before moving to the next.
+Keep it conversational and concise. One backend at a time. Wait for the user to confirm they have completed each step before moving to the next.
 `;
 }
 

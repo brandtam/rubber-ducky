@@ -266,4 +266,41 @@ describe("JiraClient", () => {
       expect(capturedUrl).toBe("https://myorg.atlassian.net/rest/api/3/myself");
     });
   });
+
+  describe("getProjects", () => {
+    it("fetches all projects from the Jira instance", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: [
+            { key: "ECOMM", name: "E-Commerce", id: "10001" },
+            { key: "WEB", name: "Website", id: "10002" },
+            { key: "MOB", name: "Mobile App", id: "10003" },
+          ],
+        };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const projects = await client.getProjects();
+
+      expect(projects).toHaveLength(3);
+      expect(projects[0].key).toBe("ECOMM");
+      expect(projects[0].name).toBe("E-Commerce");
+      expect(projects[1].key).toBe("WEB");
+      expect(capturedUrl).toContain("/rest/api/3/project");
+    });
+
+    it("returns empty array when no projects exist", async () => {
+      const fetch = mockFetch(() => ({
+        status: 200,
+        body: [],
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const projects = await client.getProjects();
+      expect(projects).toEqual([]);
+    });
+  });
 });

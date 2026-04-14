@@ -101,6 +101,33 @@ describe("generateWorkspaceMd", () => {
     expect(frontmatter).not.toHaveProperty("cli_mode");
     expect(content).not.toContain("cli_mode");
   });
+
+  it("includes identifier_field in asana backend config when provided", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", mcp_server: "asana", workspace_id: "12345", project_gid: "67890", identifier_field: "ECOMM" },
+    ];
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", backends });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter.backends[0].identifier_field).toBe("ECOMM");
+  });
+
+  it("includes ingest_scope in frontmatter when provided", () => {
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", ingest_scope: "mine" });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter.ingest_scope).toBe("mine");
+  });
+
+  it("omits ingest_scope from frontmatter when not provided", () => {
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing" });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter).not.toHaveProperty("ingest_scope");
+  });
 });
 
 describe("generateClaudeMd", () => {
@@ -444,7 +471,7 @@ describe("generateBackendSkills", () => {
     }
   });
 
-  it("get-setup skill checks connectivity and provides setup commands", () => {
+  it("get-setup skill checks connectivity and provides PAT/API token setup", () => {
     const backends: BackendConfig[] = [
       { type: "github", mcp_server: "github" },
       { type: "asana", mcp_server: "asana" },
@@ -458,9 +485,15 @@ describe("generateBackendSkills", () => {
     expect(setup.content).toContain("rubber-ducky backend check asana");
     expect(setup.content).toContain("rubber-ducky backend check jira");
     expect(setup.content).toContain("gh auth login");
-    expect(setup.content).toContain("claude mcp add --transport sse asana https://mcp.asana.com/sse");
-    expect(setup.content).toContain("claude mcp add --transport sse atlassian-remote https://mcp.atlassian.com/v1/sse");
-    expect(setup.content).toContain("/mcp");
+    // Asana uses PAT, not MCP OAuth
+    expect(setup.content).toContain("ASANA_ACCESS_TOKEN");
+    expect(setup.content).toContain("Personal Access Token");
+    expect(setup.content).not.toContain("mcp.asana.com");
+    expect(setup.content).not.toContain("/mcp");
+    // Jira uses API token, not MCP OAuth
+    expect(setup.content).toContain("JIRA_EMAIL");
+    expect(setup.content).toContain("JIRA_API_TOKEN");
+    expect(setup.content).not.toContain("mcp.atlassian.com");
     expect(setup.content).toContain("Never ask the user to paste API tokens");
   });
 
@@ -472,6 +505,49 @@ describe("generateBackendSkills", () => {
     const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
 
     expect(setup.content).toContain("https://myorg.atlassian.net");
+  });
+
+  it("get-setup skill for asana-only workspace guides PAT creation", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", mcp_server: "asana" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    expect(setup.content).toContain("Personal Access Token");
+    expect(setup.content).toContain("ASANA_ACCESS_TOKEN");
+    expect(setup.content).toContain("rubber-ducky backend check asana");
+    expect(setup.content).toContain("environment variable");
+    expect(setup.content).not.toContain("OAuth");
+    expect(setup.content).not.toContain("MCP server");
+  });
+
+  it("get-setup skill for jira-only workspace guides API token creation", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://example.atlassian.net" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    expect(setup.content).toContain("API token");
+    expect(setup.content).toContain("JIRA_EMAIL");
+    expect(setup.content).toContain("JIRA_API_TOKEN");
+    expect(setup.content).toContain("rubber-ducky backend check jira");
+    expect(setup.content).toContain("environment variable");
+    expect(setup.content).not.toContain("OAuth");
+    expect(setup.content).not.toContain("MCP server");
+  });
+
+  it("get-setup skill mentions re-running init for discovery when config incomplete", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", mcp_server: "asana" },
+      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://example.atlassian.net" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    expect(setup.content).toContain("rubber-ducky init");
+    expect(setup.content).toContain("auto-discover");
   });
 });
 

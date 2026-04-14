@@ -49,11 +49,18 @@ export interface JiraClientOptions {
   fetch?: FetchFn;
 }
 
+export interface JiraProject {
+  key: string;
+  name: string;
+  id: string;
+}
+
 export interface JiraClient {
   getMyself(): Promise<JiraUser>;
   getIssue(issueKey: string): Promise<JiraIssue>;
   getComments(issueKey: string): Promise<JiraComment[]>;
   searchIssues(jql: string, options?: { maxResults?: number }): Promise<JiraSearchResult>;
+  getProjects(): Promise<JiraProject[]>;
 }
 
 export function createJiraClient(options: JiraClientOptions): JiraClient {
@@ -123,6 +130,10 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
         params.set("maxResults", String(searchOptions.maxResults));
       }
       return request<JiraSearchResult>(`/rest/api/3/search?${params.toString()}`);
+    },
+
+    async getProjects(): Promise<JiraProject[]> {
+      return request<JiraProject[]>("/rest/api/3/project");
     },
   };
 }
