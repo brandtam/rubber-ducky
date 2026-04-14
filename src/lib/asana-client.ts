@@ -85,6 +85,16 @@ export interface TaskListOptions {
   assigneeGid?: string;
 }
 
+export interface AsanaCreateTaskResult {
+  gid: string;
+  permalink_url: string;
+}
+
+export interface AsanaCreateStoryResult {
+  gid: string;
+  text?: string;
+}
+
 export interface AsanaClient {
   getMe(): Promise<AsanaUser>;
   getTask(gid: string): Promise<AsanaTask>;
@@ -93,27 +103,28 @@ export interface AsanaClient {
   getTasksForSection(sectionGid: string, opts?: TaskListOptions): Promise<AsanaTask[]>;
   getAttachments(taskGid: string): Promise<AsanaAttachment[]>;
   downloadFile(url: string): Promise<Buffer>;
+  createTask(params: Record<string, unknown>): Promise<AsanaCreateTaskResult>;
+  createStory(taskGid: string, text: string): Promise<AsanaCreateStoryResult>;
 }
 
 export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
   const { token } = options;
-
-  if (!token) {
-    throw new Error(
-      "ASANA_ACCESS_TOKEN is not set. Export your Asana Personal Access Token as ASANA_ACCESS_TOKEN. See references/backend-setup.md for instructions."
-    );
-  }
-
   const fetchFn: FetchFn = options.fetch ?? globalThis.fetch;
 
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/json",
-  };
+  async function request<T>(path: string, init?: RequestInit): Promise<T> {
+    if (!token) {
+      throw new Error(
+        "ASANA_ACCESS_TOKEN is not set. Export your Asana Personal Access Token as ASANA_ACCESS_TOKEN. See references/backend-setup.md for instructions."
+      );
+    }
 
-  async function request<T>(path: string): Promise<T> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    };
     const url = `${ASANA_API_BASE}${path}`;
-    const response = await fetchFn(url, { headers });
+    const mergedHeaders = { ...headers, ...init?.headers as Record<string, string> };
+    const response = await fetchFn(url, { ...init, headers: mergedHeaders });
 
     if (!response.ok) {
       const body = await response.text();
@@ -171,6 +182,22 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
       }
       const arrayBuffer = await response.arrayBuffer();
       return Buffer.from(arrayBuffer);
+    },
+
+    async createTask(params: Record<string, unknown>): Promise<AsanaCreateTaskResult> {
+      return request<AsanaCreateTaskResult>("/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: params }),
+      });
+    },
+
+    async createStory(taskGid: string, text: string): Promise<AsanaCreateStoryResult> {
+      return request<AsanaCreateStoryResult>(`/tasks/${taskGid}/stories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: { text } }),
+      });
     },
   };
 }

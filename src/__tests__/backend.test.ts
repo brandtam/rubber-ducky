@@ -82,7 +82,6 @@ describe("Backend interface", () => {
     it("returns an asana backend for asana config", () => {
       const backend = getBackend(
         { type: "asana", mcp_server: "asana" },
-        { mcp: () => ({}) }
       );
       expect(backend.name).toBe("asana");
       expect(backend.capabilities).toContain("ingest");

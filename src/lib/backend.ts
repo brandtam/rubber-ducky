@@ -29,10 +29,9 @@ import {
 } from "./jira-backend.js";
 import {
   createAsanaBackend,
-  checkAsanaConnectivity,
   checkAsanaConnectivityRest,
-  type McpCall,
 } from "./asana-backend.js";
+import { createAsanaClient } from "./asana-client.js";
 
 export type Capability = "ingest" | "pull" | "push" | "comment" | "transition";
 
@@ -160,7 +159,8 @@ export function getBackend(
   config: BackendConfig,
   options?: {
     exec?: (args: string[]) => string;
-    mcp?: McpCall;
+    token?: string;
+    fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   }
 ): Backend {
   switch (config.type) {
@@ -172,21 +172,14 @@ export function getBackend(
         projectKey: config.project_key,
         exec: options?.exec,
       });
-    case "asana":
-      if (!options?.mcp) {
-        return createAsanaBackend({
-          mcp: () => {
-            throw new Error(
-              "Asana MCP server is not available. Ensure the Asana MCP server is running."
-            );
-          },
-          workspaceId: config.workspace_id,
-        });
-      }
+    case "asana": {
+      const token = options?.token ?? process.env.ASANA_ACCESS_TOKEN ?? "";
+      const client = createAsanaClient({ token, fetch: options?.fetch });
       return createAsanaBackend({
-        mcp: options.mcp,
+        client,
         workspaceId: config.workspace_id,
       });
+    }
     default:
       throw new Error(`Backend "${config.type}" is not yet implemented`);
   }
@@ -203,7 +196,6 @@ export async function checkConnectivity(
   config: BackendConfig,
   options?: {
     exec?: (args: string[]) => string;
-    mcp?: McpCall;
     token?: string;
     fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   }
