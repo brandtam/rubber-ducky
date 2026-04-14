@@ -360,6 +360,8 @@ ${workspaceIdNote}## Usage
    \`\`\`
    The CLI creates fully populated task pages with description, comments (author + timestamp attributed), attachments downloaded to \`raw/assets/\`, frontmatter fields (status, assignee, due, tags, asana_ref, comment_count), and rebuilds the index automatically.
 
+   **Do NOT prompt the user about scope.** The CLI reads \`ingest_scope\` from \`workspace.md\` and defaults to \`mine\` (your tasks only). If the user wants all tasks, they will pass \`--all\` explicitly. Never add \`--all\` unless the user asks for it.
+
 3. **Report results.** Parse the JSON output and tell the user:
    - How many tasks were ingested vs. skipped (already in wiki)
    - Any errors encountered
@@ -376,8 +378,8 @@ ${workspaceIdNote}## Usage
 
 ## Scope flags
 
-- \`--mine\` — Only ingest tasks assigned to the authenticated user
-- \`--all\` — Ingest all tasks (default)
+- \`--mine\` — Only ingest tasks assigned to the authenticated user (default)
+- \`--all\` — Ingest all tasks in the project
 `;
 }
 
@@ -421,6 +423,8 @@ Example: \`/ingest-jira WEB-288\`
    \`\`\`
    The CLI creates fully populated task pages with description, comments (author + timestamp attributed), attachments downloaded to \`raw/assets/\`, frontmatter fields (status, priority, assignee, due, tags, jira_ref, comment_count), and rebuilds the index automatically.
 
+   **Do NOT prompt the user about scope.** The CLI reads \`ingest_scope\` from \`workspace.md\` and defaults to \`mine\` (your issues only). If the user wants all issues, they will pass \`--all\` explicitly. Never add \`--all\` unless the user asks for it.
+
 3. **Report results.** Parse the JSON output and tell the user:
    - How many issues were ingested vs. skipped (already in wiki)
    - Any errors encountered
@@ -436,8 +440,8 @@ Example: \`/ingest-jira WEB-288\`
 
 ## Scope flags
 
-- \`--mine\` — Only ingest issues assigned to the authenticated user
-- \`--all\` — Ingest all issues (default)
+- \`--mine\` — Only ingest issues assigned to the authenticated user (default)
+- \`--all\` — Ingest all issues in the project
 `;
 }
 

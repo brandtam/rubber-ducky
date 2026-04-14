@@ -828,8 +828,8 @@ describe("parseAsanaRef", () => {
 });
 
 describe("resolveScope", () => {
-  it("returns 'all' when no flags and no config", () => {
-    expect(resolveScope({})).toBe("all");
+  it("returns 'mine' when no flags and no config", () => {
+    expect(resolveScope({})).toBe("mine");
   });
 
   it("returns 'mine' when --mine flag is set", () => {
@@ -852,8 +852,8 @@ describe("resolveScope", () => {
     expect(resolveScope({ configScope: "mine" })).toBe("mine");
   });
 
-  it("config 'ask' defaults to 'all' at CLI level", () => {
-    expect(resolveScope({ configScope: "ask" })).toBe("all");
+  it("config 'ask' defaults to 'mine' at CLI level", () => {
+    expect(resolveScope({ configScope: "ask" })).toBe("mine");
   });
 });
 

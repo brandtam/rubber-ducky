@@ -352,10 +352,10 @@ async function runInteractive(directory: string | undefined): Promise<void> {
   if (hasTaskBackend) {
     const scopeChoice = await clack.select({
       message: "Default ingest scope — ingest your tasks only, or everything?",
+      initialValue: "mine",
       options: [
-        { value: "mine", label: "My tasks only", hint: "filter to tasks assigned to you" },
+        { value: "mine", label: "My tasks only", hint: "recommended — filter to tasks assigned to you" },
         { value: "all", label: "All tasks", hint: "ingest everything in the project" },
-        { value: "ask", label: "Ask each time", hint: "prompt before each ingest" },
       ],
     });
 
@@ -364,7 +364,7 @@ async function runInteractive(directory: string | undefined): Promise<void> {
       process.exit(0);
     }
 
-    ingestScope = scopeChoice as "mine" | "all" | "ask";
+    ingestScope = scopeChoice as "mine" | "all";
   }
 
   // Vocabulary collection

@@ -79,7 +79,7 @@ export interface AttachmentRef {
 
 /**
  * Resolve the effective scope from CLI flags and workspace config.
- * Precedence: CLI flags (highest) > workspace config > default "all".
+ * Precedence: CLI flags (highest) > workspace config > default "mine".
  */
 export function resolveScope(opts: {
   mine?: boolean;
@@ -90,8 +90,7 @@ export function resolveScope(opts: {
   if (opts.all) return "all";
   if (opts.configScope === "mine") return "mine";
   if (opts.configScope === "all") return "all";
-  // "ask" at CLI level defaults to "all" — skill layer handles prompting
-  return "all";
+  return "mine";
 }
 
 // ---------------------------------------------------------------------------

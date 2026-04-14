@@ -468,7 +468,7 @@ rubber-ducky ingest jira --mine              # only issues assigned to you
 
 Ingest is idempotent — tasks that already exist in your wiki are skipped. Attachments are downloaded to `raw/assets/` so Claude can inspect them. The wiki index and log are updated automatically.
 
-Set `ingest_scope: mine` in your `workspace.md` frontmatter to always filter to your tasks without the `--mine` flag.
+Ingest defaults to your tasks only (`--mine`). Pass `--all` to ingest everything in the project. You can also set `ingest_scope: all` in your `workspace.md` frontmatter to change the default.
 
 ### Write-back safety
 
