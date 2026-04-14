@@ -95,6 +95,21 @@ export interface AsanaCreateStoryResult {
   text?: string;
 }
 
+export interface AsanaWorkspace {
+  gid: string;
+  name: string;
+}
+
+export interface AsanaProject {
+  gid: string;
+  name: string;
+}
+
+export interface AsanaCustomFieldSetting {
+  gid: string;
+  custom_field: { gid: string; name: string; resource_subtype: string };
+}
+
 export interface AsanaClient {
   getMe(): Promise<AsanaUser>;
   getTask(gid: string): Promise<AsanaTask>;
@@ -105,6 +120,9 @@ export interface AsanaClient {
   downloadFile(url: string): Promise<Buffer>;
   createTask(params: Record<string, unknown>): Promise<AsanaCreateTaskResult>;
   createStory(taskGid: string, text: string): Promise<AsanaCreateStoryResult>;
+  getWorkspaces(): Promise<AsanaWorkspace[]>;
+  getProjects(workspaceGid: string): Promise<AsanaProject[]>;
+  getCustomFieldSettings(projectGid: string): Promise<AsanaCustomFieldSetting[]>;
 }
 
 export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
@@ -198,6 +216,22 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data: { text } }),
       });
+    },
+
+    async getWorkspaces(): Promise<AsanaWorkspace[]> {
+      return request<AsanaWorkspace[]>("/workspaces?opt_fields=gid,name");
+    },
+
+    async getProjects(workspaceGid: string): Promise<AsanaProject[]> {
+      return request<AsanaProject[]>(
+        `/workspaces/${workspaceGid}/projects?opt_fields=gid,name`
+      );
+    },
+
+    async getCustomFieldSettings(projectGid: string): Promise<AsanaCustomFieldSetting[]> {
+      return request<AsanaCustomFieldSetting[]>(
+        `/projects/${projectGid}/custom_field_settings?opt_fields=custom_field.gid,custom_field.name,custom_field.resource_subtype`
+      );
     },
   };
 }

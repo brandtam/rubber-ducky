@@ -54,6 +54,12 @@ export interface JiraTransition {
   name: string;
 }
 
+export interface JiraProject {
+  key: string;
+  name: string;
+  id: string;
+}
+
 export interface JiraClient {
   getMyself(): Promise<JiraUser>;
   getIssue(issueKey: string): Promise<JiraIssue>;
@@ -63,6 +69,7 @@ export interface JiraClient {
   addComment(issueKey: string, body: string): Promise<{ id: string }>;
   getTransitions(issueKey: string): Promise<JiraTransition[]>;
   transitionIssue(issueKey: string, transitionId: string): Promise<void>;
+  getProjects(): Promise<JiraProject[]>;
 }
 
 export function createJiraClient(options: JiraClientOptions): JiraClient {
@@ -182,6 +189,10 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
       await post(`/rest/api/3/issue/${issueKey}/transitions`, {
         transition: { id: transitionId },
       });
+    },
+
+    async getProjects(): Promise<JiraProject[]> {
+      return request<JiraProject[]>("/rest/api/3/project");
     },
   };
 }

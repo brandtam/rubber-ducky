@@ -492,4 +492,123 @@ describe("AsanaClient", () => {
       ).rejects.toThrow("404");
     });
   });
+
+  describe("getWorkspaces", () => {
+    it("fetches all workspaces for the authenticated user", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            data: [
+              { gid: "ws1", name: "My Company" },
+              { gid: "ws2", name: "Personal" },
+            ],
+          },
+        };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const workspaces = await client.getWorkspaces();
+
+      expect(workspaces).toHaveLength(2);
+      expect(workspaces[0].gid).toBe("ws1");
+      expect(workspaces[0].name).toBe("My Company");
+      expect(workspaces[1].gid).toBe("ws2");
+      expect(capturedUrl).toContain("/workspaces");
+    });
+
+    it("returns empty array when user has no workspaces", async () => {
+      const fetch = mockFetch(() => ({
+        status: 200,
+        body: { data: [] },
+      }));
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const workspaces = await client.getWorkspaces();
+      expect(workspaces).toEqual([]);
+    });
+  });
+
+  describe("getProjects", () => {
+    it("fetches projects for a workspace GID", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            data: [
+              { gid: "p1", name: "Website Redesign" },
+              { gid: "p2", name: "Mobile App" },
+              { gid: "p3", name: "API v2" },
+            ],
+          },
+        };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const projects = await client.getProjects("ws1");
+
+      expect(projects).toHaveLength(3);
+      expect(projects[0].gid).toBe("p1");
+      expect(projects[0].name).toBe("Website Redesign");
+      expect(capturedUrl).toContain("/workspaces/ws1/projects");
+    });
+
+    it("returns empty array when workspace has no projects", async () => {
+      const fetch = mockFetch(() => ({
+        status: 200,
+        body: { data: [] },
+      }));
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const projects = await client.getProjects("ws-empty");
+      expect(projects).toEqual([]);
+    });
+  });
+
+  describe("getCustomFieldSettings", () => {
+    it("fetches custom field settings for a project GID", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            data: [
+              {
+                gid: "cfs1",
+                custom_field: { gid: "cf1", name: "ECOMM", resource_subtype: "text" },
+              },
+              {
+                gid: "cfs2",
+                custom_field: { gid: "cf2", name: "Priority Override", resource_subtype: "enum" },
+              },
+            ],
+          },
+        };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const settings = await client.getCustomFieldSettings("p1");
+
+      expect(settings).toHaveLength(2);
+      expect(settings[0].custom_field.gid).toBe("cf1");
+      expect(settings[0].custom_field.name).toBe("ECOMM");
+      expect(capturedUrl).toContain("/projects/p1/custom_field_settings");
+    });
+
+    it("returns empty array when project has no custom fields", async () => {
+      const fetch = mockFetch(() => ({
+        status: 200,
+        body: { data: [] },
+      }));
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const settings = await client.getCustomFieldSettings("p-empty");
+      expect(settings).toEqual([]);
+    });
+  });
 });
