@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import * as clack from "@clack/prompts";
 import chalk from "chalk";
-import { findWorkspaceRoot } from "../lib/workspace.js";
+import { findWorkspaceRoot, loadWorkspaceConfig } from "../lib/workspace.js";
 import { formatOutput } from "../lib/output.js";
 import { createAsanaClient } from "../lib/asana-client.js";
 import { ingestAsanaTask } from "../lib/asana-ingest.js";
@@ -54,11 +54,18 @@ export function registerIngestCommand(program: Command): void {
       }
 
       try {
+        // Load workspace config to get identifier_field
+        const wsConfig = loadWorkspaceConfig(workspaceRoot);
+        const asanaBackend = wsConfig.backends.find(
+          (b) => b.type === "asana"
+        );
+
         const client = createAsanaClient({ token });
         const result = await ingestAsanaTask({
           client,
           ref,
           workspaceRoot,
+          identifierField: asanaBackend?.identifier_field,
         });
 
         if (jsonMode) {

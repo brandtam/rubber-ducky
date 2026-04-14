@@ -133,6 +133,21 @@ async function collectBackendConfig(backendType: string): Promise<BackendConfig>
     if ((workspaceId as string)?.trim()) {
       config.workspace_id = workspaceId as string;
     }
+
+    const identifierField = await clack.text({
+      message:
+        "Custom field name for task identifiers (optional, e.g. ECOMM):",
+      placeholder: "ECOMM",
+    });
+
+    if (clack.isCancel(identifierField)) {
+      clack.cancel("Setup cancelled.");
+      process.exit(0);
+    }
+
+    if ((identifierField as string)?.trim()) {
+      config.identifier_field = identifierField as string;
+    }
   }
 
   return config;

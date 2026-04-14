@@ -7,6 +7,7 @@ export interface BackendConfig {
   server_url?: string;
   project_key?: string;
   workspace_id?: string;
+  identifier_field?: string;
 }
 
 export interface VocabularyOptions {

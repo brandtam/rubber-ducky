@@ -23,6 +23,13 @@ const TASK_OPT_FIELDS = [
   "custom_fields",
 ].join(",");
 
+const ATTACHMENT_OPT_FIELDS = [
+  "gid",
+  "name",
+  "download_url",
+  "resource_subtype",
+].join(",");
+
 const STORY_OPT_FIELDS = [
   "gid",
   "type",
@@ -54,6 +61,13 @@ export interface AsanaStory {
   created_at: string;
 }
 
+export interface AsanaAttachment {
+  gid: string;
+  name: string;
+  download_url: string | null;
+  resource_subtype: string;
+}
+
 export interface AsanaUser {
   gid: string;
   name: string;
@@ -71,6 +85,8 @@ export interface AsanaClient {
   getMe(): Promise<AsanaUser>;
   getTask(gid: string): Promise<AsanaTask>;
   getStories(taskGid: string): Promise<AsanaStory[]>;
+  getAttachments(taskGid: string): Promise<AsanaAttachment[]>;
+  downloadFile(url: string): Promise<Buffer>;
 }
 
 export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
@@ -117,6 +133,22 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
       return request<AsanaStory[]>(
         `/tasks/${taskGid}/stories?opt_fields=${STORY_OPT_FIELDS}`
       );
+    },
+
+    async getAttachments(taskGid: string): Promise<AsanaAttachment[]> {
+      return request<AsanaAttachment[]>(
+        `/tasks/${taskGid}/attachments?opt_fields=${ATTACHMENT_OPT_FIELDS}`
+      );
+    },
+
+    async downloadFile(url: string): Promise<Buffer> {
+      const response = await fetchFn(url, {});
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Download failed ${response.status}: ${body}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      return Buffer.from(arrayBuffer);
     },
   };
 }

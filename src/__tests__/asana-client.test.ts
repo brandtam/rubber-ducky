@@ -187,4 +187,92 @@ describe("AsanaClient", () => {
       expect(stories).toEqual([]);
     });
   });
+
+  describe("getAttachments", () => {
+    it("fetches attachments for a task GID with opt_fields", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            data: [
+              {
+                gid: "a1",
+                name: "screenshot.png",
+                download_url: "https://s3.amazonaws.com/asana/screenshot.png",
+                resource_subtype: "asana",
+              },
+              {
+                gid: "a2",
+                name: "spec.pdf",
+                download_url: "https://s3.amazonaws.com/asana/spec.pdf",
+                resource_subtype: "asana",
+              },
+            ],
+          },
+        };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const attachments = await client.getAttachments("1234567890");
+
+      expect(attachments).toHaveLength(2);
+      expect(attachments[0].name).toBe("screenshot.png");
+      expect(attachments[0].download_url).toBe(
+        "https://s3.amazonaws.com/asana/screenshot.png"
+      );
+      expect(attachments[1].name).toBe("spec.pdf");
+      expect(capturedUrl).toContain("/tasks/1234567890/attachments");
+      expect(capturedUrl).toContain("opt_fields=");
+    });
+
+    it("returns empty array when task has no attachments", async () => {
+      const fetch = mockFetch(() => ({
+        status: 200,
+        body: { data: [] },
+      }));
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const attachments = await client.getAttachments("999");
+      expect(attachments).toEqual([]);
+    });
+  });
+
+  describe("downloadFile", () => {
+    it("downloads a file and returns a Buffer", async () => {
+      const fileContent = new Uint8Array([0x89, 0x50, 0x4e, 0x47]); // PNG header bytes
+      const fetch = async (url: string) => {
+        return {
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => fileContent.buffer,
+        } as unknown as Response;
+      };
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const result = await client.downloadFile(
+        "https://s3.amazonaws.com/asana/screenshot.png"
+      );
+
+      expect(Buffer.isBuffer(result)).toBe(true);
+      expect(result[0]).toBe(0x89);
+      expect(result.length).toBe(4);
+    });
+
+    it("throws on download failure", async () => {
+      const fetch = async () => {
+        return {
+          ok: false,
+          status: 403,
+          text: async () => "Forbidden",
+        } as unknown as Response;
+      };
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      await expect(
+        client.downloadFile("https://s3.amazonaws.com/asana/expired.png")
+      ).rejects.toThrow("403");
+    });
+  });
 });
