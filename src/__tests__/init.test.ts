@@ -194,6 +194,33 @@ describe("init — workspace creation with discovery fields", () => {
     expect(setupContent).not.toContain("mcp.atlassian.com");
   });
 
+  it("writes naming_source and naming_case for Asana backend when provided", async () => {
+    const targetDir = path.join(tmpDir, "ws-naming");
+    const backends: BackendConfig[] = [
+      {
+        type: "asana",
+        workspace_id: "ws-123",
+        project_gid: "proj-456",
+        identifier_field: "TIK",
+        naming_source: "identifier",
+        naming_case: "preserve",
+      },
+    ];
+
+    await createWorkspace({
+      name: "test",
+      purpose: "testing",
+      targetDir,
+      backends,
+    });
+
+    const fm = readFrontmatter(targetDir);
+    const asana = (fm.backends as BackendConfig[])[0];
+    expect(asana.naming_source).toBe("identifier");
+    expect(asana.naming_case).toBe("preserve");
+    expect(asana.identifier_field).toBe("TIK");
+  });
+
   it("creates workspace with all discovery fields populated end-to-end", async () => {
     const targetDir = path.join(tmpDir, "ws-full");
     const backends: BackendConfig[] = [

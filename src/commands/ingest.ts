@@ -4,6 +4,7 @@ import chalk from "chalk";
 import { findWorkspaceRoot, loadWorkspaceConfig } from "../lib/workspace.js";
 import { formatOutput } from "../lib/output.js";
 import { createAsanaClient } from "../lib/asana-client.js";
+import type { AsanaClient } from "../lib/asana-client.js";
 import {
   ingestAsanaTask,
   ingestAsanaBulk,
@@ -12,6 +13,9 @@ import {
 import { resolveScope } from "../lib/ingest-shared.js";
 import { createJiraClient } from "../lib/jira-client.js";
 import { ingestJiraIssue, ingestJiraProject } from "../lib/jira-ingest.js";
+import { runNamingPrompt, persistNamingResult } from "../lib/naming-prompt.js";
+import { inferLegacyScheme } from "../lib/naming.js";
+import type { BackendConfig } from "../lib/templates.js";
 
 function exitWithError(msg: string, jsonMode: boolean): never {
   if (jsonMode) {
@@ -25,6 +29,64 @@ function exitWithError(msg: string, jsonMode: boolean): never {
     clack.log.error(msg);
   }
   process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// Auto-trigger naming prompt when naming_source is missing
+// ---------------------------------------------------------------------------
+
+export interface EnsureNamingConfigOptions {
+  workspaceRoot: string;
+  client: AsanaClient;
+  projectGid: string;
+  backendConfig: BackendConfig;
+}
+
+export interface NamingConfig {
+  namingSource: "identifier" | "title" | "gid";
+  namingCase: "preserve" | "lower";
+  identifierField: string | undefined;
+}
+
+/**
+ * Ensure naming config is set before ingest proceeds.
+ * If naming_source is already configured, returns the existing values.
+ * If missing, runs the interactive naming prompt, persists to workspace.md,
+ * and returns the new values.
+ */
+export async function ensureNamingConfig(
+  opts: EnsureNamingConfigOptions,
+): Promise<NamingConfig> {
+  const { workspaceRoot, client, projectGid, backendConfig } = opts;
+
+  // Already configured — return existing values
+  if (backendConfig.naming_source) {
+    return {
+      namingSource: backendConfig.naming_source,
+      namingCase: backendConfig.naming_case ?? "lower",
+      identifierField: backendConfig.identifier_field,
+    };
+  }
+
+  // Legacy workspaces (identifier_field set in a prior init, no naming_source)
+  // get their existing field pre-selected so the user's prior implicit choice
+  // is the default.
+  const legacy = inferLegacyScheme(backendConfig);
+  const result = await runNamingPrompt({
+    client,
+    projectGid,
+    preselectedSource:
+      legacy?.source === "identifier" ? backendConfig.identifier_field : undefined,
+    preselectedCase: legacy?.case,
+  });
+
+  persistNamingResult(workspaceRoot, result);
+
+  return {
+    namingSource: result.naming_source,
+    namingCase: result.naming_case,
+    identifierField: result.identifier_field,
+  };
 }
 
 export function registerIngestCommand(program: Command): void {
@@ -73,13 +135,31 @@ export function registerIngestCommand(program: Command): void {
             (b) => b.type === "asana"
           );
           const defaultProjectGid = asanaBackend?.project_gid;
-          const identifierField = asanaBackend?.identifier_field;
+          const workspaceGid = asanaBackend?.workspace_id;
 
           const scope = resolveScope({
             mine: opts.mine,
             all: opts.all,
             configScope: config.ingest_scope,
           });
+
+          // Ensure naming config is set before any file creation
+          const projectGid = defaultProjectGid ?? (ref ? parseAsanaRef(ref)?.gid : undefined);
+          let namingSource: "identifier" | "title" | "gid" | undefined = asanaBackend?.naming_source;
+          let namingCase: "preserve" | "lower" | undefined = asanaBackend?.naming_case;
+          let identifierField: string | undefined = asanaBackend?.identifier_field;
+
+          if (!namingSource && asanaBackend && projectGid) {
+            const naming = await ensureNamingConfig({
+              workspaceRoot,
+              client,
+              projectGid,
+              backendConfig: asanaBackend,
+            });
+            namingSource = naming.namingSource;
+            namingCase = naming.namingCase;
+            identifierField = naming.identifierField;
+          }
 
           const parsed = ref ? parseAsanaRef(ref) : null;
 
@@ -89,6 +169,9 @@ export function registerIngestCommand(program: Command): void {
               ref: parsed.gid,
               workspaceRoot,
               identifierField,
+              namingSource,
+              namingCase,
+              workspaceGid,
             });
 
             if (jsonMode) {
@@ -111,6 +194,9 @@ export function registerIngestCommand(program: Command): void {
               workspaceRoot,
               defaultProjectGid,
               identifierField,
+              namingSource,
+              namingCase,
+              workspaceGid,
               scope,
             });
 

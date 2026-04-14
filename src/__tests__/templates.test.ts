@@ -184,6 +184,37 @@ describe("generateWorkspaceMd", () => {
 
     expect(frontmatter).not.toHaveProperty("ingest_scope");
   });
+
+  it("includes naming_source and naming_case for Asana backends when provided", () => {
+    const backends: BackendConfig[] = [
+      {
+        type: "asana",
+        workspace_id: "12345",
+        project_gid: "67890",
+        identifier_field: "TIK",
+        naming_source: "identifier",
+        naming_case: "preserve",
+      },
+    ];
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", backends });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter.backends[0].naming_source).toBe("identifier");
+    expect(frontmatter.backends[0].naming_case).toBe("preserve");
+  });
+
+  it("omits naming_source and naming_case when not provided", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", workspace_id: "12345" },
+    ];
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", backends });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter.backends[0]).not.toHaveProperty("naming_source");
+    expect(frontmatter.backends[0]).not.toHaveProperty("naming_case");
+  });
 });
 
 describe("generateClaudeMd", () => {
@@ -664,6 +695,26 @@ describe("generateBackendSkills", () => {
     expect(setup.content).toContain("environment variable");
     expect(setup.content).not.toContain("OAuth");
     expect(setup.content).not.toContain("MCP server");
+  });
+
+  it("get-setup skill instructs Claude to run configure-naming after Asana credential verification", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", workspace_id: "12345", project_gid: "67890" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    expect(setup.content).toContain("rubber-ducky asana configure-naming");
+  });
+
+  it("get-setup skill does not mention configure-naming for non-Asana backends", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://myorg.atlassian.net" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    expect(setup.content).not.toContain("configure-naming");
   });
 
   it("get-setup skill mentions re-running init for discovery when config incomplete", () => {

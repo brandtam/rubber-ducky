@@ -70,6 +70,32 @@ export function extractTaskGid(ref: string): string {
 }
 
 /**
+ * Classify a task ref string as either a GID-style reference (numeric or
+ * Asana URL) or an Asana custom ID (e.g. "TIK-4647") produced by an ID
+ * custom field. Custom IDs require a separate API endpoint scoped to the
+ * workspace.
+ */
+export type TaskRef =
+  | { kind: "gid"; gid: string }
+  | { kind: "custom_id"; customId: string };
+
+// Matches Asana custom IDs: alphabetic prefix, hyphen, digits. Deliberately
+// narrow so plain GIDs (all digits) and URLs (contain slashes/"asana.com")
+// do not collide. Examples that match: TIK-4647, ECOMM-123, Bug-9.
+const CUSTOM_ID_PATTERN = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
+
+export function parseTaskRef(ref: string): TaskRef {
+  if (ref.includes("asana.com")) {
+    return { kind: "gid", gid: extractTaskGid(ref) };
+  }
+  if (CUSTOM_ID_PATTERN.test(ref)) {
+    return { kind: "custom_id", customId: ref };
+  }
+  // Plain GID (or anything else — the Asana API will surface a clear error)
+  return { kind: "gid", gid: ref };
+}
+
+/**
  * Extract a task GID from an asana_ref URL or ref field.
  */
 function resolveTaskGid(taskPage: TaskPage): string | null {

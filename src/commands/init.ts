@@ -8,6 +8,7 @@ import type { BackendConfig, VocabularyOptions, TemplateOptions } from "../lib/t
 import { slugify } from "../lib/page.js";
 import { createAsanaClient, type AsanaClient } from "../lib/asana-client.js";
 import { createJiraClient, type JiraClient } from "../lib/jira-client.js";
+import { runNamingPrompt } from "../lib/naming-prompt.js";
 
 const BACKEND_CHOICES = [
   { value: "github", label: "GitHub", hint: "via gh CLI" },
@@ -176,29 +177,16 @@ async function discoverAsanaConfig(config: BackendConfig, token: string): Promis
 
   config.project_gid = selectedProject as string;
 
-  // Discover custom fields for identifier_field
-  const customFieldSettings = await client.getCustomFieldSettings(config.project_gid);
-  if (customFieldSettings.length > 0) {
-    const noneOption = { value: "__none__", label: "(none — use Asana GID)" };
-    const fieldOptions = customFieldSettings.map((s) => ({
-      value: s.custom_field.name,
-      label: s.custom_field.name,
-      hint: s.custom_field.resource_subtype,
-    }));
+  // Run the full naming prompt (source → casing → preview → confirm)
+  const namingResult = await runNamingPrompt({
+    client,
+    projectGid: config.project_gid,
+  });
 
-    const selectedField = await clack.select({
-      message: "Select a custom field for task identifiers (optional):",
-      options: [noneOption, ...fieldOptions],
-    });
-
-    if (clack.isCancel(selectedField)) {
-      clack.cancel("Setup cancelled.");
-      process.exit(0);
-    }
-
-    if (selectedField !== "__none__") {
-      config.identifier_field = selectedField as string;
-    }
+  config.naming_source = namingResult.naming_source;
+  config.naming_case = namingResult.naming_case;
+  if (namingResult.identifier_field) {
+    config.identifier_field = namingResult.identifier_field;
   }
 }
 

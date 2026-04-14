@@ -136,6 +136,65 @@ describe("AsanaClient", () => {
     });
   });
 
+  describe("getTaskByCustomId", () => {
+    it("fetches a task by custom ID scoped to a workspace", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            data: {
+              gid: "1234567890",
+              name: "Fix login bug",
+              notes: "",
+              completed: false,
+              completed_at: null,
+              assignee: null,
+              due_on: null,
+              memberships: [],
+              tags: [],
+              permalink_url: "https://app.asana.com/0/project/1234567890",
+              custom_fields: [],
+            },
+          },
+        };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const task = await client.getTaskByCustomId("ws-42", "TIK-4647");
+
+      expect(task.gid).toBe("1234567890");
+      expect(capturedUrl).toContain("/workspaces/ws-42/tasks/custom_id/TIK-4647");
+      expect(capturedUrl).toContain("opt_fields=");
+    });
+
+    it("URL-encodes custom IDs that contain special characters", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return { status: 200, body: { data: { gid: "1", name: "x", notes: "", completed: false, completed_at: null, assignee: null, due_on: null, memberships: [], tags: [], permalink_url: "", custom_fields: [] } } };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      await client.getTaskByCustomId("ws", "TIK/4647");
+
+      expect(capturedUrl).toContain("TIK%2F4647");
+    });
+
+    it("throws on 404 when no task has the given custom ID", async () => {
+      const fetch = mockFetch(() => ({
+        status: 404,
+        body: { errors: [{ message: "Not Found" }] },
+      }));
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      await expect(
+        client.getTaskByCustomId("ws-42", "DOES-NOT-EXIST")
+      ).rejects.toThrow("404");
+    });
+  });
+
   describe("getStories", () => {
     it("fetches stories for a task GID", async () => {
       let capturedUrl = "";
@@ -580,11 +639,11 @@ describe("AsanaClient", () => {
             data: [
               {
                 gid: "cfs1",
-                custom_field: { gid: "cf1", name: "ECOMM", resource_subtype: "text" },
+                custom_field: { gid: "cf1", name: "ECOMM", resource_subtype: "text", id_prefix: "ECOMM" },
               },
               {
                 gid: "cfs2",
-                custom_field: { gid: "cf2", name: "Priority Override", resource_subtype: "enum" },
+                custom_field: { gid: "cf2", name: "Priority Override", resource_subtype: "enum", id_prefix: null },
               },
             ],
           },
@@ -597,7 +656,9 @@ describe("AsanaClient", () => {
       expect(settings).toHaveLength(2);
       expect(settings[0].custom_field.gid).toBe("cf1");
       expect(settings[0].custom_field.name).toBe("ECOMM");
+      expect(settings[0].custom_field.id_prefix).toBe("ECOMM");
       expect(capturedUrl).toContain("/projects/p1/custom_field_settings");
+      expect(capturedUrl).toContain("custom_field.id_prefix");
     });
 
     it("returns empty array when project has no custom fields", async () => {

@@ -40,6 +40,10 @@ function makeMockClient(overrides?: {
   projectTasks?: Record<string, unknown>[];
   sectionTasks?: Record<string, unknown>[];
   me?: Record<string, unknown>;
+  /** Map of custom_id → task override for getTaskByCustomId. */
+  customIdTasks?: Record<string, Record<string, unknown>>;
+  /** Custom IDs that should simulate a 404. */
+  customIdNotFound?: string[];
 }): AsanaClient {
   const task = makeTask(overrides?.task);
 
@@ -69,6 +73,12 @@ function makeMockClient(overrides?: {
     }
   }
 
+  const customIdMap = new Map<string, Record<string, unknown>>();
+  for (const [customId, taskData] of Object.entries(overrides?.customIdTasks ?? {})) {
+    customIdMap.set(customId, taskData);
+  }
+  const customIdNotFound = new Set(overrides?.customIdNotFound ?? []);
+
   return {
     getMe: async () => ({
       gid: "me-gid",
@@ -77,6 +87,16 @@ function makeMockClient(overrides?: {
       ...overrides?.me,
     }),
     getTask: async (gid: string) => taskMap.get(gid) ?? task,
+    getTaskByCustomId: async (_workspaceGid: string, customId: string) => {
+      if (customIdNotFound.has(customId)) {
+        throw new Error(`Asana API 404: no task for custom_id ${customId}`);
+      }
+      const found = customIdMap.get(customId);
+      if (!found) {
+        throw new Error(`Asana API 404: no task for custom_id ${customId}`);
+      }
+      return found;
+    },
     getStories: async () => stories,
     getAttachments: async () => attachments,
     downloadFile: async () => downloadData,
@@ -130,7 +150,7 @@ describe("ingestAsanaTask", () => {
       const fm = parsed!.data;
       expect(fm.title).toBe("Fix the login bug");
       expect(fm.type).toBe("task");
-      expect(fm.ref).toBe("1234567890");
+      expect(fm.ref).toBe("fix-the-login-bug");
       expect(fm.source).toBe("asana");
       expect(fm.status).toBe("in-progress");
       expect(fm.assignee).toBe("Alice");
@@ -425,7 +445,7 @@ describe("ingestAsanaTask", () => {
 
       const log = fs.readFileSync(logPath, "utf-8");
       expect(log).toContain("Ingested Asana task");
-      expect(log).toContain("1234567890");
+      expect(log).toContain("fix-the-login-bug");
     });
   });
 
@@ -443,7 +463,7 @@ describe("ingestAsanaTask", () => {
       expect(result.filePath).toBeDefined();
       expect(result.taskPage).toBeDefined();
       expect(result.taskPage!.title).toBe("Fix the login bug");
-      expect(result.taskPage!.ref).toBe("1234567890");
+      expect(result.taskPage!.ref).toBe("fix-the-login-bug");
       expect(result.taskPage!.source).toBe("asana");
     });
 
@@ -498,7 +518,7 @@ describe("ingestAsanaTask", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.taskPage!.ref).toBe("ECOMM-4643");
+      expect(result.taskPage!.ref).toBe("ecomm-4643");
       expect(result.filePath).toContain("ecomm-4643.md");
     });
 
@@ -518,7 +538,7 @@ describe("ingestAsanaTask", () => {
         identifierField: "ecomm number",
       });
 
-      expect(result.taskPage!.ref).toBe("ECOMM-100");
+      expect(result.taskPage!.ref).toBe("ecomm-100");
       expect(result.filePath).toContain("ecomm-100.md");
     });
 
@@ -539,8 +559,8 @@ describe("ingestAsanaTask", () => {
       });
 
       expect(result.taskPage!.ref).toBe("1234567890");
-      // Falls back to title-based filename
-      expect(result.filePath).toContain("fix-the-login-bug.md");
+      // Falls back to GID-based filename (centralized in naming module)
+      expect(result.filePath).toContain("1234567890.md");
     });
 
     it("falls back to GID when display_value is null", async () => {
@@ -560,7 +580,8 @@ describe("ingestAsanaTask", () => {
       });
 
       expect(result.taskPage!.ref).toBe("1234567890");
-      expect(result.filePath).toContain("fix-the-login-bug.md");
+      // Falls back to GID-based filename (centralized in naming module)
+      expect(result.filePath).toContain("1234567890.md");
     });
 
     it("falls back to GID when display_value is empty string", async () => {
@@ -624,11 +645,12 @@ describe("ingestAsanaTask", () => {
         workspaceRoot: tmpDir,
       });
 
+      // Asset dir follows the naming scheme (title-based when no identifier)
       const assetPath = path.join(
         tmpDir,
         "raw",
         "assets",
-        "1234567890",
+        "fix-the-login-bug",
         "screenshot.png"
       );
       expect(fs.existsSync(assetPath)).toBe(true);
@@ -659,7 +681,7 @@ describe("ingestAsanaTask", () => {
       );
       expect(content).toContain("## Attachments");
       expect(content).toContain(
-        "![screenshot.png](../../raw/assets/1234567890/screenshot.png)"
+        "![screenshot.png](../../raw/assets/fix-the-login-bug/screenshot.png)"
       );
     });
 
@@ -687,7 +709,7 @@ describe("ingestAsanaTask", () => {
       );
       expect(content).toContain("## Attachments");
       expect(content).toContain(
-        "[spec.pdf](../../raw/assets/1234567890/spec.pdf)"
+        "[spec.pdf](../../raw/assets/fix-the-login-bug/spec.pdf)"
       );
       // Should NOT use image embed syntax
       expect(content).not.toContain("![spec.pdf]");
@@ -779,7 +801,7 @@ describe("ingestAsanaTask", () => {
         workspaceRoot: tmpDir,
       });
 
-      const assetDir = path.join(tmpDir, "raw", "assets", "1234567890");
+      const assetDir = path.join(tmpDir, "raw", "assets", "fix-the-login-bug");
       // Asset directory should not be created for non-downloadable attachments
       expect(fs.existsSync(assetDir)).toBe(false);
       expect(result.attachmentCount).toBe(1);
@@ -801,6 +823,86 @@ describe("ingestAsanaTask", () => {
       );
       // No Attachments section when there are no attachments
       expect(content).not.toContain("## Attachments");
+    });
+  });
+
+  describe("custom ID resolution", () => {
+    it("resolves a custom ID ref via getTaskByCustomId", async () => {
+      const client = makeMockClient({
+        customIdTasks: {
+          "TIK-4647": makeTask({
+            gid: "1234567890",
+            name: "Fix the login bug",
+          }),
+        },
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "TIK-4647",
+        workspaceRoot: tmpDir,
+        workspaceGid: "ws-42",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBe(false);
+      const content = fs.readFileSync(path.join(tmpDir, result.filePath!), "utf-8");
+      const parsed = parseFrontmatter(content);
+      expect(parsed!.data.title).toBe("Fix the login bug");
+    });
+
+    it("throws a clear error when workspaceGid is missing for a custom ID ref", async () => {
+      const client = makeMockClient();
+
+      await expect(
+        ingestAsanaTask({
+          client,
+          ref: "TIK-4647",
+          workspaceRoot: tmpDir,
+          // workspaceGid deliberately omitted
+        }),
+      ).rejects.toThrow(/workspace_id is not configured/);
+    });
+
+    it("surfaces Asana's 404 when the custom ID does not exist", async () => {
+      const client = makeMockClient({
+        customIdNotFound: ["MISSING-999"],
+      });
+
+      await expect(
+        ingestAsanaTask({
+          client,
+          ref: "MISSING-999",
+          workspaceRoot: tmpDir,
+          workspaceGid: "ws-42",
+        }),
+      ).rejects.toThrow(/404/);
+    });
+
+    it("still uses getTask (not getTaskByCustomId) for numeric GIDs", async () => {
+      let customIdCalls = 0;
+      let getTaskCalls = 0;
+      const client = {
+        ...makeMockClient(),
+        getTask: async (gid: string) => {
+          getTaskCalls++;
+          return makeTask({ gid });
+        },
+        getTaskByCustomId: async () => {
+          customIdCalls++;
+          throw new Error("should not have been called");
+        },
+      } as AsanaClient;
+
+      await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+        workspaceGid: "ws-42",
+      });
+
+      expect(getTaskCalls).toBe(1);
+      expect(customIdCalls).toBe(0);
     });
   });
 });
