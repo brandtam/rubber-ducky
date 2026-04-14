@@ -64,7 +64,7 @@ describe("generateWorkspaceMd", () => {
   it("includes backend configs in frontmatter when provided", () => {
     const backends: BackendConfig[] = [
       { type: "github", mcp_server: "github" },
-      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net", project_key: "PROJ" },
+      { type: "jira", server_url: "https://myorg.atlassian.net", project_key: "PROJ" },
     ];
     const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", backends });
     const match = content.match(/^---\n([\s\S]*?)\n---/);
@@ -74,7 +74,7 @@ describe("generateWorkspaceMd", () => {
     expect(frontmatter.backends[0].type).toBe("github");
     expect(frontmatter.backends[0].mcp_server).toBe("github");
     expect(frontmatter.backends[1].type).toBe("jira");
-    expect(frontmatter.backends[1].mcp_server).toBe("atlassian-remote");
+    expect(frontmatter.backends[1]).not.toHaveProperty("mcp_server");
     expect(frontmatter.backends[1].server_url).toBe("https://myorg.atlassian.net");
     expect(frontmatter.backends[1].project_key).toBe("PROJ");
   });
@@ -89,8 +89,64 @@ describe("generateWorkspaceMd", () => {
 
     expect(frontmatter.backends).toHaveLength(1);
     expect(frontmatter.backends[0].type).toBe("asana");
-    expect(frontmatter.backends[0].mcp_server).toBe("asana");
     expect(frontmatter.backends[0].workspace_id).toBe("12345");
+  });
+
+  it("includes identifier_field for Asana backends when provided", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", workspace_id: "12345", project_gid: "67890", identifier_field: "ECOMM" },
+    ];
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", backends });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter.backends[0].identifier_field).toBe("ECOMM");
+    expect(frontmatter.backends[0].project_gid).toBe("67890");
+  });
+
+  it("does not include mcp_server for new Asana backends", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", workspace_id: "12345" },
+    ];
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", backends });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter.backends[0]).not.toHaveProperty("mcp_server");
+  });
+
+  it("does not include mcp_server for new Jira backends", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://myorg.atlassian.net", project_key: "PROJ" },
+    ];
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", backends });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter.backends[0]).not.toHaveProperty("mcp_server");
+  });
+
+  it("tolerates existing mcp_server field for Asana backends", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", mcp_server: "asana", workspace_id: "12345" },
+    ];
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", backends });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    // Should still work — the field is tolerated but not emitted for Asana/Jira
+    expect(frontmatter.backends[0].type).toBe("asana");
+  });
+
+  it("still includes mcp_server for GitHub backends", () => {
+    const backends: BackendConfig[] = [
+      { type: "github", mcp_server: "github" },
+    ];
+    const content = generateWorkspaceMd({ name: "Test", purpose: "Testing", backends });
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    const frontmatter = parseYaml(match![1]);
+
+    expect(frontmatter.backends[0].mcp_server).toBe("github");
   });
 
   it("does not include cli_mode in frontmatter", () => {
@@ -178,6 +234,27 @@ describe("generateClaudeMd", () => {
     const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
 
     expect(content).not.toContain("cli_mode");
+  });
+
+  it("includes rubber-ducky ingest command in CLI reference", () => {
+    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+
+    expect(content).toContain("rubber-ducky ingest");
+  });
+
+  it("does not include MCP server references for Asana/Jira backends", () => {
+    const content = generateClaudeMd({
+      name: "Test",
+      purpose: "Testing",
+      backends: [
+        { type: "asana", workspace_id: "12345" },
+        { type: "jira", server_url: "https://myorg.atlassian.net" },
+      ],
+    });
+
+    expect(content).not.toContain("MCP server");
+    expect(content).not.toContain("mcp.asana.com");
+    expect(content).not.toContain("mcp.atlassian.com");
   });
 });
 
@@ -296,7 +373,7 @@ describe("generateBackendSkills", () => {
 
   it("generates ingest-asana and get-setup skills when asana backend is configured", () => {
     const backends: BackendConfig[] = [
-      { type: "asana", mcp_server: "asana" },
+      { type: "asana", workspace_id: "12345" },
     ];
     const skills = generateBackendSkills(backends);
     const paths = skills.map((s) => s.path);
@@ -308,14 +385,38 @@ describe("generateBackendSkills", () => {
     expect(ingest.content).toContain("Ingest Asana Task");
     expect(ingest.content).toContain("/ingest-asana");
     expect(ingest.content).toContain("rubber-ducky backend check asana");
-    expect(ingest.content).toContain("Bulk ingest");
-    expect(ingest.content).toContain("project:<project-gid>");
-    expect(ingest.content).toContain("section:<section-gid>");
+    expect(ingest.content).toContain("rubber-ducky ingest asana");
+    expect(ingest.content).toContain("--json");
+    expect(ingest.content).not.toContain("Asana MCP server");
+  });
+
+  it("asana ingest skill includes vocabulary-aware tagging post-ingest", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", workspace_id: "12345" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const ingest = skills.find((s) => s.path === ".claude/commands/ingest-asana.md")!;
+
+    expect(ingest.content).toContain("UBIQUITOUS_LANGUAGE.md");
+    expect(ingest.content).toContain("tags");
+  });
+
+  it("asana ingest skill includes bulk ingest with project and section refs", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", workspace_id: "12345" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const ingest = skills.find((s) => s.path === ".claude/commands/ingest-asana.md")!;
+
+    expect(ingest.content).toContain("project:");
+    expect(ingest.content).toContain("section:");
+    expect(ingest.content).toContain("--mine");
+    expect(ingest.content).toContain("--all");
   });
 
   it("includes workspace ID in skill when configured", () => {
     const backends: BackendConfig[] = [
-      { type: "asana", mcp_server: "asana", workspace_id: "12345" },
+      { type: "asana", workspace_id: "12345" },
     ];
     const skills = generateBackendSkills(backends);
 
@@ -342,7 +443,7 @@ describe("generateBackendSkills", () => {
 
   it("generates ingest-jira and get-setup skills when jira backend is configured", () => {
     const backends: BackendConfig[] = [
-      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net", project_key: "WEB" },
+      { type: "jira", server_url: "https://myorg.atlassian.net", project_key: "WEB" },
     ];
     const skills = generateBackendSkills(backends);
     const paths = skills.map((s) => s.path);
@@ -354,12 +455,37 @@ describe("generateBackendSkills", () => {
     expect(ingest.content).toContain("Ingest Jira");
     expect(ingest.content).toContain("/ingest-jira");
     expect(ingest.content).toContain("rubber-ducky backend check jira");
-    expect(ingest.content).toContain("Atlassian");
+    expect(ingest.content).toContain("rubber-ducky ingest jira");
+    expect(ingest.content).toContain("--json");
+    expect(ingest.content).not.toContain("Atlassian Remote MCP server");
+  });
+
+  it("jira ingest skill includes vocabulary-aware tagging post-ingest", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://myorg.atlassian.net", project_key: "WEB" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const ingest = skills.find((s) => s.path === ".claude/commands/ingest-jira.md")!;
+
+    expect(ingest.content).toContain("UBIQUITOUS_LANGUAGE.md");
+    expect(ingest.content).toContain("tags");
+  });
+
+  it("jira ingest skill includes bulk and scope options", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://myorg.atlassian.net", project_key: "WEB" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const ingest = skills.find((s) => s.path === ".claude/commands/ingest-jira.md")!;
+
+    expect(ingest.content).toContain("project:");
+    expect(ingest.content).toContain("--mine");
+    expect(ingest.content).toContain("--all");
   });
 
   it("includes server URL and project key in jira skill when configured", () => {
     const backends: BackendConfig[] = [
-      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net", project_key: "WEB" },
+      { type: "jira", server_url: "https://myorg.atlassian.net", project_key: "WEB" },
     ];
     const skills = generateBackendSkills(backends);
 
@@ -370,8 +496,8 @@ describe("generateBackendSkills", () => {
   it("generates ingest skills and get-setup for all three backends", () => {
     const backends: BackendConfig[] = [
       { type: "github", mcp_server: "github" },
-      { type: "asana", mcp_server: "asana" },
-      { type: "jira", mcp_server: "atlassian-remote" },
+      { type: "asana" },
+      { type: "jira" },
     ];
     const skills = generateBackendSkills(backends);
 
@@ -386,8 +512,8 @@ describe("generateBackendSkills", () => {
   it("all ingest skills include vocabulary scanning instructions", () => {
     const backends: BackendConfig[] = [
       { type: "github", mcp_server: "github" },
-      { type: "asana", mcp_server: "asana" },
-      { type: "jira", mcp_server: "atlassian-remote" },
+      { type: "asana" },
+      { type: "jira" },
     ];
     const ingestSkills = generateBackendSkills(backends)
       .filter((s) => s.path.includes("ingest-"));
@@ -401,8 +527,8 @@ describe("generateBackendSkills", () => {
   it("all ingest skills include attachment handling instructions", () => {
     const backends: BackendConfig[] = [
       { type: "github", mcp_server: "github" },
-      { type: "asana", mcp_server: "asana" },
-      { type: "jira", mcp_server: "atlassian-remote" },
+      { type: "asana" },
+      { type: "jira" },
     ];
     const ingestSkills = generateBackendSkills(backends)
       .filter((s) => s.path.includes("ingest-"));
@@ -415,8 +541,8 @@ describe("generateBackendSkills", () => {
   it("all ingest skills include comment ingestion instructions", () => {
     const backends: BackendConfig[] = [
       { type: "github", mcp_server: "github" },
-      { type: "asana", mcp_server: "asana" },
-      { type: "jira", mcp_server: "atlassian-remote" },
+      { type: "asana" },
+      { type: "jira" },
     ];
     const ingestSkills = generateBackendSkills(backends)
       .filter((s) => s.path.includes("ingest-"));
@@ -431,8 +557,8 @@ describe("generateBackendSkills", () => {
   it("all ingest skills include prerequisites section with credential safety", () => {
     const backends: BackendConfig[] = [
       { type: "github", mcp_server: "github" },
-      { type: "asana", mcp_server: "asana" },
-      { type: "jira", mcp_server: "atlassian-remote" },
+      { type: "asana" },
+      { type: "jira" },
     ];
     const ingestSkills = generateBackendSkills(backends)
       .filter((s) => s.path.includes("ingest-"));
@@ -444,11 +570,11 @@ describe("generateBackendSkills", () => {
     }
   });
 
-  it("get-setup skill checks connectivity and provides setup commands", () => {
+  it("get-setup skill uses PAT/API token instructions instead of MCP for Asana/Jira", () => {
     const backends: BackendConfig[] = [
       { type: "github", mcp_server: "github" },
-      { type: "asana", mcp_server: "asana" },
-      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net" },
+      { type: "asana" },
+      { type: "jira", server_url: "https://myorg.atlassian.net" },
     ];
     const skills = generateBackendSkills(backends);
     const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
@@ -458,15 +584,19 @@ describe("generateBackendSkills", () => {
     expect(setup.content).toContain("rubber-ducky backend check asana");
     expect(setup.content).toContain("rubber-ducky backend check jira");
     expect(setup.content).toContain("gh auth login");
-    expect(setup.content).toContain("claude mcp add --transport sse asana https://mcp.asana.com/sse");
-    expect(setup.content).toContain("claude mcp add --transport sse atlassian-remote https://mcp.atlassian.com/v1/sse");
-    expect(setup.content).toContain("/mcp");
+    // Asana should mention PAT, not MCP
+    expect(setup.content).toContain("ASANA_ACCESS_TOKEN");
+    expect(setup.content).not.toContain("claude mcp add --transport sse asana");
+    // Jira should mention API token, not MCP
+    expect(setup.content).toContain("JIRA_API_TOKEN");
+    expect(setup.content).toContain("JIRA_EMAIL");
+    expect(setup.content).not.toContain("claude mcp add --transport sse atlassian-remote");
     expect(setup.content).toContain("Never ask the user to paste API tokens");
   });
 
   it("get-setup skill includes jira server URL when configured", () => {
     const backends: BackendConfig[] = [
-      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net" },
+      { type: "jira", server_url: "https://myorg.atlassian.net" },
     ];
     const skills = generateBackendSkills(backends);
     const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
@@ -495,7 +625,7 @@ describe("generateReferenceFiles", () => {
   });
 
   it("includes github ticket template and backend-setup when github backend configured", () => {
-    const backends: BackendConfig[] = [{ type: "github", mcp_server: "github" }];
+    const backends: BackendConfig[] = [{ type: "github" }];
     const refs = generateReferenceFiles(backends);
     const paths = refs.map((r) => r.path);
 
@@ -507,7 +637,7 @@ describe("generateReferenceFiles", () => {
 
   it("includes jira ticket template and backend-setup when jira backend configured", () => {
     const backends: BackendConfig[] = [
-      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://example.atlassian.net" },
+      { type: "jira", server_url: "https://example.atlassian.net" },
     ];
     const refs = generateReferenceFiles(backends);
     const paths = refs.map((r) => r.path);
@@ -519,7 +649,7 @@ describe("generateReferenceFiles", () => {
   });
 
   it("includes asana ticket template and backend-setup when asana backend configured", () => {
-    const backends: BackendConfig[] = [{ type: "asana", mcp_server: "asana" }];
+    const backends: BackendConfig[] = [{ type: "asana" }];
     const refs = generateReferenceFiles(backends);
     const paths = refs.map((r) => r.path);
 
@@ -529,9 +659,9 @@ describe("generateReferenceFiles", () => {
 
   it("includes all ticket templates when all backends configured", () => {
     const backends: BackendConfig[] = [
-      { type: "github", mcp_server: "github" },
-      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://example.atlassian.net" },
-      { type: "asana", mcp_server: "asana" },
+      { type: "github" },
+      { type: "jira", server_url: "https://example.atlassian.net" },
+      { type: "asana" },
     ];
     const refs = generateReferenceFiles(backends);
     const paths = refs.map((r) => r.path);
@@ -567,9 +697,9 @@ describe("generateReferenceFiles", () => {
 
   it("ticket templates contain field mapping tables", () => {
     const backends: BackendConfig[] = [
-      { type: "github", mcp_server: "github" },
-      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://example.atlassian.net" },
-      { type: "asana", mcp_server: "asana" },
+      { type: "github" },
+      { type: "jira", server_url: "https://example.atlassian.net" },
+      { type: "asana" },
     ];
     const refs = generateReferenceFiles(backends);
 
@@ -597,9 +727,9 @@ describe("generateReferenceFiles", () => {
 
   it("backend-setup reference includes sections for each configured backend", () => {
     const backends: BackendConfig[] = [
-      { type: "github", mcp_server: "github" },
-      { type: "asana", mcp_server: "asana" },
-      { type: "jira", mcp_server: "atlassian-remote", server_url: "https://example.atlassian.net" },
+      { type: "github" },
+      { type: "asana" },
+      { type: "jira", server_url: "https://example.atlassian.net" },
     ];
     const refs = generateReferenceFiles(backends);
     const setup = refs.find((r) => r.path === "references/backend-setup.md")!;
@@ -610,16 +740,44 @@ describe("generateReferenceFiles", () => {
     expect(setup.content).toContain("Never paste API tokens");
   });
 
-  it("backend-setup reference only includes configured backends", () => {
-    const backends: BackendConfig[] = [
-      { type: "asana", mcp_server: "asana" },
-    ];
+  it("backend-setup reference has PAT instructions for Asana", () => {
+    const backends: BackendConfig[] = [{ type: "asana" }];
     const refs = generateReferenceFiles(backends);
     const setup = refs.find((r) => r.path === "references/backend-setup.md")!;
 
     expect(setup.content).toContain("## Asana");
+    expect(setup.content).toContain("ASANA_ACCESS_TOKEN");
+    expect(setup.content).toContain("Personal Access Token");
+    expect(setup.content).not.toContain("claude mcp add");
     expect(setup.content).not.toContain("## GitHub");
     expect(setup.content).not.toContain("## Jira");
+  });
+
+  it("backend-setup reference has API token instructions for Jira", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://example.atlassian.net" },
+    ];
+    const refs = generateReferenceFiles(backends);
+    const setup = refs.find((r) => r.path === "references/backend-setup.md")!;
+
+    expect(setup.content).toContain("## Jira");
+    expect(setup.content).toContain("JIRA_API_TOKEN");
+    expect(setup.content).toContain("JIRA_EMAIL");
+    expect(setup.content).not.toContain("claude mcp add");
+  });
+
+  it("backend-setup reference does not include MCP server management section", () => {
+    const backends: BackendConfig[] = [
+      { type: "github" },
+      { type: "asana" },
+      { type: "jira", server_url: "https://example.atlassian.net" },
+    ];
+    const refs = generateReferenceFiles(backends);
+    const setup = refs.find((r) => r.path === "references/backend-setup.md")!;
+
+    expect(setup.content).not.toContain("Adding MCP servers");
+    expect(setup.content).not.toContain("claude mcp add");
+    expect(setup.content).not.toContain("/mcp");
   });
 
   it("backend-setup reference is not generated when no backends configured", () => {

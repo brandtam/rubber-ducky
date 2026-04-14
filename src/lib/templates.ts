@@ -2,7 +2,7 @@ import { stringify as yamlStringify } from "yaml";
 
 export interface BackendConfig {
   type: "github" | "jira" | "asana";
-  mcp_server: string;
+  mcp_server?: string;
   repos?: string[];
   server_url?: string;
   project_key?: string;
@@ -27,13 +27,17 @@ export function generateWorkspaceMd(opts: TemplateOptions): string {
   const backends = (opts.backends ?? []).map((b) => {
     const entry: Record<string, string | string[]> = {
       type: b.type,
-      mcp_server: b.mcp_server,
     };
+    // Only emit mcp_server for backends that still use it (GitHub).
+    // Asana and Jira now use direct REST APIs via env var tokens.
+    // Existing mcp_server values are tolerated when read back.
+    if (b.mcp_server && b.type === "github") entry.mcp_server = b.mcp_server;
     if (b.repos && b.repos.length > 0) entry.repos = b.repos;
     if (b.server_url) entry.server_url = b.server_url;
     if (b.project_key) entry.project_key = b.project_key;
     if (b.workspace_id) entry.workspace_id = b.workspace_id;
     if (b.project_gid) entry.project_gid = b.project_gid;
+    if (b.identifier_field) entry.identifier_field = b.identifier_field;
     return entry;
   });
 
@@ -131,6 +135,12 @@ All commands support \`--json\` for structured output. Run these via bash.
 - \`rubber-ducky frontmatter get <file> [field]\` — Read frontmatter (all or one field)
 - \`rubber-ducky frontmatter set <file> <field> <value>\` — Write a frontmatter field
 - \`rubber-ducky frontmatter validate <file> [--type <type>]\` — Validate against schema
+
+### Ingest
+
+- \`rubber-ducky ingest asana [ref]\` — Ingest Asana task(s) into wiki (single GID, project:<gid>, section:<gid>)
+- \`rubber-ducky ingest jira [ref]\` — Ingest Jira issue(s) into wiki (single key, project:<key>)
+- Flags: \`--mine\` (only my tasks), \`--all\` (all tasks), \`--json\` (structured output)
 
 ### Workspace health
 
@@ -305,17 +315,17 @@ function generateIngestAsanaSkill(config: BackendConfig): string {
 
   return `# Ingest Asana Task
 
-Ingest an Asana task into the wiki as a task page with full field coverage, comment history, attachments, and vocabulary-aware tagging.
+Ingest Asana tasks into the wiki via the CLI. The CLI handles all data fetching, page creation, dedup, attachments, and index rebuilding deterministically. Your job is to run the command, interpret the result, and apply vocabulary-aware tagging.
 
 ${workspaceIdNote}## Usage
 
 \`\`\`
-/ingest-asana <task-id-or-url>
+/ingest-asana [ref]
 \`\`\`
 
 ## Prerequisites
 
-- The Asana MCP server must be configured and running in Claude Code
+- \`ASANA_ACCESS_TOKEN\` environment variable must be set (Personal Access Token)
 - Verify with: \`rubber-ducky backend check asana\`
 - See @references/backend-setup.md for full setup instructions
 - **If connectivity fails, do NOT ask for credentials — refer the user to the setup guide.**
@@ -324,44 +334,30 @@ ${workspaceIdNote}## Usage
 
 1. **Verify connectivity.** Run \`rubber-ducky backend check asana\`.
 
-2. **Fetch full task data.** Use the Asana MCP server to retrieve the task by ID or URL. Request all fields: name, notes (description), completed, assignee, due_on, tags, memberships (for section/status), custom_fields, attachments, and stories (comments).
-
-3. **Scaffold the task page.**
-   \`rubber-ducky page create task "<name>" --source asana --ref <task-gid>\`
-
-4. **Update frontmatter** with all fields from Asana:
-   - \`asana_ref\`: The Asana permalink URL
-   - \`status\`: Mapped from section name and completion state (completed → done, section "In Progress" → in-progress, etc.)
-   - \`priority\`: From custom field if present
-   - \`assignee\`: From Asana assignee
-   - \`due\`: From Asana due_on date
-   - \`tags\`: From Asana tags
-   - \`comment_count\`: Number of comment stories
-
-5. **Write the body.** Under \`## Description\`, write the task notes. Under \`## Comments\`, write each comment story with timestamp and author:
-   \`\`\`markdown
-   ## Comments
-
-   **Jane Smith** — 2026-04-12T14:30:00Z
-   > Comment body here
-
-   **Alex Lee** — 2026-04-12T15:00:00Z
-   > Another comment
+2. **Run the ingest command.** Execute the CLI and capture the JSON output:
+   \`\`\`bash
+   rubber-ducky ingest asana <ref> --json
    \`\`\`
+   The CLI creates fully populated task pages with description, comments (author + timestamp attributed), attachments downloaded to \`raw/assets/\`, frontmatter fields (status, assignee, due, tags, asana_ref, comment_count), and rebuilds the index automatically.
 
-6. **Handle attachments.** Fetch the task's attachments via MCP. Download each file to \`raw/\` and reference it from the wiki page body:
-   \`\`\`markdown
-   ![design-mockup](../raw/task-12345-design-mockup.png)
-   \`\`\`
+3. **Report results.** Parse the JSON output and tell the user:
+   - How many tasks were ingested vs. skipped (already in wiki)
+   - Any errors encountered
+   - The file paths of newly created pages
 
-7. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan the ingested title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter. Do not duplicate tags already present from Asana. If no brands, teams, or labels are defined in \`UBIQUITOUS_LANGUAGE.md\`, skip vocabulary tagging.
+4. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan each newly ingested task page's title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter using \`rubber-ducky frontmatter set\`. Do not duplicate tags already present. If no brands, teams, or labels are defined in \`UBIQUITOUS_LANGUAGE.md\`, skip vocabulary tagging.
 
-8. **Rebuild index.** Run \`rubber-ducky index rebuild\`.
+## Ref formats
 
-## Bulk ingest
+- Single task: \`/ingest-asana <task-gid>\` or \`/ingest-asana <asana-url>\`
+- Project bulk: \`/ingest-asana project:<project-gid>\`
+- Section bulk: \`/ingest-asana section:<section-gid>\`
+- Default project: \`/ingest-asana\` (uses configured project_gid)
 
-To ingest all tasks from a project: \`/ingest-asana project:<project-gid>\`
-To ingest all tasks from a section: \`/ingest-asana section:<section-gid>\`
+## Scope flags
+
+- \`--mine\` — Only ingest tasks assigned to the authenticated user
+- \`--all\` — Ingest all tasks (default)
 `;
 }
 
@@ -378,19 +374,19 @@ function generateIngestJiraSkill(config: BackendConfig): string {
 
   return `# Ingest Jira Issue
 
-Ingest a Jira issue into the wiki as a task page with full field coverage, comment history, attachments, and vocabulary-aware tagging.
+Ingest Jira issues into the wiki via the CLI. The CLI handles all data fetching, page creation, dedup, comments, and index rebuilding deterministically. Your job is to run the command, interpret the result, and apply vocabulary-aware tagging.
 
 ${configNotes}## Usage
 
 \`\`\`
-/ingest-jira <issue-key>
+/ingest-jira [issue-key]
 \`\`\`
 
 Example: \`/ingest-jira WEB-288\`
 
 ## Prerequisites
 
-- The Atlassian Remote MCP server must be configured and running in Claude Code
+- \`JIRA_EMAIL\` and \`JIRA_API_TOKEN\` environment variables must be set
 - Verify with: \`rubber-ducky backend check jira\`
 - See @references/backend-setup.md for full setup instructions
 - **If connectivity fails, do NOT ask for credentials — refer the user to the setup guide.**
@@ -399,44 +395,29 @@ Example: \`/ingest-jira WEB-288\`
 
 1. **Verify connectivity.** Run \`rubber-ducky backend check jira\`.
 
-2. **Fetch full issue data.** Use the Atlassian Remote MCP server to retrieve the issue by key. Request all fields: summary, description, status, priority, assignee, reporter, labels, components, fix versions, comments, attachments, created, and updated.
-
-3. **Scaffold the task page.**
-   \`rubber-ducky page create task "<summary>" --source jira --ref <issue-key>\`
-
-4. **Update frontmatter** with all fields from Jira:
-   - \`jira_ref\`: The Jira issue URL
-   - \`status\`: Mapped from Jira status (Open/To Do → to-do, In Progress → in-progress, Done/Resolved → done, etc.)
-   - \`priority\`: From Jira priority field (Highest → asap, High → high, Medium → medium, Low → low)
-   - \`assignee\`: From Jira assignee
-   - \`due\`: From Jira due date if set
-   - \`tags\`: From Jira labels and components
-   - \`comment_count\`: Number of comments
-
-5. **Write the body.** Under \`## Description\`, write the issue description. Under \`## Comments\`, write each comment with timestamp and author:
-   \`\`\`markdown
-   ## Comments
-
-   **Jane Smith** — 2026-04-12T14:30:00Z
-   > Comment body here
-
-   **Alex Lee** — 2026-04-12T15:00:00Z
-   > Another comment
+2. **Run the ingest command.** Execute the CLI and capture the JSON output:
+   \`\`\`bash
+   rubber-ducky ingest jira <issue-key> --json
    \`\`\`
+   The CLI creates fully populated task pages with description, comments (author + timestamp attributed), attachments downloaded to \`raw/assets/\`, frontmatter fields (status, priority, assignee, due, tags, jira_ref, comment_count), and rebuilds the index automatically.
 
-6. **Handle attachments.** Fetch the issue's attachments via MCP. Download each file to \`raw/\` and reference it from the wiki page body:
-   \`\`\`markdown
-   ![screenshot](../raw/WEB-288-screenshot.png)
-   \`\`\`
+3. **Report results.** Parse the JSON output and tell the user:
+   - How many issues were ingested vs. skipped (already in wiki)
+   - Any errors encountered
+   - The file paths of newly created pages
 
-7. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan the ingested title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter. Do not duplicate tags already present from Jira labels. If no brands, teams, or labels are defined in \`UBIQUITOUS_LANGUAGE.md\`, skip vocabulary tagging.
+4. **Vocabulary-aware tagging.** Read \`UBIQUITOUS_LANGUAGE.md\` and scan each newly ingested task page's title, description, and comments for matching brands, teams, and labels. Append any matches to the \`tags\` array in frontmatter using \`rubber-ducky frontmatter set\`. Do not duplicate tags already present. If no brands, teams, or labels are defined in \`UBIQUITOUS_LANGUAGE.md\`, skip vocabulary tagging.
 
-8. **Rebuild index.** Run \`rubber-ducky index rebuild\`.
+## Ref formats
 
-## Bulk ingest
+- Single issue: \`/ingest-jira <issue-key>\` (e.g., \`/ingest-jira WEB-288\`)
+- Project bulk: \`/ingest-jira project:<project-key>\`
+- Default project: \`/ingest-jira\` (uses configured project_key)
 
-To ingest all issues from the default project: \`/ingest-jira project\`
-To ingest issues matching a JQL query: \`/ingest-jira jql:<query>\`
+## Scope flags
+
+- \`--mine\` — Only ingest issues assigned to the authenticated user
+- \`--all\` — Ingest all issues (default)
 `;
 }
 
@@ -462,13 +443,14 @@ Then verify: \`rubber-ducky backend check github\``);
     if (backend.type === "asana") {
       setupSteps.push(`#### Asana
 
-Asana uses a remote MCP server with OAuth. Tell the user to run this in their terminal:
+Asana uses a Personal Access Token (PAT) via the \`ASANA_ACCESS_TOKEN\` environment variable.
 
-\`\`\`bash
-claude mcp add --transport sse asana https://mcp.asana.com/sse
-\`\`\`
-
-Then tell them to run \`/mcp\` inside Claude Code to complete OAuth authentication in their browser.
+1. Go to **Asana Developer Console** → **Personal Access Tokens** → **Create new token**
+2. Copy the token and add it to the user's shell profile:
+   \`\`\`bash
+   export ASANA_ACCESS_TOKEN="<token>"
+   \`\`\`
+3. Restart the terminal or source the profile
 
 Verify: \`rubber-ducky backend check asana\``);
     }
@@ -477,13 +459,15 @@ Verify: \`rubber-ducky backend check asana\``);
       const urlNote = serverUrl ? ` (configured instance: \`${serverUrl}\`)` : "";
       setupSteps.push(`#### Jira
 
-Jira uses the Atlassian Remote MCP server with OAuth${urlNote}. Tell the user to run this in their terminal:
+Jira uses an API token via the \`JIRA_EMAIL\` and \`JIRA_API_TOKEN\` environment variables${urlNote}.
 
-\`\`\`bash
-claude mcp add --transport sse atlassian-remote https://mcp.atlassian.com/v1/sse
-\`\`\`
-
-Then tell them to run \`/mcp\` inside Claude Code to complete OAuth authentication in their browser.
+1. Go to **Atlassian Account** → **Security** → **API tokens** → **Create API token**
+2. Add both values to the user's shell profile:
+   \`\`\`bash
+   export JIRA_EMAIL="<your-email>"
+   export JIRA_API_TOKEN="<token>"
+   \`\`\`
+3. Restart the terminal or source the profile
 
 Verify: \`rubber-ducky backend check jira\``);
     }
@@ -905,37 +889,13 @@ How to install, authenticate, and verify each configured backend.
 Reference this file with \`@references/backend-setup.md\` in skills and agents.
 
 > **Never paste API tokens, passwords, or credentials into the Claude Code chat.**
-> All credentials belong in MCP server configuration or CLI auth — not in conversation.
-
-## Adding MCP servers to Claude Code
-
-Claude Code has a built-in CLI for managing MCP servers:
-
-\`\`\`bash
-# Add a remote MCP server (HTTP or SSE transport)
-claude mcp add --transport sse <name> <url>
-claude mcp add --transport http <name> <url>
-
-# Add a local MCP server (stdio transport)
-claude mcp add --transport stdio <name> -- <command> [args...]
-
-# List configured servers
-claude mcp list
-
-# Check server status inside Claude Code
-/mcp
-\`\`\`
-
-Use \`--scope\` to control where the config is stored:
-- \`local\` (default) — private to you in this project
-- \`project\` — shared via \`.mcp.json\` in version control
-- \`user\` — available across all your projects
+> All credentials belong in environment variables or CLI auth flows — not in conversation.
 `);
 
   if (backendTypes.includes("github")) {
     sections.push(`## GitHub
 
-GitHub uses the \`gh\` CLI directly — no MCP server needed.
+GitHub uses the \`gh\` CLI directly — no additional setup needed.
 
 ### Install
 
@@ -961,15 +921,25 @@ rubber-ducky backend check github
   if (backendTypes.includes("asana")) {
     sections.push(`## Asana
 
-Asana connects via a remote MCP server with OAuth. Add it using the Claude Code CLI:
+Asana uses a Personal Access Token (PAT) via the \`ASANA_ACCESS_TOKEN\` environment variable.
+
+### Create a Personal Access Token
+
+1. Go to the [Asana Developer Console](https://app.asana.com/0/developer-console)
+2. Navigate to **Personal Access Tokens**
+3. Click **Create new token**
+4. Give it a descriptive name (e.g., "rubber-ducky CLI")
+5. Copy the token — you won't be able to see it again
+
+### Configure
+
+Add the token to your shell profile (\`~/.bashrc\`, \`~/.zshrc\`, etc.):
 
 \`\`\`bash
-claude mcp add --transport sse asana https://mcp.asana.com/sse
+export ASANA_ACCESS_TOKEN="<your-token>"
 \`\`\`
 
-### Authenticate
-
-After adding the server, open Claude Code and run \`/mcp\`. Claude Code will walk you through OAuth authentication with Asana in your browser.
+Restart your terminal or run \`source ~/.zshrc\` (or equivalent).
 
 ### Verify
 
@@ -985,15 +955,25 @@ rubber-ducky backend check asana
 
     sections.push(`## Jira
 
-Jira connects via the Atlassian Remote MCP server with OAuth. Add it using the Claude Code CLI:
+Jira uses an API token via the \`JIRA_EMAIL\` and \`JIRA_API_TOKEN\` environment variables.
 
-${serverNote}\`\`\`bash
-claude mcp add --transport sse atlassian-remote https://mcp.atlassian.com/v1/sse
+${serverNote}### Create an API token
+
+1. Go to [Atlassian Account Settings](https://id.atlassian.com/manage-profile/security/api-tokens)
+2. Click **Create API token**
+3. Give it a descriptive name (e.g., "rubber-ducky CLI")
+4. Copy the token — you won't be able to see it again
+
+### Configure
+
+Add both values to your shell profile (\`~/.bashrc\`, \`~/.zshrc\`, etc.):
+
+\`\`\`bash
+export JIRA_EMAIL="<your-atlassian-email>"
+export JIRA_API_TOKEN="<your-token>"
 \`\`\`
 
-### Authenticate
-
-After adding the server, open Claude Code and run \`/mcp\`. Claude Code will walk you through OAuth authentication with Atlassian in your browser.
+Restart your terminal or run \`source ~/.zshrc\` (or equivalent).
 
 ### Verify
 

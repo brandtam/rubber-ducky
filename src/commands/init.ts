@@ -8,14 +8,12 @@ import type { BackendConfig, VocabularyOptions } from "../lib/templates.js";
 
 const BACKEND_CHOICES = [
   { value: "github", label: "GitHub", hint: "via gh CLI" },
-  { value: "jira", label: "Jira", hint: "via atlassian-remote MCP" },
-  { value: "asana", label: "Asana", hint: "via Asana MCP" },
+  { value: "jira", label: "Jira", hint: "via JIRA_EMAIL + JIRA_API_TOKEN env vars" },
+  { value: "asana", label: "Asana", hint: "via ASANA_ACCESS_TOKEN env var" },
 ] as const;
 
 const MCP_DEFAULTS: Record<string, string> = {
   github: "github",
-  jira: "atlassian-remote",
-  asana: "asana",
 };
 
 export function registerInitCommand(program: Command): void {
@@ -47,23 +45,26 @@ export function registerInitCommand(program: Command): void {
 async function collectBackendConfig(backendType: string): Promise<BackendConfig> {
   const config: BackendConfig = {
     type: backendType as BackendConfig["type"],
-    mcp_server: MCP_DEFAULTS[backendType] ?? backendType,
   };
 
   clack.log.info(chalk.bold(`Configuring ${backendType} backend`));
 
-  const mcpServer = await clack.text({
-    message: `MCP server name for ${backendType}:`,
-    placeholder: MCP_DEFAULTS[backendType] ?? backendType,
-    defaultValue: MCP_DEFAULTS[backendType] ?? backendType,
-  });
+  // Only prompt for MCP server name for GitHub (still uses gh CLI / MCP).
+  // Asana and Jira now use direct REST APIs via env var tokens.
+  if (MCP_DEFAULTS[backendType]) {
+    const mcpServer = await clack.text({
+      message: `MCP server name for ${backendType}:`,
+      placeholder: MCP_DEFAULTS[backendType],
+      defaultValue: MCP_DEFAULTS[backendType],
+    });
 
-  if (clack.isCancel(mcpServer)) {
-    clack.cancel("Setup cancelled.");
-    process.exit(0);
+    if (clack.isCancel(mcpServer)) {
+      clack.cancel("Setup cancelled.");
+      process.exit(0);
+    }
+
+    config.mcp_server = (mcpServer as string) || MCP_DEFAULTS[backendType];
   }
-
-  config.mcp_server = (mcpServer as string) || (MCP_DEFAULTS[backendType] ?? backendType);
 
   if (backendType === "github") {
     const reposInput = await clack.text({
