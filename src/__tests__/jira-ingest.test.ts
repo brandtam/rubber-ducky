@@ -477,11 +477,13 @@ describe("ingestJiraProject", () => {
       serverUrl: "https://myorg.atlassian.net",
     });
 
-    expect(results).toHaveLength(2);
-    expect(results[0].success).toBe(true);
-    expect(results[1].success).toBe(true);
-    expect(results[0].taskPage?.title).toBe("First issue");
-    expect(results[1].taskPage?.title).toBe("Second issue");
+    expect(results.results).toHaveLength(2);
+    expect(results.ingested).toBe(2);
+    expect(results.skipped).toBe(0);
+    expect(results.results[0].success).toBe(true);
+    expect(results.results[1].success).toBe(true);
+    expect(results.results[0].taskPage?.title).toBe("First issue");
+    expect(results.results[1].taskPage?.title).toBe("Second issue");
   });
 
   it("applies --mine filter via JQL", async () => {
@@ -536,8 +538,10 @@ describe("ingestJiraProject", () => {
       serverUrl: "https://myorg.atlassian.net",
     });
 
-    expect(results).toHaveLength(1);
-    expect(results[0].skipped).toBe(true);
-    expect(results[0].reason).toContain("already ingested");
+    expect(results.results).toHaveLength(1);
+    expect(results.ingested).toBe(0);
+    expect(results.skipped).toBe(1);
+    expect(results.results[0].skipped).toBe(true);
+    expect(results.results[0].reason).toContain("already ingested");
   });
 });

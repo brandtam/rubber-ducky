@@ -21,7 +21,7 @@ import type { AsanaClient, AsanaTask, AsanaStory } from "./asana-client.js";
 export function mapAsanaToStatus(
   completed: boolean,
   sectionName?: string,
-  statusMapping?: Record<string, string>
+  statusMapping?: Record<string, Status>
 ): Status {
   if (completed) return "done";
   if (!sectionName) return "to-do";
@@ -32,7 +32,7 @@ export function mapAsanaToStatus(
   if (statusMapping) {
     for (const [key, value] of Object.entries(statusMapping)) {
       if (key.toLowerCase().replace(/\s+/g, "-") === normalized) {
-        return value as Status;
+        return value;
       }
     }
   }
@@ -57,7 +57,7 @@ export function mapStatusToAsanaCompleted(status: Status): boolean {
  * Extract an Asana task GID from a reference string.
  * Accepts plain GIDs or full Asana URLs.
  */
-function extractTaskGid(ref: string): string {
+export function extractTaskGid(ref: string): string {
   // URL format: https://app.asana.com/0/PROJECT_GID/TASK_GID
   // The task GID is the last numeric segment in the path
   if (ref.includes("asana.com")) {
@@ -81,12 +81,14 @@ function resolveTaskGid(taskPage: TaskPage): string | null {
 }
 
 /**
- * Convert a raw Asana task object to a TaskPage.
+ * Convert a raw Asana task + stories into a TaskPage.
+ * When resolvedRef is provided (e.g., from identifier_field), it overrides the GID as ref.
  */
-function asanaTaskToPage(
+export function asanaTaskToPage(
   task: AsanaTask,
   stories: AsanaStory[],
-  statusMapping?: Record<string, string>
+  statusMapping?: Record<string, Status>,
+  resolvedRef?: string | null
 ): TaskPage {
   const sectionName = task.memberships?.[0]?.section?.name;
   const status = mapAsanaToStatus(task.completed, sectionName, statusMapping);
@@ -94,11 +96,11 @@ function asanaTaskToPage(
 
   const comments = stories
     .filter((s) => s.type === "comment")
-    .map((s) => `**${s.created_by.name}** (${s.created_at}):\n${s.text}`);
+    .map((s) => `**${s.created_by.name}** \u2014 ${s.created_at}:\n${s.text}`);
 
   return {
     title: task.name,
-    ref: task.gid,
+    ref: resolvedRef ?? task.gid,
     source: "asana",
     status,
     priority: null,
@@ -121,7 +123,7 @@ function asanaTaskToPage(
 export interface AsanaBackendOptions {
   client: AsanaClient;
   workspaceId?: string;
-  statusMapping?: Record<string, string>;
+  statusMapping?: Record<string, Status>;
 }
 
 /**

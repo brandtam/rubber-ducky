@@ -78,22 +78,25 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
   const fetchFn: FetchFn = options.fetch ?? globalThis.fetch;
 
   /**
-   * Validate credentials at request time (not construction time) so that
-   * backend list/capabilities work without a token set.
+   * Cached auth headers — computed once on first request, reused thereafter.
+   * Validation is deferred to first use so backend list/capabilities work
+   * without credentials set.
    */
-  function ensureCredentials(): { headers: Record<string, string> } {
+  let cachedHeaders: Record<string, string> | null = null;
+
+  function getAuthHeaders(): Record<string, string> {
+    if (cachedHeaders) return cachedHeaders;
+
     if (!serverUrl) {
       throw new Error(
         "Jira server_url is not configured. Set server_url in your backend config. See references/backend-setup.md for instructions."
       );
     }
-
     if (!email) {
       throw new Error(
         "JIRA_EMAIL is not set. Export your Jira account email as JIRA_EMAIL. See references/backend-setup.md for instructions."
       );
     }
-
     if (!apiToken) {
       throw new Error(
         "JIRA_API_TOKEN is not set. Export your Jira API token as JIRA_API_TOKEN. See references/backend-setup.md for instructions."
@@ -101,17 +104,16 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
     }
 
     const credentials = Buffer.from(`${email}:${apiToken}`).toString("base64");
-    return {
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        Accept: "application/json",
-      },
+    cachedHeaders = {
+      Authorization: `Basic ${credentials}`,
+      Accept: "application/json",
     };
+    return cachedHeaders;
   }
 
-  async function request<T>(path: string): Promise<T> {
-    const { headers } = ensureCredentials();
-    const url = `${serverUrl}${path}`;
+  async function request<T>(apiPath: string): Promise<T> {
+    const headers = getAuthHeaders();
+    const url = `${serverUrl}${apiPath}`;
     const response = await fetchFn(url, { headers });
 
     if (!response.ok) {
@@ -122,9 +124,9 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
     return (await response.json()) as T;
   }
 
-  async function post<T>(path: string, body: unknown): Promise<T> {
-    const { headers } = ensureCredentials();
-    const url = `${serverUrl}${path}`;
+  async function post<T>(apiPath: string, body: unknown): Promise<T> {
+    const headers = getAuthHeaders();
+    const url = `${serverUrl}${apiPath}`;
     const response = await fetchFn(url, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
@@ -136,9 +138,22 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
       throw new Error(`Jira API ${response.status}: ${text}`);
     }
 
-    // 204 No Content (e.g. transition) returns no body
-    if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
+  }
+
+  async function postNoContent(apiPath: string, body: unknown): Promise<void> {
+    const headers = getAuthHeaders();
+    const url = `${serverUrl}${apiPath}`;
+    const response = await fetchFn(url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Jira API ${response.status}: ${text}`);
+    }
   }
 
   return {
@@ -161,11 +176,27 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
       jql: string,
       searchOptions?: { maxResults?: number }
     ): Promise<JiraSearchResult> {
-      const params = new URLSearchParams({ jql });
-      if (searchOptions?.maxResults !== undefined) {
-        params.set("maxResults", String(searchOptions.maxResults));
+      const pageSize = searchOptions?.maxResults ?? 50;
+      const allIssues: JiraIssue[] = [];
+      let startAt = 0;
+
+      // Paginate through all results
+      while (true) {
+        const params = new URLSearchParams({
+          jql,
+          maxResults: String(pageSize),
+          startAt: String(startAt),
+        });
+        const page = await request<JiraSearchResult>(
+          `/rest/api/3/search?${params.toString()}`
+        );
+        allIssues.push(...page.issues);
+
+        if (allIssues.length >= page.total || page.issues.length === 0) {
+          return { issues: allIssues, total: page.total };
+        }
+        startAt += page.issues.length;
       }
-      return request<JiraSearchResult>(`/rest/api/3/search?${params.toString()}`);
     },
 
     async createIssue(
@@ -186,7 +217,7 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
     },
 
     async transitionIssue(issueKey: string, transitionId: string): Promise<void> {
-      await post(`/rest/api/3/issue/${issueKey}/transitions`, {
+      await postNoContent(`/rest/api/3/issue/${issueKey}/transitions`, {
         transition: { id: transitionId },
       });
     },

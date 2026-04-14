@@ -5,6 +5,7 @@ import chalk from "chalk";
 import { createWorkspace, migrateWorkspace, detectExistingContent } from "../lib/workspace.js";
 import { formatOutput } from "../lib/output.js";
 import type { BackendConfig, VocabularyOptions, TemplateOptions } from "../lib/templates.js";
+import { slugify } from "../lib/page.js";
 import { createAsanaClient, type AsanaClient } from "../lib/asana-client.js";
 import { createJiraClient, type JiraClient } from "../lib/jira-client.js";
 
@@ -664,9 +665,3 @@ function hasVocabulary(v: VocabularyOptions): boolean {
   );
 }
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}

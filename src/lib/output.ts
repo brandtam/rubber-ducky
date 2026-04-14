@@ -4,7 +4,7 @@ export interface OutputOptions {
   humanReadable?: string;
 }
 
-export function formatOutput(data: Record<string, unknown>, options: OutputOptions): string {
+export function formatOutput(data: unknown, options: OutputOptions): string {
   const useJson = options.json || (options.isTTY === false);
 
   if (useJson) {

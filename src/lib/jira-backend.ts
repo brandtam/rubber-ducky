@@ -69,16 +69,18 @@ export function mapStatusToJiraTransition(status: Status): string {
 
 /**
  * Convert a Jira issue + comments from the REST API into a TaskPage.
+ * Uses actual Jira timestamps for created/updated (not ingest time).
  */
-function jiraIssueToPage(
+export function jiraIssueToPage(
   issue: JiraIssue,
   comments: JiraComment[],
   serverUrl: string,
   statusMap?: Record<string, Status>
 ): TaskPage {
   const status = mapJiraStatusToStatus(issue.fields.status.name, statusMap);
+  const normalizedUrl = serverUrl.replace(/\/+$/, "");
   const formattedComments = comments.map(
-    (c) => `**${c.author.displayName}** (${c.created}):\n${c.body}`
+    (c) => `**${c.author.displayName}** \u2014 ${c.created}:\n${c.body}`
   );
 
   return {
@@ -94,7 +96,7 @@ function jiraIssueToPage(
     closed: issue.fields.resolutiondate ?? (status === "done" ? issue.fields.updated : null),
     pushed: null,
     due: issue.fields.duedate ?? null,
-    jira_ref: `${serverUrl}/browse/${issue.key}`,
+    jira_ref: `${normalizedUrl}/browse/${issue.key}`,
     asana_ref: null,
     gh_ref: null,
     comment_count: comments.length,

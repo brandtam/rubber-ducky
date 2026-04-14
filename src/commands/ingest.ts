@@ -8,8 +8,8 @@ import {
   ingestAsanaTask,
   ingestAsanaBulk,
   parseAsanaRef,
-  resolveScope,
 } from "../lib/asana-ingest.js";
+import { resolveScope } from "../lib/ingest-shared.js";
 import { createJiraClient } from "../lib/jira-client.js";
 import { ingestJiraIssue, ingestJiraProject } from "../lib/jira-ingest.js";
 
@@ -69,40 +69,30 @@ export function registerIngestCommand(program: Command): void {
           const client = createAsanaClient({ token });
           const config = loadWorkspaceConfig(workspaceRoot);
 
-          // Find Asana backend config for default project_gid and identifier_field
           const asanaBackend = config.backends.find(
             (b) => b.type === "asana"
           );
           const defaultProjectGid = asanaBackend?.project_gid;
           const identifierField = asanaBackend?.identifier_field;
 
-          // Resolve scope: CLI flags > workspace config > default "all"
           const scope = resolveScope({
             mine: opts.mine,
             all: opts.all,
             configScope: config.ingest_scope,
           });
 
-          // Determine if this is a single-task or bulk operation
           const parsed = ref ? parseAsanaRef(ref) : null;
-          const isSingleTask = parsed?.type === "task";
 
-          if (isSingleTask) {
-            // Single task ingest
+          if (parsed?.type === "task") {
             const result = await ingestAsanaTask({
               client,
-              ref: parsed!.gid,
+              ref: parsed.gid,
               workspaceRoot,
               identifierField,
             });
 
             if (jsonMode) {
-              console.log(
-                formatOutput(
-                  { ...result } as Record<string, unknown>,
-                  { json: true, humanReadable: "" }
-                )
-              );
+              console.log(formatOutput(result, { json: true }));
             } else {
               if (result.skipped) {
                 clack.log.warn(
@@ -110,27 +100,22 @@ export function registerIngestCommand(program: Command): void {
                 );
               } else {
                 clack.log.success(
-                  `Ingested: ${chalk.bold(result.taskPage?.title)} → ${chalk.cyan(result.filePath)}`
+                  `Ingested: ${chalk.bold(result.taskPage?.title)} \u2192 ${chalk.cyan(result.filePath)}`
                 );
               }
             }
           } else {
-            // Bulk ingest
             const result = await ingestAsanaBulk({
               client,
-              ref: ref ?? undefined,
+              ref,
               workspaceRoot,
               defaultProjectGid,
+              identifierField,
               scope,
             });
 
             if (jsonMode) {
-              console.log(
-                formatOutput(
-                  { ...result } as Record<string, unknown>,
-                  { json: true, humanReadable: "" }
-                )
-              );
+              console.log(formatOutput(result, { json: true }));
             } else {
               clack.log.success(
                 `Bulk ingest complete: ${chalk.bold(String(result.ingested))} ingested, ${chalk.bold(String(result.skipped))} skipped`
@@ -142,7 +127,7 @@ export function registerIngestCommand(program: Command): void {
                   );
                 } else if (r.filePath) {
                   clack.log.info(
-                    `  Ingested: ${chalk.bold(r.taskPage?.title)} → ${chalk.cyan(r.filePath)}`
+                    `  Ingested: ${chalk.bold(r.taskPage?.title)} \u2192 ${chalk.cyan(r.filePath)}`
                   );
                 }
               }
@@ -190,7 +175,6 @@ export function registerIngestCommand(program: Command): void {
         );
       }
 
-      // Load workspace config to find Jira backend settings
       const config = loadWorkspaceConfig(workspaceRoot);
       const jiraConfig = config.backends.find((b) => b.type === "jira");
       const serverUrl = jiraConfig?.server_url;
@@ -203,24 +187,18 @@ export function registerIngestCommand(program: Command): void {
 
       const projectKey = jiraConfig?.project_key;
 
-      // Determine scope: CLI flags override config
-      let scope: "mine" | "all" = "all";
-      if (opts.mine) {
-        scope = "mine";
-      } else if (!opts.all) {
-        // Could read ingest_scope from config in future
-        scope = "all";
-      }
+      // Use shared resolveScope — consistent with Asana path
+      const scope = resolveScope({
+        mine: opts.mine,
+        all: opts.all,
+        configScope: config.ingest_scope,
+      });
 
       try {
         const client = createJiraClient({ serverUrl, email, apiToken });
-
-        // Determine what to ingest
-        const isBulk = !ref || ref.startsWith("project:");
         const issueKey = ref && !ref.startsWith("project:") ? ref : null;
 
         if (issueKey) {
-          // Single issue ingest
           const result = await ingestJiraIssue({
             client,
             ref: issueKey,
@@ -229,12 +207,7 @@ export function registerIngestCommand(program: Command): void {
           });
 
           if (jsonMode) {
-            console.log(
-              formatOutput(
-                { ...result } as Record<string, unknown>,
-                { json: true, humanReadable: "" }
-              )
-            );
+            console.log(formatOutput(result, { json: true }));
           } else {
             if (result.skipped) {
               clack.log.warn(
@@ -242,12 +215,11 @@ export function registerIngestCommand(program: Command): void {
               );
             } else {
               clack.log.success(
-                `Ingested: ${chalk.bold(result.taskPage?.title)} → ${chalk.cyan(result.filePath)}`
+                `Ingested: ${chalk.bold(result.taskPage?.title)} \u2192 ${chalk.cyan(result.filePath)}`
               );
             }
           }
         } else {
-          // Bulk project ingest
           const bulkProjectKey = ref?.startsWith("project:")
             ? ref.replace("project:", "")
             : projectKey;
@@ -259,7 +231,7 @@ export function registerIngestCommand(program: Command): void {
             );
           }
 
-          const results = await ingestJiraProject({
+          const result = await ingestJiraProject({
             client,
             projectKey: bulkProjectKey,
             workspaceRoot,
@@ -267,25 +239,18 @@ export function registerIngestCommand(program: Command): void {
             scope,
           });
 
-          const ingested = results.filter((r) => !r.skipped);
-          const skipped = results.filter((r) => r.skipped);
-
           if (jsonMode) {
-            console.log(
-              formatOutput(
-                { results, ingested: ingested.length, skipped: skipped.length, total: results.length } as Record<string, unknown>,
-                { json: true, humanReadable: "" }
-              )
-            );
+            console.log(formatOutput(result, { json: true }));
           } else {
             clack.log.success(
-              `Ingested ${chalk.bold(String(ingested.length))} issues, skipped ${skipped.length}`
+              `Ingested ${chalk.bold(String(result.ingested))} issues, skipped ${result.skipped}`
             );
-            for (const r of ingested) {
-              clack.log.info(`  ${chalk.bold(r.taskPage?.title)} → ${chalk.cyan(r.filePath)}`);
-            }
-            for (const r of skipped) {
-              clack.log.warn(`  Skipped: ${r.reason} (${chalk.cyan(r.existingFile)})`);
+            for (const r of result.results) {
+              if (r.skipped) {
+                clack.log.warn(`  Skipped: ${r.reason} (${chalk.cyan(r.existingFile)})`);
+              } else if (r.filePath) {
+                clack.log.info(`  ${chalk.bold(r.taskPage?.title)} \u2192 ${chalk.cyan(r.filePath)}`);
+              }
             }
           }
         }

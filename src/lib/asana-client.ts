@@ -129,19 +129,23 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
   const { token } = options;
   const fetchFn: FetchFn = options.fetch ?? globalThis.fetch;
 
-  async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const authHeaders: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json",
+  };
+
+  async function request<T>(apiPath: string, init?: RequestInit): Promise<T> {
     if (!token) {
       throw new Error(
         "ASANA_ACCESS_TOKEN is not set. Export your Asana Personal Access Token as ASANA_ACCESS_TOKEN. See references/backend-setup.md for instructions."
       );
     }
 
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json",
-    };
-    const url = `${ASANA_API_BASE}${path}`;
-    const mergedHeaders = { ...headers, ...init?.headers as Record<string, string> };
+    const url = `${ASANA_API_BASE}${apiPath}`;
+    const extraHeaders = init?.headers
+      ? Object.fromEntries(new Headers(init.headers).entries())
+      : {};
+    const mergedHeaders = { ...authHeaders, ...extraHeaders };
     const response = await fetchFn(url, { ...init, headers: mergedHeaders });
 
     if (!response.ok) {
@@ -153,6 +157,32 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
 
     const json = (await response.json()) as { data: T };
     return json.data;
+  }
+
+  /**
+   * Paginate through all results for list endpoints.
+   * Asana uses cursor-based pagination via next_page.uri.
+   */
+  async function requestPaginated<T>(initialPath: string): Promise<T[]> {
+    const all: T[] = [];
+    let nextUrl: string | null = `${ASANA_API_BASE}${initialPath}`;
+
+    while (nextUrl) {
+      const response = await fetchFn(nextUrl, { headers: authHeaders });
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Asana API ${response.status}: ${body}`);
+      }
+
+      const json = (await response.json()) as {
+        data: T[];
+        next_page: { uri: string } | null;
+      };
+      all.push(...json.data);
+      nextUrl = json.next_page?.uri ?? null;
+    }
+
+    return all;
   }
 
   return {
@@ -171,19 +201,19 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
     },
 
     async getTasksForProject(projectGid: string, opts?: TaskListOptions): Promise<AsanaTask[]> {
-      let url = `/projects/${projectGid}/tasks?opt_fields=${TASK_OPT_FIELDS}`;
+      let url = `/projects/${projectGid}/tasks?opt_fields=${TASK_OPT_FIELDS}&limit=100`;
       if (opts?.assigneeGid) {
         url += `&assignee.any=${opts.assigneeGid}`;
       }
-      return request<AsanaTask[]>(url);
+      return requestPaginated<AsanaTask>(url);
     },
 
     async getTasksForSection(sectionGid: string, opts?: TaskListOptions): Promise<AsanaTask[]> {
-      let url = `/sections/${sectionGid}/tasks?opt_fields=${TASK_OPT_FIELDS}`;
+      let url = `/sections/${sectionGid}/tasks?opt_fields=${TASK_OPT_FIELDS}&limit=100`;
       if (opts?.assigneeGid) {
         url += `&assignee.any=${opts.assigneeGid}`;
       }
-      return request<AsanaTask[]>(url);
+      return requestPaginated<AsanaTask>(url);
     },
 
     async getAttachments(taskGid: string): Promise<AsanaAttachment[]> {

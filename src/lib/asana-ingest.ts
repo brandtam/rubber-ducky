@@ -8,54 +8,63 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { stringify as yamlStringify } from "yaml";
 import type {
   AsanaClient,
   AsanaTask,
-  AsanaStory,
   AsanaAttachment,
   TaskListOptions,
 } from "./asana-client.js";
-import type { Status, TaskPage } from "./backend.js";
-import type { IngestScope } from "./workspace.js";
-import { mapAsanaToStatus } from "./asana-backend.js";
+import type { Status } from "./backend.js";
+import { asanaTaskToPage, extractTaskGid, mapAsanaToStatus } from "./asana-backend.js";
 import { slugify } from "./page.js";
-import { rebuildIndex, appendLog } from "./wiki.js";
-import { parseFrontmatter } from "./frontmatter.js";
+import {
+  type IngestResult,
+  type BulkIngestResult,
+  type DedupIndex,
+  buildDedupIndex,
+  findExistingByRef,
+  isImageFilename,
+  generateIngestedTaskPage,
+  postIngestProcess,
+  finalizeBulkIngest,
+  mapWithConcurrency,
+} from "./ingest-shared.js";
+
+// Re-export shared types so consumers don't need to import from two places
+export type { IngestResult, BulkIngestResult } from "./ingest-shared.js";
+export { resolveScope } from "./ingest-shared.js";
+
+// ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
 
 export interface IngestAsanaOptions {
   client: AsanaClient;
   ref: string;
   workspaceRoot: string;
-  statusMapping?: Record<string, string>;
+  statusMapping?: Record<string, Status>;
   identifierField?: string;
+  /** Pre-fetched task data from bulk list call — avoids redundant API request. */
+  prefetchedTask?: AsanaTask;
+  /** Pre-built dedup index — avoids re-scanning wiki/tasks/ per task in bulk. */
+  dedupIndex?: DedupIndex;
+  /** Skip index rebuild and log append — caller handles these after the loop. */
+  skipPostProcess?: boolean;
 }
 
 export interface BulkIngestOptions {
   client: AsanaClient;
   ref?: string;
   workspaceRoot: string;
-  statusMapping?: Record<string, string>;
+  statusMapping?: Record<string, Status>;
+  identifierField?: string;
   defaultProjectGid?: string;
   scope?: "mine" | "all";
 }
 
-export interface IngestResult {
-  success: boolean;
-  skipped: boolean;
-  reason?: string;
-  existingFile?: string;
-  filePath?: string;
-  taskPage?: TaskPage;
-  attachmentCount?: number;
-  error?: string;
-}
-
-export interface BulkIngestResult {
-  ingested: number;
-  skipped: number;
-  results: IngestResult[];
-}
+// ---------------------------------------------------------------------------
+// Ref parsing
+// ---------------------------------------------------------------------------
 
 export interface ParsedRef {
   type: "task" | "project" | "section";
@@ -76,50 +85,9 @@ export function parseAsanaRef(ref: string): ParsedRef {
   return { type: "task", gid: extractTaskGid(ref) };
 }
 
-/**
- * Resolve the effective scope from CLI flags and workspace config.
- * Precedence: CLI flags (highest) > workspace config > default "all".
- */
-export function resolveScope(opts: {
-  mine?: boolean;
-  all?: boolean;
-  configScope?: IngestScope;
-}): "mine" | "all" {
-  if (opts.mine) return "mine";
-  if (opts.all) return "all";
-  if (opts.configScope === "mine") return "mine";
-  if (opts.configScope === "all") return "all";
-  // "ask" at CLI level defaults to "all" — skill layer handles prompting
-  return "all";
-}
-
-/**
- * Extract an Asana task GID from a reference string.
- * Accepts plain GIDs or full Asana URLs.
- */
-function extractTaskGid(ref: string): string {
-  if (ref.includes("asana.com")) {
-    const match = ref.match(/\/(\d+)\s*$/);
-    if (match) return match[1];
-  }
-  return ref;
-}
-
-const IMAGE_EXTENSIONS = new Set([
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".gif",
-  ".svg",
-  ".webp",
-  ".bmp",
-  ".ico",
-]);
-
-function isImageFilename(filename: string): boolean {
-  const ext = path.extname(filename).toLowerCase();
-  return IMAGE_EXTENSIONS.has(ext);
-}
+// ---------------------------------------------------------------------------
+// Identifier resolution
+// ---------------------------------------------------------------------------
 
 /**
  * Resolve a human-readable identifier from Asana custom fields.
@@ -143,181 +111,48 @@ function resolveIdentifier(
   return null;
 }
 
-/**
- * Check whether a task with the given asana_ref already exists in wiki/tasks/.
- * Returns the relative path of the existing file, or null if no duplicate found.
- */
-function findExistingByAsanaRef(
-  workspaceRoot: string,
-  asanaRef: string
-): string | null {
-  const tasksDir = path.join(workspaceRoot, "wiki", "tasks");
-  if (!fs.existsSync(tasksDir)) return null;
-
-  const files = fs.readdirSync(tasksDir).filter((f) => f.endsWith(".md"));
-  for (const file of files) {
-    const content = fs.readFileSync(path.join(tasksDir, file), "utf-8");
-    const parsed = parseFrontmatter(content);
-    if (parsed && parsed.data.asana_ref === asanaRef) {
-      return path.join("wiki", "tasks", file);
-    }
-  }
-  return null;
-}
-
-/**
- * Convert a raw Asana task + stories into a TaskPage.
- * When resolvedRef is provided (from identifier_field), it's used as the ref.
- * Otherwise falls back to the task GID.
- */
-function asanaTaskToPage(
-  task: AsanaTask,
-  stories: AsanaStory[],
-  statusMapping?: Record<string, string>,
-  resolvedRef?: string | null
-): TaskPage {
-  const sectionName = task.memberships?.[0]?.section?.name;
-  const status = mapAsanaToStatus(task.completed, sectionName, statusMapping);
-  const now = new Date().toISOString();
-
-  const comments = stories
-    .filter((s) => s.type === "comment")
-    .map((s) => `**${s.created_by.name}** — ${s.created_at}:\n${s.text}`);
-
-  return {
-    title: task.name,
-    ref: resolvedRef ?? task.gid,
-    source: "asana",
-    status,
-    priority: null,
-    assignee: task.assignee?.name ?? null,
-    tags: task.tags.map((t) => t.name),
-    created: now,
-    updated: now,
-    closed: task.completed ? (task.completed_at ?? now) : null,
-    pushed: null,
-    due: task.due_on ?? null,
-    jira_ref: null,
-    asana_ref: task.permalink_url,
-    gh_ref: null,
-    comment_count: comments.length,
-    description: task.notes ?? "",
-    comments,
-  };
-}
-
-/**
- * Generate the full markdown content for a task page with populated body.
- * Includes ## Attachments section when attachments are provided.
- */
-function generateIngestedTaskPage(
-  taskPage: TaskPage,
-  attachments?: AsanaAttachment[],
-  assetRef?: string
-): string {
-  const frontmatter = {
-    title: taskPage.title,
-    type: "task",
-    ref: taskPage.ref,
-    source: taskPage.source,
-    status: taskPage.status,
-    priority: taskPage.priority,
-    assignee: taskPage.assignee,
-    tags: taskPage.tags,
-    created: taskPage.created,
-    updated: taskPage.updated,
-    closed: taskPage.closed,
-    pushed: taskPage.pushed,
-    due: taskPage.due,
-    jira_ref: taskPage.jira_ref,
-    asana_ref: taskPage.asana_ref,
-    gh_ref: taskPage.gh_ref,
-    comment_count: taskPage.comment_count,
-  };
-
-  const yaml = yamlStringify(frontmatter).trimEnd();
-
-  // Build body sections
-  const sections: string[] = [];
-
-  // ## Description
-  sections.push("## Description");
-  sections.push("");
-  if (taskPage.description) {
-    sections.push(taskPage.description);
-  }
-  sections.push("");
-
-  // ## Comments
-  sections.push("## Comments");
-  sections.push("");
-  if (taskPage.comments.length > 0) {
-    for (const comment of taskPage.comments) {
-      sections.push(comment);
-      sections.push("");
-    }
-  }
-
-  // ## Attachments
-  sections.push("## Attachments");
-  sections.push("");
-  if (attachments && attachments.length > 0 && assetRef) {
-    for (const att of attachments) {
-      const relPath = `../../raw/assets/${assetRef}/${att.name}`;
-      if (isImageFilename(att.name)) {
-        sections.push(`![${att.name}](${relPath})`);
-      } else {
-        sections.push(`[${att.name}](${relPath})`);
-      }
-    }
-    sections.push("");
-  }
-
-  // ## Activity log
-  sections.push("## Activity log");
-  sections.push("");
-  sections.push(
-    `- ${taskPage.created} — Ingested from Asana (GID: ${taskPage.ref})`
-  );
-  sections.push("");
-
-  // ## See also
-  sections.push("## See also");
-  sections.push("");
-
-  return `---\n${yaml}\n---\n${sections.join("\n")}`;
-}
+// ---------------------------------------------------------------------------
+// Single-task ingest
+// ---------------------------------------------------------------------------
 
 /**
  * Ingest a single Asana task into the workspace.
  *
- * 1. Extract GID from ref (plain GID or URL)
- * 2. Fetch task + stories + attachments via REST client
- * 3. Resolve identifier (custom field or GID fallback)
- * 4. Dedup check (asana_ref in wiki/tasks/)
- * 5. Download attachments to raw/assets/<ref>/
- * 6. Write fully populated task page
- * 7. Rebuild index
- * 8. Append to log
- * 9. Return structured result
+ * 1. Fetch task + stories + attachments via REST client (or use prefetched data)
+ * 2. Resolve identifier (custom field or GID fallback)
+ * 3. Dedup check (asana_ref in wiki/tasks/)
+ * 4. Download attachments to raw/assets/<ref>/
+ * 5. Write fully populated task page
+ * 6. Optionally rebuild index and append log
+ * 7. Return structured result
  */
 export async function ingestAsanaTask(
   options: IngestAsanaOptions
 ): Promise<IngestResult> {
-  const { client, ref, workspaceRoot, statusMapping, identifierField } =
-    options;
+  const {
+    client,
+    ref,
+    workspaceRoot,
+    statusMapping,
+    identifierField,
+    prefetchedTask,
+    dedupIndex,
+    skipPostProcess,
+  } = options;
 
   const taskGid = extractTaskGid(ref);
 
-  // Fetch from Asana REST API
-  const task = await client.getTask(taskGid);
-  const stories = await client.getStories(taskGid);
-  const attachments = await client.getAttachments(taskGid);
+  // Fetch data — use prefetched task if available, parallelize remaining calls
+  const task = prefetchedTask ?? await client.getTask(taskGid);
+  const [stories, attachments] = await Promise.all([
+    client.getStories(taskGid),
+    client.getAttachments(taskGid),
+  ]);
 
   // Resolve identifier from custom fields or fall back to GID
   const resolvedIdentifier = resolveIdentifier(task, identifierField);
 
-  // Convert to TaskPage (with resolved identifier as ref when available)
+  // Convert to TaskPage
   const taskPage = asanaTaskToPage(
     task,
     stories,
@@ -326,9 +161,14 @@ export async function ingestAsanaTask(
   );
 
   // Dedup check
-  const existingFile = findExistingByAsanaRef(
+  if (!taskPage.asana_ref) {
+    throw new Error(`Internal error: asana_ref is null after conversion for task ${taskGid}`);
+  }
+  const existingFile = findExistingByRef(
     workspaceRoot,
-    taskPage.asana_ref!
+    "asana_ref",
+    taskPage.asana_ref,
+    dedupIndex
   );
   if (existingFile) {
     return {
@@ -344,18 +184,28 @@ export async function ingestAsanaTask(
     ? slugify(resolvedIdentifier)
     : task.gid;
 
-  // Download attachments to raw/assets/<ref>/
-  const downloadable = attachments.filter((a) => a.download_url);
+  // Download attachments in parallel
+  const downloadable = attachments.filter(
+    (a): a is AsanaAttachment & { download_url: string } => a.download_url !== null
+  );
   if (downloadable.length > 0) {
     const assetDir = path.join(workspaceRoot, "raw", "assets", assetRef);
     fs.mkdirSync(assetDir, { recursive: true });
-    for (const att of downloadable) {
-      const data = await client.downloadFile(att.download_url!);
-      fs.writeFileSync(path.join(assetDir, att.name), data);
-    }
+    await Promise.all(
+      downloadable.map(async (att) => {
+        const data = await client.downloadFile(att.download_url);
+        fs.writeFileSync(path.join(assetDir, att.name), data);
+      })
+    );
   }
 
-  // Determine filename: use identifier when available, otherwise title
+  // Build attachment refs for page generation
+  const attachmentRefs = attachments.map((att) => ({
+    name: att.name,
+    isImage: isImageFilename(att.name),
+  }));
+
+  // Determine filename
   const filenameBase = resolvedIdentifier
     ? slugify(resolvedIdentifier)
     : slugify(taskPage.title);
@@ -364,17 +214,20 @@ export async function ingestAsanaTask(
   const fullPath = path.join(workspaceRoot, relativePath);
 
   fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-  const content = generateIngestedTaskPage(taskPage, attachments, assetRef);
+  const content = generateIngestedTaskPage(taskPage, {
+    attachments: attachmentRefs,
+    assetRef,
+    source: "Asana",
+  });
   fs.writeFileSync(fullPath, content, "utf-8");
 
-  // Rebuild index
-  rebuildIndex(workspaceRoot);
-
-  // Append to log
-  appendLog(
-    workspaceRoot,
-    `Ingested Asana task: ${taskPage.title} (${taskPage.ref})`
-  );
+  // Post-processing (skipped in bulk mode — caller handles it)
+  if (!skipPostProcess) {
+    postIngestProcess(
+      workspaceRoot,
+      `Ingested Asana task: ${taskPage.title} (${taskPage.ref})`
+    );
+  }
 
   return {
     success: true,
@@ -385,31 +238,42 @@ export async function ingestAsanaTask(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Bulk ingest
+// ---------------------------------------------------------------------------
+
 /**
  * Bulk ingest Asana tasks from a project, section, or default project.
  *
- * 1. Parse ref to determine source (project/section/default)
- * 2. Resolve scope (mine/all) — fetch user GID if needed
- * 3. Fetch task list from Asana API
- * 4. Process each task sequentially via ingestAsanaTask
- * 5. Return summary with ingested/skipped counts
+ * Optimizations over naive per-task ingest:
+ * - Builds dedup index once before the loop (avoids O(N*M) file scans)
+ * - Passes prefetched task data from the list call (avoids N redundant API calls)
+ * - Rebuilds index and appends log once after the loop (avoids O(N^2) I/O)
  */
 export async function ingestAsanaBulk(
   options: BulkIngestOptions
 ): Promise<BulkIngestResult> {
-  const { client, ref, workspaceRoot, statusMapping, defaultProjectGid, scope } = options;
+  const {
+    client,
+    ref,
+    workspaceRoot,
+    statusMapping,
+    identifierField,
+    defaultProjectGid,
+    scope,
+  } = options;
 
   // Determine what to fetch
   let parsedRef: ParsedRef;
   if (ref) {
     parsedRef = parseAsanaRef(ref);
-    // If it's a single task ref, delegate to single ingest
     if (parsedRef.type === "task") {
       const result = await ingestAsanaTask({
         client,
         ref: parsedRef.gid,
         workspaceRoot,
         statusMapping,
+        identifierField,
       });
       return {
         ingested: result.skipped ? 0 : 1,
@@ -441,20 +305,22 @@ export async function ingestAsanaBulk(
     tasks = await client.getTasksForSection(parsedRef.gid, listOpts);
   }
 
-  // Process each task sequentially
-  const results: IngestResult[] = [];
-  for (const task of tasks) {
-    const result = await ingestAsanaTask({
+  // Build dedup index once before the loop
+  const dedupIndex = buildDedupIndex(workspaceRoot, "asana_ref");
+
+  // Process tasks with bounded concurrency (5 concurrent API calls)
+  const results = await mapWithConcurrency(tasks, 5, (task) =>
+    ingestAsanaTask({
       client,
       ref: task.gid,
       workspaceRoot,
       statusMapping,
-    });
-    results.push(result);
-  }
+      identifierField,
+      prefetchedTask: task,
+      dedupIndex,
+      skipPostProcess: true,
+    })
+  );
 
-  const ingested = results.filter((r) => !r.skipped).length;
-  const skipped = results.filter((r) => r.skipped).length;
-
-  return { ingested, skipped, results };
+  return finalizeBulkIngest(results, workspaceRoot, "Asana task(s)");
 }

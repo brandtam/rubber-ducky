@@ -799,8 +799,8 @@ describe("ingestAsanaTask", () => {
         path.join(tmpDir, result.filePath!),
         "utf-8"
       );
-      // Attachments section should still exist but be empty
-      expect(content).toContain("## Attachments");
+      // No Attachments section when there are no attachments
+      expect(content).not.toContain("## Attachments");
     });
   });
 });
