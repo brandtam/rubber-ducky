@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import Bottleneck from "bottleneck";
 import {
   createJiraClient,
   type JiraClientOptions,
@@ -479,6 +480,200 @@ describe("JiraClient", () => {
       const client = createJiraClient({ ...baseOpts, fetch });
       const projects = await client.getProjects();
       expect(projects).toEqual([]);
+    });
+  });
+
+  describe("rate-limited client integration", () => {
+    function testLimiter(): Bottleneck {
+      return new Bottleneck({ minTime: 0, maxConcurrent: null });
+    }
+
+    function mockFetchWithHeaders(
+      handler: (url: string, init?: RequestInit) => {
+        status: number;
+        body: unknown;
+        headers?: Record<string, string>;
+      }
+    ): FetchFn {
+      return async (url: string, init?: RequestInit) => {
+        const result = handler(url, init);
+        return {
+          ok: result.status >= 200 && result.status < 300,
+          status: result.status,
+          headers: new Headers(result.headers ?? {}),
+          json: async () => result.body,
+          text: async () => JSON.stringify(result.body),
+        } as Response;
+      };
+    }
+
+    it("routes GET requests through the rate-limited client when limiter is provided", async () => {
+      let called = false;
+      const fetch = mockFetchWithHeaders((url) => {
+        called = true;
+        return {
+          status: 200,
+          body: { displayName: "Alice", emailAddress: "alice@myorg.com" },
+        };
+      });
+
+      const client = createJiraClient({
+        ...baseOpts,
+        fetch,
+        limiter: testLimiter(),
+      });
+      const result = await client.getMyself();
+
+      expect(called).toBe(true);
+      expect(result.displayName).toBe("Alice");
+    });
+
+    it("routes POST requests through the rate-limited client when limiter is provided", async () => {
+      const fetch = mockFetchWithHeaders(() => ({
+        status: 200,
+        body: { isLast: true, issues: [{ key: "X-1", fields: { summary: "test" } }] },
+      }));
+
+      const client = createJiraClient({
+        ...baseOpts,
+        fetch,
+        limiter: testLimiter(),
+      });
+      const result = await client.searchIssues("project = X");
+      expect(result.issues).toHaveLength(1);
+    });
+
+    it("updates limiter reservoir from X-RateLimit-Remaining headers", async () => {
+      const limiter = testLimiter();
+      // Set an initial reservoir so we can observe the change
+      limiter.updateSettings({ reservoir: 60 });
+
+      const fetch = mockFetchWithHeaders(() => ({
+        status: 200,
+        body: { displayName: "Alice", emailAddress: "alice@myorg.com" },
+        headers: { "x-ratelimit-remaining": "25" },
+      }));
+
+      const client = createJiraClient({
+        ...baseOpts,
+        fetch,
+        limiter,
+      });
+      await client.getMyself();
+
+      const reservoir = await limiter.currentReservoir();
+      expect(reservoir).toBe(25);
+    });
+
+    it("retries on 429 with Retry-After when limiter is provided", async () => {
+      let callCount = 0;
+      const fetch = mockFetchWithHeaders(() => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            status: 429,
+            body: { message: "rate limited" },
+            headers: { "retry-after": "0" },
+          };
+        }
+        return {
+          status: 200,
+          body: { displayName: "Alice", emailAddress: "alice@myorg.com" },
+        };
+      });
+
+      const client = createJiraClient({
+        ...baseOpts,
+        fetch,
+        limiter: testLimiter(),
+        sleep: async () => {},
+      });
+      const result = await client.getMyself();
+
+      expect(callCount).toBe(2);
+      expect(result.displayName).toBe("Alice");
+    });
+
+    it("no rate-limit headers does not change reservoir (self-hosted path)", async () => {
+      const limiter = testLimiter();
+      limiter.updateSettings({ reservoir: 60 });
+
+      const fetch = mockFetchWithHeaders(() => ({
+        status: 200,
+        body: { displayName: "Alice", emailAddress: "alice@myorg.com" },
+        // No X-RateLimit-* headers
+      }));
+
+      const client = createJiraClient({
+        ...baseOpts,
+        fetch,
+        limiter,
+      });
+      await client.getMyself();
+
+      // Reservoir decrements by 1 (Bottleneck consumed a token for the request)
+      // but the hints adapter did not modify it — self-hosted path works.
+      const reservoir = await limiter.currentReservoir();
+      expect(reservoir).toBe(59);
+    });
+
+    it("regression: normal ingest search completes with limiter + hints adapter", async () => {
+      const limiter = testLimiter();
+      limiter.updateSettings({ reservoir: 60 });
+      let callCount = 0;
+
+      const fetch = mockFetchWithHeaders((url) => {
+        callCount++;
+        if (url.includes("/search/jql")) {
+          return {
+            status: 200,
+            body: {
+              isLast: true,
+              issues: [
+                { key: "PROJ-1", fields: { summary: "First" } },
+                { key: "PROJ-2", fields: { summary: "Second" } },
+              ],
+            },
+            headers: { "x-ratelimit-remaining": "55" },
+          };
+        }
+        if (url.includes("/issue/PROJ-1/comment")) {
+          return {
+            status: 200,
+            body: { comments: [{ id: "1", body: "hello", author: { displayName: "Bob" }, created: "2024-01-01" }] },
+            headers: { "x-ratelimit-remaining": "54" },
+          };
+        }
+        if (url.includes("/issue/PROJ-2/comment")) {
+          return {
+            status: 200,
+            body: { comments: [] },
+            headers: { "x-ratelimit-remaining": "53" },
+          };
+        }
+        return { status: 200, body: {}, headers: { "x-ratelimit-remaining": "52" } };
+      });
+
+      const client = createJiraClient({
+        ...baseOpts,
+        fetch,
+        limiter,
+      });
+
+      // Simulate an ingest: search + fetch comments for each issue
+      const searchResult = await client.searchIssues("project = PROJ");
+      expect(searchResult.issues).toHaveLength(2);
+
+      const comments1 = await client.getComments("PROJ-1");
+      expect(comments1).toHaveLength(1);
+
+      const comments2 = await client.getComments("PROJ-2");
+      expect(comments2).toHaveLength(0);
+
+      // Reservoir should have been updated by the hints adapter
+      const reservoir = await limiter.currentReservoir();
+      expect(reservoir).toBe(53);
+      expect(callCount).toBe(3);
     });
   });
 });
