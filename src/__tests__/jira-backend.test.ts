@@ -8,6 +8,7 @@ import {
   mapJiraStatusToStatus,
   mapStatusToJiraTransition,
   checkJiraConnectivity,
+  checkJiraConnectivityRest,
   DEFAULT_STATUS_MAP,
 } from "../lib/jira-backend.js";
 
@@ -668,6 +669,79 @@ describe("Jira backend", () => {
       const result = checkJiraConnectivity("https://myorg.atlassian.net", exec);
       expect(result.authenticated).toBe(false);
       expect(result.error).toBeDefined();
+    });
+  });
+
+  describe("checkJiraConnectivityRest", () => {
+    it("returns authenticated when REST API responds", async () => {
+      const mockFetch = async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ displayName: "Alice Smith", emailAddress: "alice@myorg.com" }),
+        text: async () => JSON.stringify({ displayName: "Alice Smith" }),
+      }) as Response;
+
+      const result = await checkJiraConnectivityRest({
+        serverUrl: "https://myorg.atlassian.net",
+        email: "alice@myorg.com",
+        apiToken: "test-token",
+        fetch: mockFetch,
+      });
+
+      expect(result.authenticated).toBe(true);
+      expect(result.user).toBe("Alice Smith");
+    });
+
+    it("returns not authenticated when email is missing", async () => {
+      const result = await checkJiraConnectivityRest({
+        serverUrl: "https://myorg.atlassian.net",
+        email: "",
+        apiToken: "test-token",
+      });
+
+      expect(result.authenticated).toBe(false);
+      expect(result.error).toContain("JIRA_EMAIL");
+    });
+
+    it("returns not authenticated when apiToken is missing", async () => {
+      const result = await checkJiraConnectivityRest({
+        serverUrl: "https://myorg.atlassian.net",
+        email: "alice@myorg.com",
+        apiToken: "",
+      });
+
+      expect(result.authenticated).toBe(false);
+      expect(result.error).toContain("JIRA_API_TOKEN");
+    });
+
+    it("returns not authenticated when serverUrl is missing", async () => {
+      const result = await checkJiraConnectivityRest({
+        serverUrl: "",
+        email: "alice@myorg.com",
+        apiToken: "test-token",
+      });
+
+      expect(result.authenticated).toBe(false);
+      expect(result.error).toContain("server_url");
+    });
+
+    it("returns not authenticated when REST API fails", async () => {
+      const mockFetch = async () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({ message: "Unauthorized" }),
+        text: async () => '{"message":"Unauthorized"}',
+      }) as Response;
+
+      const result = await checkJiraConnectivityRest({
+        serverUrl: "https://myorg.atlassian.net",
+        email: "alice@myorg.com",
+        apiToken: "bad-token",
+        fetch: mockFetch,
+      });
+
+      expect(result.authenticated).toBe(false);
+      expect(result.error).toContain("Jira REST API check failed");
     });
   });
 });
