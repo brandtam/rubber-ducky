@@ -6,6 +6,8 @@ import {
   generateClaudeMd,
   generateClaudeSettings,
   generateUbiquitousLanguageMd,
+  generateGitignore,
+  generateEnvExample,
   generateBackendSkills,
   generateReferenceFiles,
   type BackendConfig,
@@ -143,6 +145,8 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
     { name: "workspace.md", content: generateWorkspaceMd(templateOpts) },
     { name: "CLAUDE.md", content: generateClaudeMd(templateOpts) },
     { name: "UBIQUITOUS_LANGUAGE.md", content: generateUbiquitousLanguageMd(opts.vocabulary) },
+    { name: ".gitignore", content: generateGitignore() },
+    { name: ".env.example", content: generateEnvExample(opts.backends) },
   ];
 
   for (const file of coreFiles) {
@@ -191,6 +195,20 @@ export async function migrateWorkspace(opts: WorkspaceOptions): Promise<Workspac
     const templateOpts = { name, purpose, backends: opts.backends };
     fs.writeFileSync(claudeMdPath, generateClaudeMd(templateOpts), "utf-8");
     result.filesCreated.push("CLAUDE.md");
+  }
+
+  // Write .gitignore if missing (don't overwrite existing)
+  const gitignorePath = path.join(targetDir, ".gitignore");
+  if (!fs.existsSync(gitignorePath)) {
+    fs.writeFileSync(gitignorePath, generateGitignore(), "utf-8");
+    result.filesCreated.push(".gitignore");
+  }
+
+  // Write .env.example if missing
+  const envExamplePath = path.join(targetDir, ".env.example");
+  if (!fs.existsSync(envExamplePath)) {
+    fs.writeFileSync(envExamplePath, generateEnvExample(opts.backends), "utf-8");
+    result.filesCreated.push(".env.example");
   }
 
   // Install bundled skills, backend skills, references, and settings

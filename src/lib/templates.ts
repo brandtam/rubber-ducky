@@ -82,6 +82,19 @@ export function generateClaudeMd(opts: TemplateOptions): string {
     ? `\nConfigured backends: ${backendNames.join(", ")}. Check connectivity with \`rubber-ducky backend check\`.\n\n**IMPORTANT: Never ask the user to paste API tokens, passwords, or credentials into the chat.** If a backend connectivity check fails, refer the user to @references/backend-setup.md for setup instructions.\n`
     : "";
 
+  const credentialGuardrails = `
+## Credential safety
+
+**NEVER** do any of the following:
+- Read, cat, print, or display the contents of \`.env\`, \`.env.local\`, \`.env.*\`, or any file that may contain tokens or secrets
+- Ask the user to paste API tokens, passwords, or credentials into the chat
+- Log, echo, or output environment variable values that contain secrets
+- Include token values in commit messages, task pages, or any persisted file
+- Store credentials in \`workspace.md\`, \`CLAUDE.md\`, or any tracked file
+
+Credentials belong **only** in environment variables set in the user's shell profile or in untracked \`.env.local\` files. If a backend connectivity check fails, direct the user to @references/backend-setup.md — never try to debug by inspecting their token values.
+`;
+
   return `# ${opts.name}
 
 ${opts.purpose}
@@ -104,7 +117,7 @@ See @references/when-to-use-cli.md for the full rationale on what goes to CLI vs
 - \`wiki/index.md\` — Auto-generated page index
 - \`wiki/log.md\` — Timestamped activity log
 - \`raw/\` — Immutable input files (screenshots, attachments)
-${backendSection}
+${backendSection}${credentialGuardrails}
 Import and follow @UBIQUITOUS_LANGUAGE.md for all terms and conventions.
 
 ## CLI commands
@@ -454,7 +467,11 @@ Asana uses a Personal Access Token (PAT) for authentication.
 
 **Step 1: Create a PAT**
 
-Tell the user to go to **My Settings → Apps → Developer apps → Personal access tokens** in Asana (or visit the Asana developer console), then create a new token. They should name it something descriptive like "rubber-ducky".
+Tell the user to open this URL in their browser:
+
+> https://app.asana.com/0/my-apps
+
+Then click **Create new token**, name it something descriptive like "rubber-ducky", and copy the token.
 
 **Step 2: Set the environment variable**
 
@@ -464,7 +481,7 @@ Tell the user to add this to their shell profile (\`~/.zshrc\`, \`~/.bashrc\`, e
 export ASANA_ACCESS_TOKEN="<their-token>"
 \`\`\`
 
-Then source the file or open a new terminal.
+Then reload: \`source ~/.zshrc\` (or open a new terminal).
 
 **Step 3: Verify connectivity**
 
@@ -474,7 +491,7 @@ rubber-ducky backend check asana
 
 **Step 4: Run discovery (if project/workspace not yet configured)**
 
-If the workspace config is missing \`workspace_id\` or \`project_gid\`, tell the user to run \`rubber-ducky init\` again — it will auto-discover workspaces, projects, and custom fields via the API.`);
+If the workspace config is missing \`workspace_id\` or \`project_gid\`, tell the user to run \`rubber-ducky init\` again with their token set — it will auto-discover workspaces, projects, and custom fields via the API.`);
     }
     if (backend.type === "jira") {
       const serverUrl = backend.server_url;
@@ -485,7 +502,11 @@ Jira uses an API token with Basic Auth for authentication${urlNote}.
 
 **Step 1: Create an API token**
 
-Tell the user to go to **Atlassian account → Security → API tokens** (or visit the Atlassian account security page), then create a new token.
+Tell the user to open this URL in their browser:
+
+> https://id.atlassian.com/manage-profile/security/api-tokens
+
+Then click **Create API token**, give it a label like "rubber-ducky", and copy the token.
 
 **Step 2: Set the environment variables**
 
@@ -496,7 +517,7 @@ export JIRA_EMAIL="<their-atlassian-email>"
 export JIRA_API_TOKEN="<their-token>"
 \`\`\`
 
-Then source the file or open a new terminal.
+Then reload: \`source ~/.zshrc\` (or open a new terminal).
 
 **Step 3: Verify connectivity**
 
@@ -506,7 +527,7 @@ rubber-ducky backend check jira
 
 **Step 4: Run discovery (if project not yet configured)**
 
-If the workspace config is missing \`project_key\`, tell the user to run \`rubber-ducky init\` again — it will auto-discover projects via the API.`);
+If the workspace config is missing \`server_url\` or \`project_key\`, tell the user to run \`rubber-ducky init\` again with their credentials set — it will prompt for the server URL and auto-discover projects via the API.`);
     }
   }
 
@@ -1143,8 +1164,34 @@ export function generateClaudeSettings(backends?: BackendConfig[]): string {
     );
   }
 
+  // Hook: block reading .env files that may contain secrets.
+  // PreToolUse hooks receive tool input as JSON on stdin.
+  // Exit 2 with a reason on stdout to block the tool call.
+  const envFileGuard = [
+    "bash", "-c",
+    // Read tool: check file_path for .env patterns
+    // Bash tool: check command for cat/head/tail/less/more of .env files
+    `INPUT=$(cat); ` +
+    `FILE_PATH=$(echo "$INPUT" | grep -o '"file_path":"[^"]*"' | cut -d'"' -f4); ` +
+    `COMMAND=$(echo "$INPUT" | grep -o '"command":"[^"]*"' | cut -d'"' -f4); ` +
+    `if echo "$FILE_PATH" | grep -qE '\\.env($|\\.)'; then ` +
+      `echo "BLOCKED: Reading .env files is not allowed — they contain secrets. Use rubber-ducky backend check to verify connectivity."; exit 2; ` +
+    `fi; ` +
+    `if echo "$COMMAND" | grep -qE '(cat|head|tail|less|more|bat).*\\.env'; then ` +
+      `echo "BLOCKED: Reading .env files is not allowed — they contain secrets. Use rubber-ducky backend check to verify connectivity."; exit 2; ` +
+    `fi`,
+  ].join(" ");
+
   const settings = {
     permissions: { allow },
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "Read|Bash",
+          command: envFileGuard,
+        },
+      ],
+    },
   };
 
   return JSON.stringify(settings, null, 2) + "\n";
@@ -1199,4 +1246,93 @@ Add workspace-specific terms below.
 `);
 
   return sections.join("\n");
+}
+
+/**
+ * Generate a .env.example tailored to the configured backends.
+ * Shows exactly which env vars the user needs to set — no more, no less.
+ */
+export function generateEnvExample(backends?: BackendConfig[]): string {
+  const sections: string[] = [
+    "# Rubber-Ducky environment variables",
+    "# Copy this file to .env.local and fill in your values:",
+    "#   cp .env.example .env.local",
+    "#   source .env.local",
+    "",
+  ];
+
+  const backendTypes = (backends ?? []).map((b) => b.type);
+
+  if (backendTypes.includes("asana")) {
+    sections.push(
+      "# Asana — create a Personal Access Token at https://app.asana.com/0/my-apps",
+      "ASANA_ACCESS_TOKEN=",
+      ""
+    );
+  }
+
+  if (backendTypes.includes("jira")) {
+    sections.push(
+      "# Jira — create an API token at https://id.atlassian.com/manage-profile/security/api-tokens",
+      "JIRA_EMAIL=",
+      "JIRA_API_TOKEN=",
+      ""
+    );
+  }
+
+  if (backendTypes.includes("github")) {
+    sections.push(
+      "# GitHub — authenticate via: gh auth login",
+      "# No env var needed — the gh CLI manages its own auth.",
+      ""
+    );
+  }
+
+  if (backendTypes.length === 0) {
+    sections.push(
+      "# No backends configured yet. Run `rubber-ducky init` to add integrations.",
+      ""
+    );
+  }
+
+  return sections.join("\n");
+}
+
+/**
+ * Generate a .gitignore for rubber-ducky workspaces.
+ * Protects credentials, ignores OS/editor junk, and keeps
+ * the repo clean without blocking normal workspace files.
+ */
+export function generateGitignore(): string {
+  return `# Credentials — never commit tokens or secrets
+.env
+.env.*
+*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor / IDE
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+
+# Node (if running rubber-ducky from source in the workspace)
+node_modules/
+dist/
+
+# Obsidian — workspace-specific settings that shouldn't be shared
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+
+# Sandcastle worktrees and logs
+.sandcastle/worktrees/
+.sandcastle/logs/
+.sandcastle/.env
+`;
 }

@@ -92,47 +92,34 @@ async function collectBackendConfig(backendType: string): Promise<BackendConfig>
   }
 
   if (backendType === "jira") {
-    const serverUrl = await clack.text({
-      message: "Jira server URL:",
-      placeholder: "https://myorg.atlassian.net",
-      validate: (value) => {
-        if (!value.trim()) return "Server URL is required for Jira";
-        return undefined;
-      },
-    });
-
-    if (clack.isCancel(serverUrl)) {
-      clack.cancel("Setup cancelled.");
-      process.exit(0);
-    }
-
-    config.server_url = serverUrl as string;
-
-    // Check if Jira API credentials are available for discovery
     const jiraEmail = process.env.JIRA_EMAIL;
     const jiraToken = process.env.JIRA_API_TOKEN;
 
     if (jiraEmail && jiraToken) {
-      await discoverJiraConfig(config, config.server_url, jiraEmail, jiraToken);
-    } else {
-      clack.log.warn(
-        "JIRA_EMAIL and JIRA_API_TOKEN are not set. " +
-        "Set them in your environment, then run /get-setup to complete discovery."
-      );
-
-      const projectKey = await clack.text({
-        message: "Jira project key (optional — can be discovered later via /get-setup):",
-        placeholder: "PROJ",
+      // Credentials available — ask for server URL and run full discovery
+      const serverUrl = await clack.text({
+        message: "Jira server URL:",
+        placeholder: "https://myorg.atlassian.net",
+        validate: (value) => {
+          if (!value.trim()) return "Server URL is required for Jira";
+          return undefined;
+        },
       });
 
-      if (clack.isCancel(projectKey)) {
+      if (clack.isCancel(serverUrl)) {
         clack.cancel("Setup cancelled.");
         process.exit(0);
       }
 
-      if ((projectKey as string)?.trim()) {
-        config.project_key = projectKey as string;
-      }
+      config.server_url = serverUrl as string;
+      await discoverJiraConfig(config, config.server_url, jiraEmail, jiraToken);
+    } else {
+      clack.log.info(
+        "Jira needs two environment variables to connect:\n" +
+        `  ${chalk.bold("JIRA_EMAIL")} — your Jira account email\n` +
+        `  ${chalk.bold("JIRA_API_TOKEN")} — create one at ${chalk.cyan("https://id.atlassian.com/manage-profile/security/api-tokens")}\n\n` +
+        "Set these in your shell profile, then run /get-setup in Claude Code to connect."
+      );
     }
   }
 
@@ -140,26 +127,14 @@ async function collectBackendConfig(backendType: string): Promise<BackendConfig>
     const asanaToken = process.env.ASANA_ACCESS_TOKEN;
 
     if (asanaToken) {
+      // Token available — run full discovery
       await discoverAsanaConfig(config, asanaToken);
     } else {
-      clack.log.warn(
-        "ASANA_ACCESS_TOKEN is not set. " +
-        "Set it in your environment, then run /get-setup to complete discovery."
+      clack.log.info(
+        "Asana needs one environment variable to connect:\n" +
+        `  ${chalk.bold("ASANA_ACCESS_TOKEN")} — create a Personal Access Token at ${chalk.cyan("https://app.asana.com/0/my-apps")}\n\n` +
+        "Set it in your shell profile, then run /get-setup in Claude Code to connect."
       );
-
-      const workspaceId = await clack.text({
-        message: "Asana workspace ID (optional — can be discovered later via /get-setup):",
-        placeholder: "12345",
-      });
-
-      if (clack.isCancel(workspaceId)) {
-        clack.cancel("Setup cancelled.");
-        process.exit(0);
-      }
-
-      if ((workspaceId as string)?.trim()) {
-        config.workspace_id = workspaceId as string;
-      }
     }
   }
 
