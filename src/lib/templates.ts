@@ -43,6 +43,8 @@ export function generateWorkspaceMd(opts: TemplateOptions): string {
     if (b.workspace_id) entry.workspace_id = b.workspace_id;
     if (b.project_gid) entry.project_gid = b.project_gid;
     if (b.identifier_field) entry.identifier_field = b.identifier_field;
+    if (b.naming_source) entry.naming_source = b.naming_source;
+    if (b.naming_case) entry.naming_case = b.naming_case;
     return entry;
   });
 
@@ -163,6 +165,10 @@ All commands support \`--json\` for structured output. Run these via bash.
 - \`rubber-ducky ingest asana [ref]\` — Ingest Asana task(s) into wiki (single GID, project:<gid>, section:<gid>)
 - \`rubber-ducky ingest jira [ref]\` — Ingest Jira issue(s) into wiki (single key, project:<key>)
 - Flags: \`--mine\` (only my tasks), \`--all\` (all tasks), \`--json\` (structured output)
+
+### Asana
+
+- \`rubber-ducky asana configure-naming\` — Configure how task filenames are generated (source, casing, live preview)
 
 ### Workspace health
 
@@ -499,7 +505,17 @@ If it fails, ask the user to double-check their token value in \`.env.local\`.
 
 **Step 4: Run discovery (if project/workspace not yet configured)**
 
-If the workspace config is missing \`workspace_id\` or \`project_gid\`, tell the user to run \`rubber-ducky init\` again with their token set — it will auto-discover workspaces, projects, and custom fields via the API.`);
+If the workspace config is missing \`workspace_id\` or \`project_gid\`, tell the user to run \`rubber-ducky init\` again with their token set — it will auto-discover workspaces, projects, and custom fields via the API.
+
+**Step 5: Configure task naming**
+
+Once connectivity is confirmed and the project is configured, run the naming setup:
+
+\`\`\`bash
+rubber-ducky asana configure-naming
+\`\`\`
+
+This walks the user through choosing how task filenames are generated (custom field, title, or GID) with a live preview of real filenames from their project. The result is saved to workspace.md so that all future ingests use the chosen scheme.`);
     }
     if (backend.type === "jira") {
       const serverUrl = backend.server_url;

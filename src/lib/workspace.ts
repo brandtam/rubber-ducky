@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as yamlStringify } from "yaml";
 import {
   generateWorkspaceMd,
   generateClaudeMd,
@@ -287,4 +287,39 @@ export function loadWorkspaceConfig(workspaceRoot: string): WorkspaceConfig {
     workspaceRoot,
     ingest_scope: frontmatter.ingest_scope,
   };
+}
+
+/**
+ * Update specific fields on a backend entry in workspace.md.
+ * Merges `fields` into the first backend matching `backendType`,
+ * preserving existing fields and the markdown body.
+ */
+export function updateWorkspaceBackend(
+  workspaceRoot: string,
+  backendType: string,
+  fields: Record<string, unknown>,
+): void {
+  const wsFile = path.join(workspaceRoot, "workspace.md");
+  const content = fs.readFileSync(wsFile, "utf-8");
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) {
+    throw new Error(`Invalid workspace.md: no YAML frontmatter found`);
+  }
+
+  const body = content.slice(fmMatch[0].length);
+  const frontmatter = parseYaml(fmMatch[1]);
+  const backends: Record<string, unknown>[] = frontmatter.backends ?? [];
+
+  const idx = backends.findIndex(
+    (b) => b.type === backendType
+  );
+  if (idx === -1) {
+    throw new Error(`No ${backendType} backend found in workspace.md`);
+  }
+
+  backends[idx] = { ...backends[idx], ...fields };
+  frontmatter.backends = backends;
+
+  const newFrontmatter = yamlStringify(frontmatter).trimEnd();
+  fs.writeFileSync(wsFile, `---\n${newFrontmatter}\n---${body}`, "utf-8");
 }

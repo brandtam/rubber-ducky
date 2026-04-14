@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { parse as parseYaml } from "yaml";
-import { createWorkspace, migrateWorkspace, detectExistingContent, type WorkspaceOptions } from "../lib/workspace.js";
+import { createWorkspace, migrateWorkspace, detectExistingContent, updateWorkspaceBackend, type WorkspaceOptions } from "../lib/workspace.js";
 import type { BackendConfig, VocabularyOptions } from "../lib/templates.js";
 
 describe("createWorkspace", () => {
@@ -560,5 +560,87 @@ describe("createWorkspace", () => {
 
       expect(result.claudeMdBackedUp).toBeUndefined();
     });
+  });
+});
+
+describe("updateWorkspaceBackend", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rubber-ducky-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function readFrontmatter(wsDir: string): Record<string, unknown> {
+    const content = fs.readFileSync(path.join(wsDir, "workspace.md"), "utf-8");
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    return parseYaml(match![1]);
+  }
+
+  it("writes naming_source and naming_case to an existing Asana backend", async () => {
+    const targetDir = path.join(tmpDir, "ws-update");
+    await createWorkspace({
+      name: "test",
+      purpose: "testing",
+      targetDir,
+      backends: [
+        { type: "asana", workspace_id: "ws-123", project_gid: "proj-456" },
+      ],
+    });
+
+    updateWorkspaceBackend(targetDir, "asana", {
+      naming_source: "identifier",
+      naming_case: "preserve",
+      identifier_field: "TIK",
+    });
+
+    const fm = readFrontmatter(targetDir);
+    const asana = (fm.backends as BackendConfig[])[0];
+    expect(asana.naming_source).toBe("identifier");
+    expect(asana.naming_case).toBe("preserve");
+    expect(asana.identifier_field).toBe("TIK");
+    // Existing fields preserved
+    expect(asana.workspace_id).toBe("ws-123");
+    expect(asana.project_gid).toBe("proj-456");
+  });
+
+  it("preserves markdown body after frontmatter update", async () => {
+    const targetDir = path.join(tmpDir, "ws-body");
+    await createWorkspace({
+      name: "test",
+      purpose: "testing",
+      targetDir,
+      backends: [{ type: "asana", workspace_id: "ws-123" }],
+    });
+
+    updateWorkspaceBackend(targetDir, "asana", {
+      naming_source: "title",
+    });
+
+    const content = fs.readFileSync(path.join(targetDir, "workspace.md"), "utf-8");
+    expect(content).toContain("# test");
+    expect(content).toContain("wiki/daily/");
+  });
+
+  it("writes naming_source gid without naming_case", async () => {
+    const targetDir = path.join(tmpDir, "ws-gid");
+    await createWorkspace({
+      name: "test",
+      purpose: "testing",
+      targetDir,
+      backends: [{ type: "asana", workspace_id: "ws-123" }],
+    });
+
+    updateWorkspaceBackend(targetDir, "asana", {
+      naming_source: "gid",
+    });
+
+    const fm = readFrontmatter(targetDir);
+    const asana = (fm.backends as BackendConfig[])[0];
+    expect(asana.naming_source).toBe("gid");
+    expect(asana).not.toHaveProperty("naming_case");
   });
 });
