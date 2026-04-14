@@ -37,8 +37,10 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
+    "bottleneck": "^2.19.5",
     "chalk": "^5.4.1",
     "commander": "^13.1.0",
+    "p-retry": "^8.0.0",
     "yaml": "^2.7.1"
   },
   "devDependencies": {
