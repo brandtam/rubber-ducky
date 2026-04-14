@@ -462,6 +462,42 @@ describe("rate-limited-client", () => {
       }
     });
 
+    it("HttpError.body carries the server response body on 4xx", async () => {
+      const { fetch } = mockFetchSequence([
+        { status: 404, body: { errorMessages: ["Issue does not exist"] } },
+      ]);
+
+      const client = createRateLimitedClient({ ...testOpts(), fetch });
+      const err = await client
+        .request("https://api.example.com/test")
+        .catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).body).toContain("Issue does not exist");
+      expect((err as HttpError).message).toContain("Issue does not exist");
+    });
+
+    it("HttpError.body carries the server response body on 5xx GET exhaustion", async () => {
+      const responses = Array.from({ length: 10 }, () => ({
+        status: 500,
+        body: { error: "boom" },
+      }));
+      const { fetch } = mockFetchSequence(responses);
+
+      const client = createRateLimitedClient({
+        ...testOpts(),
+        fetch,
+        maxRetries: 1,
+      });
+      const err = await client
+        .request("https://api.example.com/test", { method: "GET" })
+        .catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).body).toContain("boom");
+      expect((err as HttpError).message).toContain("boom");
+    });
+
     it("RateLimitError includes env-var hint", async () => {
       const { fetch } = mockFetchSequence([
         { status: 429, headers: { "retry-after": "0" }, body: {} },

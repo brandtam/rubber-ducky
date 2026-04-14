@@ -5,6 +5,7 @@ import {
   type JiraClientOptions,
   type JiraClient,
 } from "../lib/jira-client.js";
+import { HttpError } from "../lib/http/rate-limited-client.js";
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -146,6 +147,19 @@ describe("JiraClient", () => {
 
       const client = createJiraClient({ ...baseOpts, fetch });
       await expect(client.getIssue("NONEXISTENT-1")).rejects.toThrow("404");
+    });
+
+    it("surfaces the Jira error body on 404 so callers see the server detail", async () => {
+      const fetch = mockFetch(() => ({
+        status: 404,
+        body: { errorMessages: ["Issue does not exist"] },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const err = await client.getIssue("NONEXISTENT-1").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).body).toContain("Issue does not exist");
+      expect((err as Error).message).toContain("Issue does not exist");
     });
   });
 
