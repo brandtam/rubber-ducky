@@ -96,7 +96,6 @@ async function collectBackendConfig(backendType: string): Promise<BackendConfig>
     const jiraToken = process.env.JIRA_API_TOKEN;
 
     if (jiraEmail && jiraToken) {
-      // Credentials available — ask for server URL and run full discovery
       const serverUrl = await clack.text({
         message: "Jira server URL:",
         placeholder: "https://myorg.atlassian.net",
@@ -113,13 +112,6 @@ async function collectBackendConfig(backendType: string): Promise<BackendConfig>
 
       config.server_url = serverUrl as string;
       await discoverJiraConfig(config, config.server_url, jiraEmail, jiraToken);
-    } else {
-      clack.log.info(
-        "Jira needs two environment variables to connect:\n" +
-        `  ${chalk.bold("JIRA_EMAIL")} — your Jira account email\n` +
-        `  ${chalk.bold("JIRA_API_TOKEN")} — create one at ${chalk.cyan("https://id.atlassian.com/manage-profile/security/api-tokens")}\n\n` +
-        "Set these in your shell profile, then run /get-setup in Claude Code to connect."
-      );
     }
   }
 
@@ -127,14 +119,7 @@ async function collectBackendConfig(backendType: string): Promise<BackendConfig>
     const asanaToken = process.env.ASANA_ACCESS_TOKEN;
 
     if (asanaToken) {
-      // Token available — run full discovery
       await discoverAsanaConfig(config, asanaToken);
-    } else {
-      clack.log.info(
-        "Asana needs one environment variable to connect:\n" +
-        `  ${chalk.bold("ASANA_ACCESS_TOKEN")} — create a Personal Access Token at ${chalk.cyan("https://app.asana.com/0/my-apps")}\n\n` +
-        "Set it in your shell profile, then run /get-setup in Claude Code to connect."
-      );
     }
   }
 
@@ -493,17 +478,13 @@ async function runInteractive(directory: string | undefined): Promise<void> {
     spinner.stop("Workspace created!");
 
     const notes = [
-      `${chalk.bold("Directories:")} ${result.dirsCreated.join(", ")}`,
-      `${chalk.bold("Files:")} ${result.filesCreated.join(", ")}`,
+      `${chalk.bold("Created:")} ${result.filesCreated.length} files, ${result.dirsCreated.length} directories`,
     ];
+
+    const needsSetup = backends.some((b) => b.type === "asana" || b.type === "jira");
 
     if (backends.length > 0) {
       notes.push(`${chalk.bold("Backends:")} ${backends.map((b) => b.type).join(", ")}`);
-      notes.push(
-        "",
-        chalk.bold("Backend setup:"),
-        `  Run ${chalk.cyan("/get-setup")} inside Claude Code to connect your backends.`,
-      );
     }
 
     notes.push(
@@ -511,9 +492,20 @@ async function runInteractive(directory: string | undefined): Promise<void> {
       chalk.bold("Next steps:"),
       `  1. Open ${chalk.cyan(fullPath)} as a vault in Obsidian`,
       `  2. cd ${fullPath}`,
-      `  3. Run ${chalk.cyan("claude")} to start Claude Code in your workspace`,
-      `  4. Type ${chalk.cyan("/good-morning")} to start your first day`,
     );
+
+    if (needsSetup) {
+      notes.push(
+        `  3. Copy ${chalk.cyan(".env.example")} to ${chalk.cyan(".env.local")} and add your API tokens`,
+        `  4. Run ${chalk.cyan("source .env.local")}`,
+        `  5. Run ${chalk.cyan("claude")} and type ${chalk.cyan("/get-setup")} to connect your backends`,
+      );
+    } else {
+      notes.push(
+        `  3. Run ${chalk.cyan("claude")} to start Claude Code in your workspace`,
+        `  4. Type ${chalk.cyan("/good-morning")} to start your first day`,
+      );
+    }
 
     clack.note(notes.join("\n"), result.workspacePath);
 

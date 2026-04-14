@@ -535,7 +535,7 @@ If the workspace config is missing \`server_url\` or \`project_key\`, tell the u
 
 Walk through connecting the backends configured in this workspace.
 
-**IMPORTANT: Never ask the user to paste API tokens, passwords, or credentials into the chat.** All authentication happens through environment variables set in the user's shell profile. Guide the user to create tokens in their browser and set them as env vars.
+**IMPORTANT: Never ask the user to paste API tokens, passwords, or credentials into the chat.** All authentication happens through environment variables. Never read or display the contents of \`.env\`, \`.env.local\`, or any file that may contain secrets.
 
 ## Steps
 
@@ -553,7 +553,14 @@ If all backends are connected, tell the user they are ready to go and suggest tr
 
 ### Step 2 — Set up unconnected backends
 
-For each backend that failed the connectivity check, walk the user through setup one at a time. **The user must set environment variables themselves** — never accept tokens or credentials pasted in the chat.
+For each backend that failed the connectivity check, tell the user:
+
+1. Open \`.env.example\` in the workspace root — it lists the exact environment variables needed for their configured backends, with links to create tokens
+2. Copy it to \`.env.local\`: \`cp .env.example .env.local\`
+3. Fill in the values (instructions for creating each token are below)
+4. Load the variables: \`source .env.local\`
+
+Then walk through each backend's token creation steps. **The user must create tokens and set env vars themselves** — never accept credentials pasted in the chat.
 
 ${setupSteps.join("\n\n")}
 
