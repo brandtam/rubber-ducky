@@ -92,7 +92,7 @@ export function generateClaudeMd(opts: TemplateOptions): string {
 - Include token values in commit messages, task pages, or any persisted file
 - Store credentials in \`workspace.md\`, \`CLAUDE.md\`, or any tracked file
 
-Credentials belong **only** in environment variables set in the user's shell profile or in untracked \`.env.local\` files. If a backend connectivity check fails, direct the user to @references/backend-setup.md — never try to debug by inspecting their token values.
+Credentials belong **only** in the workspace's untracked \`.env.local\` file. If a backend connectivity check fails, direct the user to @references/backend-setup.md — never try to debug by inspecting their token values.
 `;
 
   return `# ${opts.name}
@@ -473,21 +473,25 @@ Tell the user to open this URL in their browser:
 
 Then click **Create new token**, name it something descriptive like "rubber-ducky", and copy the token.
 
-**Step 2: Set the environment variable**
+**Step 2: Add to .env.local**
 
-Tell the user to add this to their shell profile (\`~/.zshrc\`, \`~/.bashrc\`, etc.):
+Tell the user to open \`.env.local\` in the workspace root (copy from \`.env.example\` if it doesn't exist) and set:
 
-\`\`\`bash
-export ASANA_ACCESS_TOKEN="<their-token>"
+\`\`\`
+export ASANA_ACCESS_TOKEN=<their-token>
 \`\`\`
 
-Then reload: \`source ~/.zshrc\` (or open a new terminal).
+Then load it: \`source .env.local\`
 
 **Step 3: Verify connectivity**
+
+Run this in the terminal (use \`!\` prefix to run shell commands from Claude Code):
 
 \`\`\`bash
 rubber-ducky backend check asana
 \`\`\`
+
+If it fails, ask the user to double-check their token and confirm they ran \`source .env.local\` in the same terminal before starting Claude Code.
 
 **Step 4: Run discovery (if project/workspace not yet configured)**
 
@@ -508,22 +512,26 @@ Tell the user to open this URL in their browser:
 
 Then click **Create API token**, give it a label like "rubber-ducky", and copy the token.
 
-**Step 2: Set the environment variables**
+**Step 2: Add to .env.local**
 
-Tell the user to add these to their shell profile (\`~/.zshrc\`, \`~/.bashrc\`, etc.):
+Tell the user to open \`.env.local\` in the workspace root (copy from \`.env.example\` if it doesn't exist) and set:
 
-\`\`\`bash
-export JIRA_EMAIL="<their-atlassian-email>"
-export JIRA_API_TOKEN="<their-token>"
+\`\`\`
+export JIRA_EMAIL=<their-atlassian-email>
+export JIRA_API_TOKEN=<their-token>
 \`\`\`
 
-Then reload: \`source ~/.zshrc\` (or open a new terminal).
+Then load it: \`source .env.local\`
 
 **Step 3: Verify connectivity**
+
+Run this in the terminal (use \`!\` prefix to run shell commands from Claude Code):
 
 \`\`\`bash
 rubber-ducky backend check jira
 \`\`\`
+
+If it fails, ask the user to double-check their credentials and confirm they ran \`source .env.local\` in the same terminal before starting Claude Code.
 
 **Step 4: Run discovery (if project not yet configured)**
 
@@ -998,13 +1006,13 @@ Asana uses a Personal Access Token (PAT) via the \`ASANA_ACCESS_TOKEN\` environm
 
 ### Configure
 
-Add the token to your shell profile (\`~/.bashrc\`, \`~/.zshrc\`, etc.):
+Copy \`.env.example\` to \`.env.local\` if it doesn't exist, then add your token:
 
-\`\`\`bash
+\`\`\`
 export ASANA_ACCESS_TOKEN="<your-token>"
 \`\`\`
 
-Restart your terminal or run \`source ~/.zshrc\` (or equivalent).
+Load it: \`source .env.local\`
 
 ### Verify
 
@@ -1031,14 +1039,14 @@ ${serverNote}### Create an API token
 
 ### Configure
 
-Add both values to your shell profile (\`~/.bashrc\`, \`~/.zshrc\`, etc.):
+Copy \`.env.example\` to \`.env.local\` if it doesn't exist, then add your credentials:
 
-\`\`\`bash
+\`\`\`
 export JIRA_EMAIL="<your-atlassian-email>"
 export JIRA_API_TOKEN="<your-token>"
 \`\`\`
 
-Restart your terminal or run \`source ~/.zshrc\` (or equivalent).
+Load it: \`source .env.local\`
 
 ### Verify
 
@@ -1278,7 +1286,7 @@ export function generateEnvExample(backends?: BackendConfig[]): string {
   if (backendTypes.includes("asana")) {
     sections.push(
       "# Asana — create a Personal Access Token at https://app.asana.com/0/my-apps",
-      "ASANA_ACCESS_TOKEN=",
+      "export ASANA_ACCESS_TOKEN=",
       ""
     );
   }
@@ -1286,8 +1294,8 @@ export function generateEnvExample(backends?: BackendConfig[]): string {
   if (backendTypes.includes("jira")) {
     sections.push(
       "# Jira — create an API token at https://id.atlassian.com/manage-profile/security/api-tokens",
-      "JIRA_EMAIL=",
-      "JIRA_API_TOKEN=",
+      "export JIRA_EMAIL=",
+      "export JIRA_API_TOKEN=",
       ""
     );
   }
