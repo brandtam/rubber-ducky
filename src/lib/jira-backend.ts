@@ -254,7 +254,7 @@ export async function checkJiraConnectivityRest(
     fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   }
 ): Promise<ConnectivityResult> {
-  const serverUrl = options?.serverUrl;
+  const serverUrl = options?.serverUrl ?? process.env.JIRA_SERVER_URL;
   const email = options?.email ?? process.env.JIRA_EMAIL;
   const apiToken = options?.apiToken ?? process.env.JIRA_API_TOKEN;
 

@@ -172,7 +172,7 @@ export function getBackend(
     case "jira": {
       const email = options?.email ?? process.env.JIRA_EMAIL ?? "";
       const apiToken = options?.apiToken ?? process.env.JIRA_API_TOKEN ?? "";
-      const serverUrl = config.server_url ?? "";
+      const serverUrl = config.server_url ?? process.env.JIRA_SERVER_URL ?? "";
       const client = createJiraClient({
         serverUrl,
         email,
