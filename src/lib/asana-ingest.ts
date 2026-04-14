@@ -9,7 +9,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import type { AsanaClient, AsanaTask, AsanaStory, TaskListOptions } from "./asana-client.js";
+import type {
+  AsanaClient,
+  AsanaTask,
+  AsanaStory,
+  AsanaAttachment,
+  TaskListOptions,
+} from "./asana-client.js";
 import type { Status, TaskPage } from "./backend.js";
 import type { IngestScope } from "./workspace.js";
 import { mapAsanaToStatus } from "./asana-backend.js";
@@ -22,6 +28,7 @@ export interface IngestAsanaOptions {
   ref: string;
   workspaceRoot: string;
   statusMapping?: Record<string, string>;
+  identifierField?: string;
 }
 
 export interface BulkIngestOptions {
@@ -40,6 +47,7 @@ export interface IngestResult {
   existingFile?: string;
   filePath?: string;
   taskPage?: TaskPage;
+  attachmentCount?: number;
   error?: string;
 }
 
@@ -97,6 +105,44 @@ function extractTaskGid(ref: string): string {
   return ref;
 }
 
+const IMAGE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".svg",
+  ".webp",
+  ".bmp",
+  ".ico",
+]);
+
+function isImageFilename(filename: string): boolean {
+  const ext = path.extname(filename).toLowerCase();
+  return IMAGE_EXTENSIONS.has(ext);
+}
+
+/**
+ * Resolve a human-readable identifier from Asana custom fields.
+ * Matches by field name (case-insensitive). Returns the display_value
+ * if found and non-empty, otherwise returns null (caller falls back to GID).
+ */
+function resolveIdentifier(
+  task: AsanaTask,
+  identifierField?: string
+): string | null {
+  if (!identifierField) return null;
+
+  const needle = identifierField.toLowerCase();
+  const field = task.custom_fields?.find(
+    (cf) => cf.name.toLowerCase() === needle
+  );
+
+  if (field?.display_value) {
+    return field.display_value;
+  }
+  return null;
+}
+
 /**
  * Check whether a task with the given asana_ref already exists in wiki/tasks/.
  * Returns the relative path of the existing file, or null if no duplicate found.
@@ -121,11 +167,14 @@ function findExistingByAsanaRef(
 
 /**
  * Convert a raw Asana task + stories into a TaskPage.
+ * When resolvedRef is provided (from identifier_field), it's used as the ref.
+ * Otherwise falls back to the task GID.
  */
 function asanaTaskToPage(
   task: AsanaTask,
   stories: AsanaStory[],
-  statusMapping?: Record<string, string>
+  statusMapping?: Record<string, string>,
+  resolvedRef?: string | null
 ): TaskPage {
   const sectionName = task.memberships?.[0]?.section?.name;
   const status = mapAsanaToStatus(task.completed, sectionName, statusMapping);
@@ -137,7 +186,7 @@ function asanaTaskToPage(
 
   return {
     title: task.name,
-    ref: task.gid,
+    ref: resolvedRef ?? task.gid,
     source: "asana",
     status,
     priority: null,
@@ -159,8 +208,13 @@ function asanaTaskToPage(
 
 /**
  * Generate the full markdown content for a task page with populated body.
+ * Includes ## Attachments section when attachments are provided.
  */
-function generateIngestedTaskPage(taskPage: TaskPage): string {
+function generateIngestedTaskPage(
+  taskPage: TaskPage,
+  attachments?: AsanaAttachment[],
+  assetRef?: string
+): string {
   const frontmatter = {
     title: taskPage.title,
     type: "task",
@@ -204,6 +258,21 @@ function generateIngestedTaskPage(taskPage: TaskPage): string {
     }
   }
 
+  // ## Attachments
+  sections.push("## Attachments");
+  sections.push("");
+  if (attachments && attachments.length > 0 && assetRef) {
+    for (const att of attachments) {
+      const relPath = `../../raw/assets/${assetRef}/${att.name}`;
+      if (isImageFilename(att.name)) {
+        sections.push(`![${att.name}](${relPath})`);
+      } else {
+        sections.push(`[${att.name}](${relPath})`);
+      }
+    }
+    sections.push("");
+  }
+
   // ## Activity log
   sections.push("## Activity log");
   sections.push("");
@@ -223,26 +292,38 @@ function generateIngestedTaskPage(taskPage: TaskPage): string {
  * Ingest a single Asana task into the workspace.
  *
  * 1. Extract GID from ref (plain GID or URL)
- * 2. Fetch task + stories via REST client
- * 3. Dedup check (asana_ref in wiki/tasks/)
- * 4. Write fully populated task page
- * 5. Rebuild index
- * 6. Append to log
- * 7. Return structured result
+ * 2. Fetch task + stories + attachments via REST client
+ * 3. Resolve identifier (custom field or GID fallback)
+ * 4. Dedup check (asana_ref in wiki/tasks/)
+ * 5. Download attachments to raw/assets/<ref>/
+ * 6. Write fully populated task page
+ * 7. Rebuild index
+ * 8. Append to log
+ * 9. Return structured result
  */
 export async function ingestAsanaTask(
   options: IngestAsanaOptions
 ): Promise<IngestResult> {
-  const { client, ref, workspaceRoot, statusMapping } = options;
+  const { client, ref, workspaceRoot, statusMapping, identifierField } =
+    options;
 
   const taskGid = extractTaskGid(ref);
 
   // Fetch from Asana REST API
   const task = await client.getTask(taskGid);
   const stories = await client.getStories(taskGid);
+  const attachments = await client.getAttachments(taskGid);
 
-  // Convert to TaskPage
-  const taskPage = asanaTaskToPage(task, stories, statusMapping);
+  // Resolve identifier from custom fields or fall back to GID
+  const resolvedIdentifier = resolveIdentifier(task, identifierField);
+
+  // Convert to TaskPage (with resolved identifier as ref when available)
+  const taskPage = asanaTaskToPage(
+    task,
+    stories,
+    statusMapping,
+    resolvedIdentifier
+  );
 
   // Dedup check
   const existingFile = findExistingByAsanaRef(
@@ -258,13 +339,32 @@ export async function ingestAsanaTask(
     };
   }
 
-  // Write task page
-  const filename = `${slugify(taskPage.title)}.md`;
+  // Determine the asset ref (slugified identifier or raw GID)
+  const assetRef = resolvedIdentifier
+    ? slugify(resolvedIdentifier)
+    : task.gid;
+
+  // Download attachments to raw/assets/<ref>/
+  const downloadable = attachments.filter((a) => a.download_url);
+  if (downloadable.length > 0) {
+    const assetDir = path.join(workspaceRoot, "raw", "assets", assetRef);
+    fs.mkdirSync(assetDir, { recursive: true });
+    for (const att of downloadable) {
+      const data = await client.downloadFile(att.download_url!);
+      fs.writeFileSync(path.join(assetDir, att.name), data);
+    }
+  }
+
+  // Determine filename: use identifier when available, otherwise title
+  const filenameBase = resolvedIdentifier
+    ? slugify(resolvedIdentifier)
+    : slugify(taskPage.title);
+  const filename = `${filenameBase}.md`;
   const relativePath = path.join("wiki", "tasks", filename);
   const fullPath = path.join(workspaceRoot, relativePath);
 
   fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-  const content = generateIngestedTaskPage(taskPage);
+  const content = generateIngestedTaskPage(taskPage, attachments, assetRef);
   fs.writeFileSync(fullPath, content, "utf-8");
 
   // Rebuild index
@@ -281,6 +381,7 @@ export async function ingestAsanaTask(
     skipped: false,
     filePath: relativePath,
     taskPage,
+    attachmentCount: attachments.length,
   };
 }
 

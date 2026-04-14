@@ -35,6 +35,8 @@ function makeTask(overrides?: Record<string, unknown>) {
 function makeMockClient(overrides?: {
   task?: Record<string, unknown>;
   stories?: Record<string, unknown>[];
+  attachments?: Record<string, unknown>[];
+  downloadData?: Buffer;
   projectTasks?: Record<string, unknown>[];
   sectionTasks?: Record<string, unknown>[];
   me?: Record<string, unknown>;
@@ -50,6 +52,9 @@ function makeMockClient(overrides?: {
       created_at: "2024-01-15T10:00:00.000Z",
     },
   ];
+
+  const attachments = overrides?.attachments ?? [];
+  const downloadData = overrides?.downloadData ?? Buffer.from("file-content");
 
   const taskMap = new Map<string, Record<string, unknown>>();
   taskMap.set(task.gid as string, task);
@@ -73,6 +78,8 @@ function makeMockClient(overrides?: {
     }),
     getTask: async (gid: string) => taskMap.get(gid) ?? task,
     getStories: async () => stories,
+    getAttachments: async () => attachments,
+    downloadFile: async () => downloadData,
     getTasksForProject: async () => overrides?.projectTasks ?? [],
     getTasksForSection: async () => overrides?.sectionTasks ?? [],
   } as AsanaClient;
@@ -187,6 +194,8 @@ describe("ingestAsanaTask", () => {
           };
         },
         getStories: async () => [],
+        getAttachments: async () => [],
+        downloadFile: async () => Buffer.from(""),
       };
 
       await ingestAsanaTask({
@@ -468,6 +477,330 @@ describe("ingestAsanaTask", () => {
       expect(result.skipped).toBe(true);
       expect(result.reason).toBeDefined();
       expect(result.existingFile).toBeDefined();
+    });
+  });
+
+  describe("identifier_field", () => {
+    it("uses custom field display_value as ref and filename when identifier_field matches", async () => {
+      const client = makeMockClient({
+        task: {
+          custom_fields: [
+            { gid: "cf1", name: "ECOMM", display_value: "ECOMM-4643" },
+          ],
+        },
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+        identifierField: "ECOMM",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.taskPage!.ref).toBe("ECOMM-4643");
+      expect(result.filePath).toContain("ecomm-4643.md");
+    });
+
+    it("matches identifier_field case-insensitively", async () => {
+      const client = makeMockClient({
+        task: {
+          custom_fields: [
+            { gid: "cf1", name: "Ecomm Number", display_value: "ECOMM-100" },
+          ],
+        },
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+        identifierField: "ecomm number",
+      });
+
+      expect(result.taskPage!.ref).toBe("ECOMM-100");
+      expect(result.filePath).toContain("ecomm-100.md");
+    });
+
+    it("falls back to GID when custom field is not present", async () => {
+      const client = makeMockClient({
+        task: {
+          custom_fields: [
+            { gid: "cf1", name: "Other Field", display_value: "xyz" },
+          ],
+        },
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+        identifierField: "ECOMM",
+      });
+
+      expect(result.taskPage!.ref).toBe("1234567890");
+      // Falls back to title-based filename
+      expect(result.filePath).toContain("fix-the-login-bug.md");
+    });
+
+    it("falls back to GID when display_value is null", async () => {
+      const client = makeMockClient({
+        task: {
+          custom_fields: [
+            { gid: "cf1", name: "ECOMM", display_value: null },
+          ],
+        },
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+        identifierField: "ECOMM",
+      });
+
+      expect(result.taskPage!.ref).toBe("1234567890");
+      expect(result.filePath).toContain("fix-the-login-bug.md");
+    });
+
+    it("falls back to GID when display_value is empty string", async () => {
+      const client = makeMockClient({
+        task: {
+          custom_fields: [
+            { gid: "cf1", name: "ECOMM", display_value: "" },
+          ],
+        },
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+        identifierField: "ECOMM",
+      });
+
+      expect(result.taskPage!.ref).toBe("1234567890");
+    });
+
+    it("preserves asana_ref as permalink URL regardless of identifier_field", async () => {
+      const client = makeMockClient({
+        task: {
+          custom_fields: [
+            { gid: "cf1", name: "ECOMM", display_value: "ECOMM-4643" },
+          ],
+        },
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+        identifierField: "ECOMM",
+      });
+
+      expect(result.taskPage!.asana_ref).toBe(
+        "https://app.asana.com/0/project/1234567890"
+      );
+    });
+  });
+
+  describe("attachments", () => {
+    it("downloads attachments to raw/assets/<ref>/", async () => {
+      const client = makeMockClient({
+        attachments: [
+          {
+            gid: "a1",
+            name: "screenshot.png",
+            download_url: "https://s3.amazonaws.com/asana/screenshot.png",
+            resource_subtype: "asana",
+          },
+        ],
+        downloadData: Buffer.from("png-data"),
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+      });
+
+      const assetPath = path.join(
+        tmpDir,
+        "raw",
+        "assets",
+        "1234567890",
+        "screenshot.png"
+      );
+      expect(fs.existsSync(assetPath)).toBe(true);
+      expect(fs.readFileSync(assetPath, "utf-8")).toBe("png-data");
+    });
+
+    it("embeds image attachments with ![alt](path) syntax", async () => {
+      const client = makeMockClient({
+        attachments: [
+          {
+            gid: "a1",
+            name: "screenshot.png",
+            download_url: "https://s3.amazonaws.com/asana/screenshot.png",
+            resource_subtype: "asana",
+          },
+        ],
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+      });
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, result.filePath!),
+        "utf-8"
+      );
+      expect(content).toContain("## Attachments");
+      expect(content).toContain(
+        "![screenshot.png](../../raw/assets/1234567890/screenshot.png)"
+      );
+    });
+
+    it("links non-image attachments with [name](path) syntax", async () => {
+      const client = makeMockClient({
+        attachments: [
+          {
+            gid: "a1",
+            name: "spec.pdf",
+            download_url: "https://s3.amazonaws.com/asana/spec.pdf",
+            resource_subtype: "asana",
+          },
+        ],
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+      });
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, result.filePath!),
+        "utf-8"
+      );
+      expect(content).toContain("## Attachments");
+      expect(content).toContain(
+        "[spec.pdf](../../raw/assets/1234567890/spec.pdf)"
+      );
+      // Should NOT use image embed syntax
+      expect(content).not.toContain("![spec.pdf]");
+    });
+
+    it("uses resolved identifier for asset directory", async () => {
+      const client = makeMockClient({
+        task: {
+          custom_fields: [
+            { gid: "cf1", name: "ECOMM", display_value: "ECOMM-4643" },
+          ],
+        },
+        attachments: [
+          {
+            gid: "a1",
+            name: "mockup.jpg",
+            download_url: "https://s3.amazonaws.com/asana/mockup.jpg",
+            resource_subtype: "asana",
+          },
+        ],
+        downloadData: Buffer.from("jpg-data"),
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+        identifierField: "ECOMM",
+      });
+
+      const assetPath = path.join(
+        tmpDir,
+        "raw",
+        "assets",
+        "ecomm-4643",
+        "mockup.jpg"
+      );
+      expect(fs.existsSync(assetPath)).toBe(true);
+      // Page references should use the identifier-based path
+      const content = fs.readFileSync(
+        path.join(tmpDir, result.filePath!),
+        "utf-8"
+      );
+      expect(content).toContain("raw/assets/ecomm-4643/mockup.jpg");
+    });
+
+    it("includes attachment count in result", async () => {
+      const client = makeMockClient({
+        attachments: [
+          {
+            gid: "a1",
+            name: "file1.png",
+            download_url: "https://s3.amazonaws.com/asana/file1.png",
+            resource_subtype: "asana",
+          },
+          {
+            gid: "a2",
+            name: "file2.pdf",
+            download_url: "https://s3.amazonaws.com/asana/file2.pdf",
+            resource_subtype: "asana",
+          },
+        ],
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+      });
+
+      expect(result.attachmentCount).toBe(2);
+    });
+
+    it("skips attachments with null download_url", async () => {
+      const client = makeMockClient({
+        attachments: [
+          {
+            gid: "a1",
+            name: "external-link.txt",
+            download_url: null,
+            resource_subtype: "external",
+          },
+        ],
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+      });
+
+      const assetDir = path.join(tmpDir, "raw", "assets", "1234567890");
+      // Asset directory should not be created for non-downloadable attachments
+      expect(fs.existsSync(assetDir)).toBe(false);
+      expect(result.attachmentCount).toBe(1);
+    });
+
+    it("handles task with no attachments gracefully", async () => {
+      const client = makeMockClient({ attachments: [] });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+      });
+
+      expect(result.attachmentCount).toBe(0);
+      const content = fs.readFileSync(
+        path.join(tmpDir, result.filePath!),
+        "utf-8"
+      );
+      // Attachments section should still exist but be empty
+      expect(content).toContain("## Attachments");
     });
   });
 });

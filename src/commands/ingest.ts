@@ -71,11 +71,12 @@ export function registerIngestCommand(program: Command): void {
           const client = createAsanaClient({ token });
           const config = loadWorkspaceConfig(workspaceRoot);
 
-          // Find Asana backend config for default project_gid
+          // Find Asana backend config for default project_gid and identifier_field
           const asanaBackend = config.backends.find(
             (b) => b.type === "asana"
           );
           const defaultProjectGid = asanaBackend?.project_gid;
+          const identifierField = asanaBackend?.identifier_field;
 
           // Resolve scope: CLI flags > workspace config > default "all"
           const scope = resolveScope({
@@ -94,6 +95,7 @@ export function registerIngestCommand(program: Command): void {
               client,
               ref: parsed!.gid,
               workspaceRoot,
+              identifierField,
             });
 
             if (jsonMode) {

@@ -8,6 +8,7 @@ export interface BackendConfig {
   project_key?: string;
   workspace_id?: string;
   project_gid?: string;
+  identifier_field?: string;
 }
 
 export interface VocabularyOptions {
