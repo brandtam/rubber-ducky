@@ -191,13 +191,16 @@ describe("JiraClient", () => {
   });
 
   describe("searchIssues", () => {
-    it("searches issues with JQL query", async () => {
+    it("searches issues using the new /search/jql POST endpoint", async () => {
       let capturedUrl = "";
-      const fetch = mockFetch((url) => {
+      let capturedInit: RequestInit | undefined;
+      const fetch = mockFetch((url, init) => {
         capturedUrl = url;
+        capturedInit = init;
         return {
           status: 200,
           body: {
+            isLast: true,
             issues: [
               {
                 key: "ECOMM-1",
@@ -216,7 +219,6 @@ describe("JiraClient", () => {
                 },
               },
             ],
-            total: 1,
           },
         };
       });
@@ -226,22 +228,56 @@ describe("JiraClient", () => {
 
       expect(result.issues).toHaveLength(1);
       expect(result.issues[0].key).toBe("ECOMM-1");
-      expect(result.total).toBe(1);
-      expect(capturedUrl).toContain("/rest/api/3/search");
-      expect(capturedUrl).toContain("jql=");
+      // New endpoint has no `total`; the client's return shape drops it too.
+      expect("total" in result).toBe(false);
+      expect(capturedUrl).toContain("/rest/api/3/search/jql");
+      expect(capturedInit?.method).toBe("POST");
+
+      const body = JSON.parse((capturedInit?.body as string) ?? "{}");
+      expect(body.jql).toBe("project = ECOMM");
+      expect(body.fields).toContain("*all");
     });
 
-    it("passes maxResults parameter", async () => {
-      let capturedUrl = "";
-      const fetch = mockFetch((url) => {
-        capturedUrl = url;
-        return { status: 200, body: { issues: [], total: 0 } };
+    it("passes maxResults parameter in the POST body", async () => {
+      let capturedInit: RequestInit | undefined;
+      const fetch = mockFetch((_url, init) => {
+        capturedInit = init;
+        return { status: 200, body: { isLast: true, issues: [] } };
       });
 
       const client = createJiraClient({ ...baseOpts, fetch });
       await client.searchIssues("project = ECOMM", { maxResults: 50 });
 
-      expect(capturedUrl).toContain("maxResults=50");
+      const body = JSON.parse((capturedInit?.body as string) ?? "{}");
+      expect(body.maxResults).toBe(50);
+    });
+
+    it("paginates via nextPageToken until isLast", async () => {
+      const pages = [
+        {
+          isLast: false,
+          nextPageToken: "tok-1",
+          issues: [{ key: "A-1", fields: { summary: "one" } }],
+        },
+        {
+          isLast: true,
+          issues: [{ key: "A-2", fields: { summary: "two" } }],
+        },
+      ];
+      let call = 0;
+      const capturedBodies: Array<Record<string, unknown>> = [];
+      const fetch = mockFetch((_url, init) => {
+        capturedBodies.push(JSON.parse((init?.body as string) ?? "{}"));
+        const page = pages[call++];
+        return { status: 200, body: page };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const result = await client.searchIssues("project = A");
+
+      expect(result.issues.map((i) => i.key)).toEqual(["A-1", "A-2"]);
+      expect(capturedBodies[0].nextPageToken).toBeUndefined();
+      expect(capturedBodies[1].nextPageToken).toBe("tok-1");
     });
   });
 

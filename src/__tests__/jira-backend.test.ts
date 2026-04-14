@@ -43,7 +43,7 @@ function makeMockClient(overrides?: Partial<JiraClient>): JiraClient {
       throw new Error("getIssue not mocked");
     },
     getComments: async () => [],
-    searchIssues: async () => ({ issues: [], total: 0 }),
+    searchIssues: async () => ({ issues: [] }),
     createIssue: async () => {
       throw new Error("createIssue not mocked");
     },

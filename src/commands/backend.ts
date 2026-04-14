@@ -15,6 +15,53 @@ import {
 import { createAsanaClient } from "../lib/asana-client.js";
 import { createJiraClient } from "../lib/jira-client.js";
 
+interface AsanaConfigureOpts {
+  workspaceId?: string;
+  projectGid?: string;
+  namingSource?: string;
+  namingCase?: string;
+  identifierField?: string;
+}
+
+/**
+ * Validate the non-interactive Asana configure flags and assemble the field
+ * update. Returns an `Error` (not thrown) so the caller can surface the
+ * message via its preferred error channel (JSON or clack).
+ */
+function validateAsanaFieldUpdate(
+  opts: AsanaConfigureOpts
+): Record<string, unknown> | Error {
+  if (
+    opts.namingSource !== undefined &&
+    !["identifier", "title", "gid"].includes(opts.namingSource)
+  ) {
+    return new Error(
+      `--naming-source must be one of: identifier, title, gid (got '${opts.namingSource}')`
+    );
+  }
+  if (
+    opts.namingCase !== undefined &&
+    !["preserve", "lower"].includes(opts.namingCase)
+  ) {
+    return new Error(
+      `--naming-case must be one of: preserve, lower (got '${opts.namingCase}')`
+    );
+  }
+  if (opts.namingSource === "identifier" && opts.identifierField === undefined) {
+    return new Error(
+      "--naming-source=identifier also requires --identifier-field <name> (e.g. --identifier-field 'Ticket ID')."
+    );
+  }
+
+  const fields: Record<string, unknown> = {};
+  if (opts.workspaceId !== undefined) fields.workspace_id = opts.workspaceId;
+  if (opts.projectGid !== undefined) fields.project_gid = opts.projectGid;
+  if (opts.namingSource !== undefined) fields.naming_source = opts.namingSource;
+  if (opts.namingCase !== undefined) fields.naming_case = opts.namingCase;
+  if (opts.identifierField !== undefined) fields.identifier_field = opts.identifierField;
+  return fields;
+}
+
 export function registerBackendCommand(program: Command): void {
   const backend = program
     .command("backend")
@@ -237,6 +284,9 @@ export function registerBackendCommand(program: Command): void {
     .option("--project-key <key>", "Jira: set the default project_key in workspace.md")
     .option("--project-gid <gid>", "Asana: set the default project_gid in workspace.md")
     .option("--workspace-id <gid>", "Asana: set the workspace_id in workspace.md")
+    .option("--naming-source <source>", "Asana: set naming_source (identifier|title|gid)")
+    .option("--naming-case <case>", "Asana: set naming_case (preserve|lower)")
+    .option("--identifier-field <name>", "Asana: set identifier_field name (used when naming-source=identifier)")
     .description(
       "Configure a backend's default project (interactive), or use --list / flags for non-interactive flows"
     )
@@ -247,6 +297,9 @@ export function registerBackendCommand(program: Command): void {
         projectKey?: string;
         projectGid?: string;
         workspaceId?: string;
+        namingSource?: string;
+        namingCase?: string;
+        identifierField?: string;
       },
       cmd: Command
     ) => {
@@ -256,7 +309,10 @@ export function registerBackendCommand(program: Command): void {
         opts.list === true ||
         opts.projectKey !== undefined ||
         opts.projectGid !== undefined ||
-        opts.workspaceId !== undefined;
+        opts.workspaceId !== undefined ||
+        opts.namingSource !== undefined ||
+        opts.namingCase !== undefined ||
+        opts.identifierField !== undefined;
       // Only fall back to TTY detection when no non-interactive flags are present —
       // otherwise the caller has explicitly chosen a non-interactive mode.
       const jsonMode =
@@ -389,10 +445,17 @@ export function registerBackendCommand(program: Command): void {
         return;
       }
 
-      if (type === "asana" && (opts.projectGid !== undefined || opts.workspaceId !== undefined)) {
-        const fields: Record<string, unknown> = {};
-        if (opts.workspaceId !== undefined) fields.workspace_id = opts.workspaceId;
-        if (opts.projectGid !== undefined) fields.project_gid = opts.projectGid;
+      if (
+        type === "asana" &&
+        (opts.projectGid !== undefined ||
+          opts.workspaceId !== undefined ||
+          opts.namingSource !== undefined ||
+          opts.namingCase !== undefined ||
+          opts.identifierField !== undefined)
+      ) {
+        const validated = validateAsanaFieldUpdate(opts);
+        if (validated instanceof Error) fail(validated.message);
+        const fields = validated as Record<string, unknown>;
         updateWorkspaceBackend(workspaceRoot!, "asana", fields);
         const payload = { success: true, backend: "asana", ...fields };
         if (machineOutput) {

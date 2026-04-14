@@ -289,6 +289,98 @@ describe("backend CLI", () => {
       expect(workspaceMd).toContain("project_key: WEB");
     });
 
+    it("persists naming config non-interactively for asana", () => {
+      const target = path.join(tmpDir, "ws-asana-naming");
+      const backends = JSON.stringify([{ type: "asana", mcp_server: "asana" }]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      const output = runCli(
+        [
+          "--json",
+          "backend",
+          "configure",
+          "asana",
+          "--naming-source",
+          "title",
+          "--naming-case",
+          "lower",
+        ],
+        target
+      );
+      const result = JSON.parse(output);
+      expect(result.success).toBe(true);
+      expect(result.naming_source).toBe("title");
+      expect(result.naming_case).toBe("lower");
+
+      const workspaceMd = fs.readFileSync(path.join(target, "workspace.md"), "utf-8");
+      expect(workspaceMd).toContain("naming_source: title");
+      expect(workspaceMd).toContain("naming_case: lower");
+    });
+
+    it("rejects invalid --naming-case values", () => {
+      const target = path.join(tmpDir, "ws-asana-bad-case");
+      const backends = JSON.stringify([{ type: "asana", mcp_server: "asana" }]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      try {
+        runCli(
+          ["--json", "backend", "configure", "asana", "--naming-case", "upper"],
+          target
+        );
+        throw new Error("expected failure");
+      } catch (err) {
+        const stdout = (err as { stdout?: string | Buffer }).stdout?.toString() ?? "";
+        const output = JSON.parse(stdout);
+        expect(output.success).toBe(false);
+        expect(output.error).toMatch(/preserve, lower/);
+      }
+    });
+
+    it("rejects invalid --naming-source values", () => {
+      const target = path.join(tmpDir, "ws-asana-bad-src");
+      const backends = JSON.stringify([{ type: "asana", mcp_server: "asana" }]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      try {
+        runCli(
+          ["--json", "backend", "configure", "asana", "--naming-source", "bogus"],
+          target
+        );
+        throw new Error("expected failure");
+      } catch (err) {
+        const stdout = (err as { stdout?: string | Buffer }).stdout?.toString() ?? "";
+        const output = JSON.parse(stdout);
+        expect(output.success).toBe(false);
+        expect(output.error).toMatch(/identifier, title, gid/);
+      }
+    });
+
+    it("requires --identifier-field when naming-source is identifier", () => {
+      const target = path.join(tmpDir, "ws-asana-needs-id");
+      const backends = JSON.stringify([{ type: "asana", mcp_server: "asana" }]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      try {
+        runCli(
+          [
+            "--json",
+            "backend",
+            "configure",
+            "asana",
+            "--naming-source",
+            "identifier",
+          ],
+          target
+        );
+        throw new Error("expected failure");
+      } catch (err) {
+        const stdout = (err as { stdout?: string | Buffer }).stdout?.toString() ?? "";
+        const output = JSON.parse(stdout);
+        expect(output.success).toBe(false);
+        expect(output.error).toMatch(/--identifier-field/);
+      }
+    });
+
     it("persists --project-gid and --workspace-id non-interactively for asana", () => {
       const target = path.join(tmpDir, "ws-asana-set");
       const backends = JSON.stringify([

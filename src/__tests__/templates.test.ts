@@ -747,6 +747,23 @@ describe("generateBackendSkills", () => {
     expect(setup.content).toContain("app.asana.com/0/");
   });
 
+  it("get-setup skill handles multiple backends one at a time in both configure and ingest", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana" },
+      { type: "jira", server_url: "https://myorg.atlassian.net" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    // Step 4 must instruct the agent to do configure one backend at a time,
+    // not fetch all lists up front and ask a combined question.
+    expect(setup.content).toMatch(/one at a time/i);
+    expect(setup.content).toMatch(/do \*\*not\*\* fetch both lists up front/i);
+
+    // Step 5 must instruct the agent to ask per-backend for ingest, too.
+    expect(setup.content).toMatch(/ask per backend — not one grouped question/i);
+  });
+
   it("get-setup skill offers initial ingest for asana and jira backends", () => {
     const backends: BackendConfig[] = [
       { type: "asana", workspace_id: "12345", project_gid: "67890" },
@@ -758,7 +775,6 @@ describe("generateBackendSkills", () => {
     expect(setup.content).toContain("Step 5 — Offer initial ingest");
     expect(setup.content).toContain("rubber-ducky ingest asana --mine --json");
     expect(setup.content).toContain("rubber-ducky ingest jira --mine --json");
-    expect(setup.content).toContain("asana, jira");
     // --mine is the safe default; --all is only mentioned in a do-not warning
     expect(setup.content).toMatch(/do \*\*not\*\* pass `--all`/i);
   });
@@ -770,6 +786,16 @@ describe("generateBackendSkills", () => {
 
     expect(setup.content).toContain("Step 5 — Offer initial ingest");
     expect(setup.content).toContain("/ingest-github");
+  });
+
+  it("get-setup skill omits Step 4 entirely when no backend needs a default project", () => {
+    // GitHub passes repos per-ingest — no default project to configure.
+    const backends: BackendConfig[] = [{ type: "github" }];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    expect(setup.content).not.toContain("Step 4 — Ensure each backend has a default project");
+    expect(setup.content).not.toContain("rubber-ducky backend configure");
   });
 
   it("ingest-jira skill recovers inline via list+set on missing project_key", () => {

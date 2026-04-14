@@ -56,7 +56,7 @@ function makeMockClient(overrides?: {
     getMyself: async () => ({ displayName: "Test User", emailAddress: "test@example.com" }),
     getIssue: async () => issue,
     getComments: async () => comments,
-    searchIssues: async () => ({ issues: searchIssues, total: searchIssues.length }),
+    searchIssues: async () => ({ issues: searchIssues }),
   } as JiraClient;
 }
 
@@ -467,7 +467,7 @@ describe("ingestJiraProject", () => {
         return issues.find((i) => i.key === key)!;
       },
       getComments: async () => [],
-      searchIssues: async () => ({ issues, total: issues.length }),
+      searchIssues: async () => ({ issues }),
     } as JiraClient;
 
     const results = await ingestJiraProject({
@@ -494,7 +494,7 @@ describe("ingestJiraProject", () => {
       getComments: async () => [],
       searchIssues: async (jql) => {
         capturedJql = jql;
-        return { issues: [makeMockIssue()], total: 1 };
+        return { issues: [makeMockIssue()] };
       },
     } as JiraClient;
 

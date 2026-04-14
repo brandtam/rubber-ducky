@@ -378,8 +378,10 @@ ${workspaceIdNote}## Usage
    **If the CLI errors with "No ref provided and no default project configured"** — the Asana backend does not yet have a default \`project_gid\`. Do not ask the user to look it up. Resolve it inline:
    1. Fetch workspaces and projects: \`rubber-ducky backend configure asana --list --json\` (if the response has more than one workspace, ask the user which one and re-run with \`--workspace-id <GID>\` to get that workspace's projects)
    2. Show the user the project list by name and ask which one to use as the default
-   3. Save their choice: \`rubber-ducky backend configure asana --workspace-id <GID> --project-gid <GID> --json\`
+   3. Save their choice (always include naming flags, otherwise ingest will crash trying to open an interactive prompt): \`rubber-ducky backend configure asana --workspace-id <GID> --project-gid <GID> --naming-source title --naming-case lower --json\`
    4. Retry the ingest
+
+   **If the CLI errors with "Asana naming config is not set"** — the backend has a project but no \`naming_source\`. Set a safe default non-interactively: \`rubber-ducky backend configure asana --naming-source title --naming-case lower --json\`. Then retry the ingest.
 
 3. **Report results.** Parse the JSON output and tell the user:
    - How many tasks were ingested vs. skipped (already in wiki)
@@ -495,21 +497,61 @@ function generateGetSetupSkill(backends: BackendConfig[]): string {
     : "_No ingestable backends configured — skip this step._";
 
   const configureExplanationLines: string[] = [];
+  const writeChoiceLines: string[] = [];
   for (const b of backends) {
     if (b.type === "jira") {
       configureExplanationLines.push(
         "- **Jira**: the project key is the uppercase prefix in any Jira issue URL — `https://yourorg.atlassian.net/browse/`**`ABC`**`-123` means the key is `ABC`. You don't need to find it yourself — the configure command lists your projects."
+      );
+      writeChoiceLines.push(
+        "   - Jira: `rubber-ducky backend configure jira --project-key <KEY> --json`"
       );
     }
     if (b.type === "asana") {
       configureExplanationLines.push(
         "- **Asana**: the project GID is the long number in a project URL — `https://app.asana.com/0/`**`1234567890`**`/list`. Again, you don't need to copy it — the configure command lists your projects."
       );
+      writeChoiceLines.push(
+        "   - Asana: `rubber-ducky backend configure asana --workspace-id <GID> --project-gid <GID> --naming-source title --naming-case lower --json` (if Asana's `workspaces` list has more than one entry, ask which workspace first as its own question; then re-run `--list` with `--workspace-id <chosen>` to get that workspace's projects). **Always set `--naming-source` and `--naming-case`** — without them, the next ingest will crash trying to open an interactive naming prompt. `title` + `lower` is a safe default for most projects; if the user wants identifier-based filenames from an Asana custom field, use `--naming-source identifier --identifier-field \"<field name>\"` instead."
+      );
     }
   }
-  const configureExplanations = configureExplanationLines.length > 0
-    ? configureExplanationLines.join("\n")
-    : "_No backends in this workspace require project configuration._";
+  const hasProjectDefaults = writeChoiceLines.length > 0;
+
+  const step4Block = hasProjectDefaults
+    ? `### Step 4 — Ensure each backend has a default project
+
+Ingest needs a default project for Jira (\`project_key\`) and Asana (\`project_gid\`). These are populated during \`rubber-ducky init\` when the env vars are already set, but a first-time user who adds credentials *after* init will be missing them.
+
+Before offering ingest, read \`workspace.md\`'s \`backends:\` array and verify:
+
+- **Jira**: \`project_key\` is set
+- **Asana**: \`project_gid\` and \`workspace_id\` are set
+- **GitHub**: nothing extra needed (repos are passed per ingest)
+
+**Handle backends one at a time.** If both Jira and Asana need a default, do Jira first end-to-end (fetch → present → user picks → save), then move on to Asana. Do **not** fetch both lists up front and ask one combined question — multi-backend prompts are confusing and users miss options.
+
+For each backend missing its default, do this inline — do **not** ask the user to paste values from URLs, and do **not** send them to run a separate command in their terminal:
+
+1. **Fetch the list** over the API (just this backend):
+   \`\`\`bash
+   rubber-ducky backend configure <type> --list --json
+   \`\`\`
+   This returns \`{ projects: [{ key, name }] }\` for Jira, or \`{ workspaces: [...], projects: [{ gid, name }] }\` for Asana.
+
+2. **Show the user the options** in chat — a short list of \`key — name\` (Jira) or \`name\` (Asana). Don't dump the raw JSON. If the list is long (more than ~10), show the top 10 and tell the user there are more — they can name a different one or ask to see the full list.
+
+3. **Ask one question about this backend only.** Wait for the answer before touching the next backend.
+
+4. **Write the choice** with the appropriate flag (the JSON response confirms the write):
+${writeChoiceLines.join("\n")}
+
+5. **Move to the next backend** (if any) and repeat from step 1.
+
+${configureExplanationLines.join("\n")}
+
+If the user genuinely wants to see the URL pattern instead of picking from a list, you can show it, but prefer the list flow — it's faster and error-proof.`
+    : "";
 
   const setupSteps: string[] = [];
 
@@ -629,7 +671,7 @@ ${backendChecks}
 
 Report which backends are connected and which need setup.
 
-If all backends are connected, go to **Step 4 — Offer initial ingest**. Do not stop here — a fresh workspace has no tasks yet, so \`/good-morning\` would have nothing to work with until something is ingested.
+If all backends are connected, continue to the next step below. Do not stop here — a fresh workspace has no tasks yet, so \`/good-morning\` would have nothing to work with until something is ingested.
 
 ### Step 2 — Set up unconnected backends
 
@@ -652,51 +694,25 @@ After the user completes setup, re-run the connectivity checks:
 ${backendChecks}
 \`\`\`
 
-Report the results. If any backend still fails, refer the user to @references/backend-setup.md for detailed troubleshooting and stop here. Otherwise continue to Step 4.
+Report the results. If any backend still fails, refer the user to @references/backend-setup.md for detailed troubleshooting and stop here. Otherwise continue to the next step.
 
-### Step 4 — Ensure each backend has a default project
-
-Ingest needs a default project for Jira (\`project_key\`) and Asana (\`project_gid\`). These are populated during \`rubber-ducky init\` when the env vars are already set, but a first-time user who adds credentials *after* init will be missing them.
-
-Before offering ingest, read \`workspace.md\`'s \`backends:\` array and verify:
-
-- **Jira**: \`project_key\` is set
-- **Asana**: \`project_gid\` and \`workspace_id\` are set
-- **GitHub**: nothing extra needed (repos are passed per ingest)
-
-For each backend missing its default, do this inline — do **not** ask the user to paste values from URLs, and do **not** send them to run a separate command in their terminal. The flow is:
-
-1. **Fetch the list** over the API:
-   \`\`\`bash
-   rubber-ducky backend configure <type> --list --json
-   \`\`\`
-   This returns \`{ projects: [{ key, name }] }\` for Jira, or \`{ workspaces: [...], projects: [{ gid, name }] }\` for Asana.
-
-2. **Show the user the options** in chat — a short list of \`key — name\` (Jira) or \`name\` (Asana). Don't dump the raw JSON.
-
-3. **Let the user pick** by name, key, or number. If only one option exists, pick it automatically and tell the user.
-
-4. **Write the choice** with the appropriate flag (the command exits silently on success, so the JSON response confirms the write):
-   - Jira: \`rubber-ducky backend configure jira --project-key <KEY> --json\`
-   - Asana: \`rubber-ducky backend configure asana --workspace-id <GID> --project-gid <GID> --json\` (if Asana's \`workspaces\` list has more than one entry, show it and ask the user which workspace first; then re-run \`--list\` with \`--workspace-id <chosen>\` to get the projects inside it)
-
-${configureExplanations}
-
-If the user genuinely wants to see the URL pattern instead of picking from a list, you can show it, but prefer the list flow — it's faster and error-proof.
+${step4Block}
 
 ### Step 5 — Offer initial ingest
 
 Now that each backend has a default project, offer to pull the user's open work into the wiki. A fresh workspace has no tasks yet, and \`/good-morning\` needs task pages to prioritize.
 
-Ask once, listing the backends that can ingest:
+**Ask per backend — not one grouped question.** Take them one at a time so the user can decide each integration on its own merits. If they say yes to one and no to the next, that's fine.
 
-> "Your backends are connected and configured. Want me to pull in your open work so there's something to prioritize tomorrow morning? I'll ingest your assigned items from ${ingestableBackendList}. Say 'yes' to ingest all, 'skip' to do it later, or name a specific backend."
+For each ingestable backend, ask something like:
 
-If the user agrees, run the appropriate ingest command(s) with \`--mine\` scope (their assigned items only — the safe default). Do **not** pass \`--all\` unless the user explicitly asks for everything in the project.
+> "Want me to pull in your assigned \`<backend>\` work now? (yes / skip)"
+
+Wait for the answer, run the ingest if they agree, report the result for that backend, and then move to the next backend. Run ingest commands with \`--mine\` scope (their assigned items only — the safe default). Do **not** pass \`--all\` unless the user explicitly asks for everything in the project.
 
 ${ingestCommands}
 
-Report the result for each backend (count ingested, count skipped, any errors).
+Report the result for each backend (count ingested, count skipped, any errors) before moving on.
 
 If ingest succeeds and at least one task page now exists, tell the user they are ready to go and can try \`/good-morning\` to start their day — or just say "good morning", natural language works.
 

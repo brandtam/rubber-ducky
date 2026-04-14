@@ -150,6 +150,15 @@ export function registerIngestCommand(program: Command): void {
           let identifierField: string | undefined = asanaBackend?.identifier_field;
 
           if (!namingSource && asanaBackend && projectGid) {
+            if (jsonMode) {
+              // We can't run the interactive clack prompt in non-TTY mode —
+              // Node's TTY init would fail with EINVAL. Emit a machine-
+              // readable error the caller (skill, script, CI) can act on.
+              exitWithError(
+                "Asana naming config is not set. Run `rubber-ducky backend configure asana --naming-source <identifier|title|gid> --naming-case <preserve|lower> [--identifier-field <name>]` (for example `--naming-source title --naming-case lower`) to set it non-interactively, or `rubber-ducky asana configure-naming` in your terminal to pick interactively with a live preview.",
+                true
+              );
+            }
             const naming = await ensureNamingConfig({
               workspaceRoot,
               client,

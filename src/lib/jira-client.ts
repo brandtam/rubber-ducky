@@ -37,7 +37,6 @@ export interface JiraUser {
 
 export interface JiraSearchResult {
   issues: JiraIssue[];
-  total: number;
 }
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
@@ -178,24 +177,33 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
     ): Promise<JiraSearchResult> {
       const pageSize = searchOptions?.maxResults ?? 50;
       const allIssues: JiraIssue[] = [];
-      let startAt = 0;
+      let nextPageToken: string | undefined;
 
-      // Paginate through all results
+      // POST /rest/api/3/search/jql — Atlassian deprecated the old
+      // /rest/api/3/search endpoint (HTTP 410). Cursor-based pagination via
+      // `nextPageToken`; termination is signalled by `isLast` (preferred)
+      // or absence of `nextPageToken`. The new endpoint intentionally does
+      // not return a total.
       while (true) {
-        const params = new URLSearchParams({
+        const body: Record<string, unknown> = {
           jql,
-          maxResults: String(pageSize),
-          startAt: String(startAt),
-        });
-        const page = await request<JiraSearchResult>(
-          `/rest/api/3/search?${params.toString()}`
-        );
-        allIssues.push(...page.issues);
+          maxResults: pageSize,
+          fields: ["*all"],
+        };
+        if (nextPageToken) body.nextPageToken = nextPageToken;
 
-        if (allIssues.length >= page.total || page.issues.length === 0) {
-          return { issues: allIssues, total: page.total };
+        const page = await post<{
+          issues: JiraIssue[];
+          nextPageToken?: string;
+          isLast?: boolean;
+        }>("/rest/api/3/search/jql", body);
+
+        allIssues.push(...(page.issues ?? []));
+
+        if (page.isLast || !page.nextPageToken) {
+          return { issues: allIssues };
         }
-        startAt += page.issues.length;
+        nextPageToken = page.nextPageToken;
       }
     },
 
