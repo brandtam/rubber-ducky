@@ -25,13 +25,14 @@ import {
 } from "./github-backend.js";
 import {
   createJiraBackend,
-  checkJiraConnectivity,
+  checkJiraConnectivityRest,
 } from "./jira-backend.js";
+import { createJiraClient } from "./jira-client.js";
 import {
   createAsanaBackend,
-  checkAsanaConnectivity,
-  type McpCall,
+  checkAsanaConnectivityRest,
 } from "./asana-backend.js";
+import { createAsanaClient } from "./asana-client.js";
 
 export type Capability = "ingest" | "pull" | "push" | "comment" | "transition";
 
@@ -159,33 +160,39 @@ export function getBackend(
   config: BackendConfig,
   options?: {
     exec?: (args: string[]) => string;
-    mcp?: McpCall;
+    token?: string;
+    email?: string;
+    apiToken?: string;
+    fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   }
 ): Backend {
   switch (config.type) {
     case "github":
       return createGitHubBackend(options);
-    case "jira":
-      return createJiraBackend({
-        serverUrl: config.server_url ?? "",
-        projectKey: config.project_key,
-        exec: options?.exec,
+    case "jira": {
+      const email = options?.email ?? process.env.JIRA_EMAIL ?? "";
+      const apiToken = options?.apiToken ?? process.env.JIRA_API_TOKEN ?? "";
+      const serverUrl = config.server_url ?? "";
+      const client = createJiraClient({
+        serverUrl,
+        email,
+        apiToken,
+        fetch: options?.fetch,
       });
-    case "asana":
-      if (!options?.mcp) {
-        return createAsanaBackend({
-          mcp: () => {
-            throw new Error(
-              "Asana MCP server is not available. Ensure the Asana MCP server is running."
-            );
-          },
-          workspaceId: config.workspace_id,
-        });
-      }
+      return createJiraBackend({
+        client,
+        serverUrl,
+        projectKey: config.project_key,
+      });
+    }
+    case "asana": {
+      const token = options?.token ?? process.env.ASANA_ACCESS_TOKEN ?? "";
+      const client = createAsanaClient({ token, fetch: options?.fetch });
       return createAsanaBackend({
-        mcp: options.mcp,
+        client,
         workspaceId: config.workspace_id,
       });
+    }
     default:
       throw new Error(`Backend "${config.type}" is not yet implemented`);
   }
@@ -194,21 +201,35 @@ export function getBackend(
 /**
  * Check connectivity for a configured backend.
  * Returns authentication status without throwing.
+ *
+ * Asana and Jira use REST APIs by default.
+ * Falls back to MCP if a `mcp` option is explicitly provided and no token is set.
  */
-export function checkConnectivity(
+export async function checkConnectivity(
   config: BackendConfig,
   options?: {
     exec?: (args: string[]) => string;
-    mcp?: McpCall;
+    token?: string;
+    email?: string;
+    apiToken?: string;
+    fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   }
-): ConnectivityResult {
+): Promise<ConnectivityResult> {
   switch (config.type) {
     case "github":
       return checkGitHubConnectivity(options?.exec);
     case "jira":
-      return checkJiraConnectivity(config.server_url ?? "", options?.exec);
+      return checkJiraConnectivityRest({
+        serverUrl: config.server_url,
+        email: options?.email,
+        apiToken: options?.apiToken,
+        fetch: options?.fetch,
+      });
     case "asana":
-      return checkAsanaConnectivity(options?.mcp);
+      return checkAsanaConnectivityRest({
+        token: options?.token,
+        fetch: options?.fetch,
+      });
     default:
       return {
         authenticated: false,

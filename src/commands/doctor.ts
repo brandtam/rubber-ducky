@@ -32,7 +32,7 @@ export function registerDoctorCommand(program: Command): void {
       }
 
       try {
-        const result = runDoctor(workspaceRoot);
+        const result = await runDoctor(workspaceRoot);
 
         if (jsonMode) {
           console.log(

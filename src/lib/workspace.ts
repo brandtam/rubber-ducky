@@ -10,6 +10,7 @@ import {
   generateReferenceFiles,
   type BackendConfig,
   type VocabularyOptions,
+  type IngestScope,
 } from "./templates.js";
 import { getBundledTemplates } from "./update.js";
 import {
@@ -26,6 +27,7 @@ export interface WorkspaceOptions {
   targetDir: string;
   backends?: BackendConfig[];
   vocabulary?: VocabularyOptions;
+  ingest_scope?: IngestScope;
 }
 
 export interface WorkspaceResult {
@@ -135,7 +137,7 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
   }
 
   // Generate and write core config files
-  const templateOpts = { name, purpose, backends: opts.backends };
+  const templateOpts = { name, purpose, backends: opts.backends, ingest_scope: opts.ingest_scope };
 
   const coreFiles: Array<{ name: string; content: string }> = [
     { name: "workspace.md", content: generateWorkspaceMd(templateOpts) },
@@ -204,6 +206,8 @@ export async function migrateWorkspace(opts: WorkspaceOptions): Promise<Workspac
   };
 }
 
+export type { IngestScope } from "./templates.js";
+
 export interface WorkspaceConfig {
   name: string;
   purpose: string;
@@ -211,6 +215,7 @@ export interface WorkspaceConfig {
   created: string;
   backends: BackendConfig[];
   workspaceRoot: string;
+  ingest_scope?: IngestScope;
 }
 
 /**
@@ -262,5 +267,6 @@ export function loadWorkspaceConfig(workspaceRoot: string): WorkspaceConfig {
     created: frontmatter.created,
     backends: frontmatter.backends ?? [],
     workspaceRoot,
+    ingest_scope: frontmatter.ingest_scope,
   };
 }

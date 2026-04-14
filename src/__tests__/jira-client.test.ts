@@ -1,0 +1,448 @@
+import { describe, it, expect } from "vitest";
+import {
+  createJiraClient,
+  type JiraClientOptions,
+  type JiraClient,
+} from "../lib/jira-client.js";
+
+type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+
+function mockFetch(
+  handler: (url: string, init?: RequestInit) => { status: number; body: unknown }
+): FetchFn {
+  return async (url: string, init?: RequestInit) => {
+    const result = handler(url, init);
+    return {
+      ok: result.status >= 200 && result.status < 300,
+      status: result.status,
+      json: async () => result.body,
+      text: async () => JSON.stringify(result.body),
+    } as Response;
+  };
+}
+
+describe("JiraClient", () => {
+  const baseOpts = {
+    serverUrl: "https://myorg.atlassian.net",
+    email: "alice@myorg.com",
+    apiToken: "jira-api-token-123",
+  };
+
+  describe("auth", () => {
+    it("throws when JIRA_EMAIL is not set on first request", async () => {
+      const client = createJiraClient({ ...baseOpts, email: "" });
+      await expect(client.getMyself()).rejects.toThrow("JIRA_EMAIL");
+    });
+
+    it("throws when JIRA_API_TOKEN is not set on first request", async () => {
+      const client = createJiraClient({ ...baseOpts, apiToken: "" });
+      await expect(client.getMyself()).rejects.toThrow("JIRA_API_TOKEN");
+    });
+
+    it("throws when serverUrl is not set on first request", async () => {
+      const client = createJiraClient({ ...baseOpts, serverUrl: "" });
+      await expect(client.getMyself()).rejects.toThrow("server_url");
+    });
+
+    it("sends Basic Auth header with base64-encoded email:token", async () => {
+      let capturedHeaders: HeadersInit | undefined;
+      const fetch = mockFetch((url, init) => {
+        capturedHeaders = init?.headers;
+        return { status: 200, body: { displayName: "Alice", emailAddress: "alice@myorg.com" } };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await client.getMyself();
+
+      expect(capturedHeaders).toBeDefined();
+      const expected = Buffer.from("alice@myorg.com:jira-api-token-123").toString("base64");
+      expect((capturedHeaders as Record<string, string>)["Authorization"]).toBe(
+        `Basic ${expected}`
+      );
+    });
+  });
+
+  describe("getMyself", () => {
+    it("returns authenticated user info", async () => {
+      const fetch = mockFetch((url) => {
+        if (url.includes("/myself")) {
+          return {
+            status: 200,
+            body: {
+              displayName: "Alice Smith",
+              emailAddress: "alice@myorg.com",
+              accountId: "abc123",
+            },
+          };
+        }
+        return { status: 404, body: {} };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const result = await client.getMyself();
+
+      expect(result.displayName).toBe("Alice Smith");
+      expect(result.emailAddress).toBe("alice@myorg.com");
+    });
+
+    it("throws on 401 unauthorized", async () => {
+      const fetch = mockFetch(() => ({
+        status: 401,
+        body: { message: "Unauthorized" },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await expect(client.getMyself()).rejects.toThrow("401");
+    });
+  });
+
+  describe("getIssue", () => {
+    it("fetches an issue by key with correct fields", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            key: "ECOMM-4643",
+            fields: {
+              summary: "Fix checkout flow",
+              description: "The checkout crashes on submit",
+              status: { name: "In Progress" },
+              priority: { name: "High" },
+              assignee: { displayName: "Alice Smith" },
+              labels: ["bug", "checkout"],
+              created: "2024-01-15T10:00:00.000+0000",
+              updated: "2024-01-16T12:00:00.000+0000",
+              resolutiondate: null,
+              duedate: "2024-02-01",
+              attachment: [],
+            },
+          },
+        };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const issue = await client.getIssue("ECOMM-4643");
+
+      expect(issue.key).toBe("ECOMM-4643");
+      expect(issue.fields.summary).toBe("Fix checkout flow");
+      expect(issue.fields.description).toBe("The checkout crashes on submit");
+      expect(issue.fields.assignee?.displayName).toBe("Alice Smith");
+      expect(capturedUrl).toContain("/rest/api/3/issue/ECOMM-4643");
+    });
+
+    it("throws on 404 not found", async () => {
+      const fetch = mockFetch(() => ({
+        status: 404,
+        body: { errorMessages: ["Issue does not exist"] },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await expect(client.getIssue("NONEXISTENT-1")).rejects.toThrow("404");
+    });
+  });
+
+  describe("getComments", () => {
+    it("fetches comments for an issue key", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            comments: [
+              {
+                id: "10001",
+                body: "I can reproduce this",
+                author: { displayName: "Bob Jones" },
+                created: "2024-01-15T11:00:00.000+0000",
+              },
+              {
+                id: "10002",
+                body: "Fixed in latest build",
+                author: { displayName: "Alice Smith" },
+                created: "2024-01-16T09:00:00.000+0000",
+              },
+            ],
+          },
+        };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const comments = await client.getComments("ECOMM-4643");
+
+      expect(comments).toHaveLength(2);
+      expect(comments[0].body).toBe("I can reproduce this");
+      expect(comments[0].author.displayName).toBe("Bob Jones");
+      expect(capturedUrl).toContain("/rest/api/3/issue/ECOMM-4643/comment");
+    });
+
+    it("returns empty array when issue has no comments", async () => {
+      const fetch = mockFetch(() => ({
+        status: 200,
+        body: { comments: [] },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const comments = await client.getComments("ECOMM-1");
+      expect(comments).toEqual([]);
+    });
+  });
+
+  describe("searchIssues", () => {
+    it("searches issues with JQL query", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            issues: [
+              {
+                key: "ECOMM-1",
+                fields: {
+                  summary: "First issue",
+                  description: null,
+                  status: { name: "To Do" },
+                  priority: null,
+                  assignee: null,
+                  labels: [],
+                  created: "2024-01-01T00:00:00.000+0000",
+                  updated: "2024-01-01T00:00:00.000+0000",
+                  resolutiondate: null,
+                  duedate: null,
+                  attachment: [],
+                },
+              },
+            ],
+            total: 1,
+          },
+        };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const result = await client.searchIssues("project = ECOMM");
+
+      expect(result.issues).toHaveLength(1);
+      expect(result.issues[0].key).toBe("ECOMM-1");
+      expect(result.total).toBe(1);
+      expect(capturedUrl).toContain("/rest/api/3/search");
+      expect(capturedUrl).toContain("jql=");
+    });
+
+    it("passes maxResults parameter", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return { status: 200, body: { issues: [], total: 0 } };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await client.searchIssues("project = ECOMM", { maxResults: 50 });
+
+      expect(capturedUrl).toContain("maxResults=50");
+    });
+  });
+
+  describe("createIssue", () => {
+    it("creates an issue with correct endpoint and payload", async () => {
+      let capturedUrl = "";
+      let capturedInit: RequestInit | undefined;
+      const fetch = mockFetch((url, init) => {
+        capturedUrl = url;
+        capturedInit = init;
+        return {
+          status: 201,
+          body: { key: "PROJ-99", id: "12345", self: "https://myorg.atlassian.net/rest/api/3/issue/12345" },
+        };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const result = await client.createIssue({
+        project: { key: "PROJ" },
+        summary: "New task",
+        description: "Build this",
+        issuetype: { name: "Task" },
+        labels: ["bug"],
+      });
+
+      expect(result.key).toBe("PROJ-99");
+      expect(result.id).toBe("12345");
+      expect(capturedUrl).toContain("/rest/api/3/issue");
+      expect(capturedInit?.method).toBe("POST");
+      const body = JSON.parse(capturedInit?.body as string);
+      expect(body.fields.summary).toBe("New task");
+      expect(body.fields.labels).toEqual(["bug"]);
+    });
+
+    it("throws on 400 bad request", async () => {
+      const fetch = mockFetch(() => ({
+        status: 400,
+        body: { errorMessages: ["Project is required"] },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await expect(
+        client.createIssue({ summary: "No project" })
+      ).rejects.toThrow("400");
+    });
+  });
+
+  describe("addComment", () => {
+    it("adds a comment to an issue with correct endpoint and body", async () => {
+      let capturedUrl = "";
+      let capturedInit: RequestInit | undefined;
+      const fetch = mockFetch((url, init) => {
+        capturedUrl = url;
+        capturedInit = init;
+        return {
+          status: 201,
+          body: { id: "10001", body: "Great work!", author: { displayName: "Alice" }, created: "2024-01-15T10:00:00.000+0000" },
+        };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const result = await client.addComment("PROJ-42", "Great work!");
+
+      expect(result.id).toBe("10001");
+      expect(capturedUrl).toContain("/rest/api/3/issue/PROJ-42/comment");
+      expect(capturedInit?.method).toBe("POST");
+      const body = JSON.parse(capturedInit?.body as string);
+      expect(body.body).toBe("Great work!");
+    });
+
+    it("throws on 404 when issue not found", async () => {
+      const fetch = mockFetch(() => ({
+        status: 404,
+        body: { errorMessages: ["Issue does not exist"] },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await expect(client.addComment("NOPE-1", "comment")).rejects.toThrow("404");
+    });
+  });
+
+  describe("getTransitions", () => {
+    it("fetches available transitions for an issue", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            transitions: [
+              { id: "21", name: "In Progress" },
+              { id: "31", name: "Done" },
+            ],
+          },
+        };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const transitions = await client.getTransitions("PROJ-42");
+
+      expect(transitions).toHaveLength(2);
+      expect(transitions[0]).toEqual({ id: "21", name: "In Progress" });
+      expect(transitions[1]).toEqual({ id: "31", name: "Done" });
+      expect(capturedUrl).toContain("/rest/api/3/issue/PROJ-42/transitions");
+    });
+
+    it("returns empty array when no transitions available", async () => {
+      const fetch = mockFetch(() => ({
+        status: 200,
+        body: { transitions: [] },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const transitions = await client.getTransitions("PROJ-1");
+      expect(transitions).toEqual([]);
+    });
+  });
+
+  describe("transitionIssue", () => {
+    it("sends transition request with correct endpoint and body", async () => {
+      let capturedUrl = "";
+      let capturedInit: RequestInit | undefined;
+      const fetch = mockFetch((url, init) => {
+        capturedUrl = url;
+        capturedInit = init;
+        return { status: 204, body: null };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await client.transitionIssue("PROJ-42", "21");
+
+      expect(capturedUrl).toContain("/rest/api/3/issue/PROJ-42/transitions");
+      expect(capturedInit?.method).toBe("POST");
+      const body = JSON.parse(capturedInit?.body as string);
+      expect(body.transition.id).toBe("21");
+    });
+
+    it("throws on 400 when transition is invalid", async () => {
+      const fetch = mockFetch(() => ({
+        status: 400,
+        body: { errorMessages: ["Invalid transition"] },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await expect(client.transitionIssue("PROJ-42", "999")).rejects.toThrow("400");
+    });
+  });
+
+  describe("getMyself URL construction", () => {
+    it("constructs correct base URL without trailing slash", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return { status: 200, body: { displayName: "Alice", emailAddress: "alice@myorg.com" } };
+      });
+
+      const client = createJiraClient({
+        ...baseOpts,
+        serverUrl: "https://myorg.atlassian.net/",
+        fetch,
+      });
+      await client.getMyself();
+
+      expect(capturedUrl).toBe("https://myorg.atlassian.net/rest/api/3/myself");
+    });
+  });
+
+  describe("getProjects", () => {
+    it("fetches all projects from the Jira instance", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: [
+            { key: "ECOMM", name: "E-Commerce", id: "10001" },
+            { key: "WEB", name: "Website", id: "10002" },
+            { key: "MOB", name: "Mobile App", id: "10003" },
+          ],
+        };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const projects = await client.getProjects();
+
+      expect(projects).toHaveLength(3);
+      expect(projects[0].key).toBe("ECOMM");
+      expect(projects[0].name).toBe("E-Commerce");
+      expect(projects[1].key).toBe("WEB");
+      expect(capturedUrl).toContain("/rest/api/3/project");
+    });
+
+    it("returns empty array when no projects exist", async () => {
+      const fetch = mockFetch(() => ({
+        status: 200,
+        body: [],
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const projects = await client.getProjects();
+      expect(projects).toEqual([]);
+    });
+  });
+});

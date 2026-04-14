@@ -7,9 +7,10 @@ import {
   createJiraBackend,
   mapJiraStatusToStatus,
   mapStatusToJiraTransition,
-  checkJiraConnectivity,
+  checkJiraConnectivityRest,
   DEFAULT_STATUS_MAP,
 } from "../lib/jira-backend.js";
+import type { JiraClient } from "../lib/jira-client.js";
 
 function makeTaskPage(overrides?: Partial<TaskPage>): TaskPage {
   return {
@@ -31,6 +32,28 @@ function makeTaskPage(overrides?: Partial<TaskPage>): TaskPage {
     comment_count: 0,
     description: "",
     comments: [],
+    ...overrides,
+  };
+}
+
+function makeMockClient(overrides?: Partial<JiraClient>): JiraClient {
+  return {
+    getMyself: async () => ({ displayName: "Test User", emailAddress: "test@example.com" }),
+    getIssue: async () => {
+      throw new Error("getIssue not mocked");
+    },
+    getComments: async () => [],
+    searchIssues: async () => ({ issues: [], total: 0 }),
+    createIssue: async () => {
+      throw new Error("createIssue not mocked");
+    },
+    addComment: async () => {
+      throw new Error("addComment not mocked");
+    },
+    getTransitions: async () => [],
+    transitionIssue: async () => {
+      throw new Error("transitionIssue not mocked");
+    },
     ...overrides,
   };
 }
@@ -120,8 +143,8 @@ describe("Jira backend", () => {
   describe("capabilities", () => {
     it("supports all five capabilities", () => {
       const backend = createJiraBackend({
+        client: makeMockClient(),
         serverUrl: "https://myorg.atlassian.net",
-        exec: () => "",
       });
 
       expect(backend.capabilities).toContain("ingest");
@@ -133,8 +156,8 @@ describe("Jira backend", () => {
 
     it("passes assertCapability for all operations", () => {
       const backend = createJiraBackend({
+        client: makeMockClient(),
         serverUrl: "https://myorg.atlassian.net",
-        exec: () => "",
       });
 
       expect(() => assertCapability(backend, "ingest")).not.toThrow();
@@ -147,40 +170,36 @@ describe("Jira backend", () => {
 
   describe("ingest", () => {
     it("ingests a Jira issue into a TaskPage", async () => {
-      const mockIssue = {
-        key: "PROJ-42",
-        fields: {
-          summary: "Fix the login bug",
-          description: "The login form crashes on submit",
-          status: { name: "In Progress" },
-          priority: { name: "High" },
-          assignee: { displayName: "Alice Smith" },
-          labels: ["bug", "frontend"],
-          created: "2024-01-15T10:00:00.000+0000",
-          updated: "2024-01-16T12:00:00.000+0000",
-          resolutiondate: null,
-          duedate: "2024-02-01",
-          comment: {
-            total: 1,
-            comments: [
-              {
-                body: "I can reproduce this",
-                author: { displayName: "Bob Jones" },
-                created: "2024-01-15T11:00:00.000+0000",
-              },
-            ],
+      const client = makeMockClient({
+        getIssue: async () => ({
+          key: "PROJ-42",
+          fields: {
+            summary: "Fix the login bug",
+            description: "The login form crashes on submit",
+            status: { name: "In Progress" },
+            priority: { name: "High" },
+            assignee: { displayName: "Alice Smith" },
+            labels: ["bug", "frontend"],
+            created: "2024-01-15T10:00:00.000+0000",
+            updated: "2024-01-16T12:00:00.000+0000",
+            resolutiondate: null,
+            duedate: "2024-02-01",
+            attachment: [],
           },
-        },
-      };
-
-      const exec = (args: string[]) => {
-        if (args.includes("jira_get_issue")) return JSON.stringify(mockIssue);
-        throw new Error("unexpected call");
-      };
+        }),
+        getComments: async () => [
+          {
+            id: "10001",
+            body: "I can reproduce this",
+            author: { displayName: "Bob Jones" },
+            created: "2024-01-15T11:00:00.000+0000",
+          },
+        ],
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
-        exec,
       });
       const page = await backend.ingest("PROJ-42");
 
@@ -201,28 +220,29 @@ describe("Jira backend", () => {
     });
 
     it("handles null description gracefully", async () => {
-      const mockIssue = {
-        key: "PROJ-1",
-        fields: {
-          summary: "No description issue",
-          description: null,
-          status: { name: "To Do" },
-          priority: null,
-          assignee: null,
-          labels: [],
-          created: "2024-01-01T00:00:00.000+0000",
-          updated: "2024-01-01T00:00:00.000+0000",
-          resolutiondate: null,
-          duedate: null,
-          comment: { total: 0, comments: [] },
-        },
-      };
-
-      const exec = () => JSON.stringify(mockIssue);
+      const client = makeMockClient({
+        getIssue: async () => ({
+          key: "PROJ-1",
+          fields: {
+            summary: "No description issue",
+            description: null,
+            status: { name: "To Do" },
+            priority: null,
+            assignee: null,
+            labels: [],
+            created: "2024-01-01T00:00:00.000+0000",
+            updated: "2024-01-01T00:00:00.000+0000",
+            resolutiondate: null,
+            duedate: null,
+            attachment: [],
+          },
+        }),
+        getComments: async () => [],
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
-        exec,
       });
       const page = await backend.ingest("PROJ-1");
 
@@ -232,28 +252,29 @@ describe("Jira backend", () => {
     });
 
     it("sets closed timestamp for resolved issues", async () => {
-      const mockIssue = {
-        key: "PROJ-5",
-        fields: {
-          summary: "Done task",
-          description: "Finished",
-          status: { name: "Done" },
-          priority: { name: "Medium" },
-          assignee: null,
-          labels: [],
-          created: "2024-01-01T00:00:00.000+0000",
-          updated: "2024-01-10T00:00:00.000+0000",
-          resolutiondate: "2024-01-10T00:00:00.000+0000",
-          duedate: null,
-          comment: { total: 0, comments: [] },
-        },
-      };
-
-      const exec = () => JSON.stringify(mockIssue);
+      const client = makeMockClient({
+        getIssue: async () => ({
+          key: "PROJ-5",
+          fields: {
+            summary: "Done task",
+            description: "Finished",
+            status: { name: "Done" },
+            priority: { name: "Medium" },
+            assignee: null,
+            labels: [],
+            created: "2024-01-01T00:00:00.000+0000",
+            updated: "2024-01-10T00:00:00.000+0000",
+            resolutiondate: "2024-01-10T00:00:00.000+0000",
+            duedate: null,
+            attachment: [],
+          },
+        }),
+        getComments: async () => [],
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
-        exec,
       });
       const page = await backend.ingest("PROJ-5");
 
@@ -262,42 +283,42 @@ describe("Jira backend", () => {
     });
 
     it("formats multiple comments correctly", async () => {
-      const mockIssue = {
-        key: "PROJ-7",
-        fields: {
-          summary: "Commented issue",
-          description: "Main body",
-          status: { name: "To Do" },
-          priority: null,
-          assignee: null,
-          labels: [],
-          created: "2024-01-01T00:00:00.000+0000",
-          updated: "2024-01-01T00:00:00.000+0000",
-          resolutiondate: null,
-          duedate: null,
-          comment: {
-            total: 2,
-            comments: [
-              {
-                body: "First comment",
-                author: { displayName: "Alice" },
-                created: "2024-01-10T10:00:00.000+0000",
-              },
-              {
-                body: "Second comment",
-                author: { displayName: "Bob" },
-                created: "2024-01-11T11:00:00.000+0000",
-              },
-            ],
+      const client = makeMockClient({
+        getIssue: async () => ({
+          key: "PROJ-7",
+          fields: {
+            summary: "Commented issue",
+            description: "Main body",
+            status: { name: "To Do" },
+            priority: null,
+            assignee: null,
+            labels: [],
+            created: "2024-01-01T00:00:00.000+0000",
+            updated: "2024-01-01T00:00:00.000+0000",
+            resolutiondate: null,
+            duedate: null,
+            attachment: [],
           },
-        },
-      };
-
-      const exec = () => JSON.stringify(mockIssue);
+        }),
+        getComments: async () => [
+          {
+            id: "10001",
+            body: "First comment",
+            author: { displayName: "Alice" },
+            created: "2024-01-10T10:00:00.000+0000",
+          },
+          {
+            id: "10002",
+            body: "Second comment",
+            author: { displayName: "Bob" },
+            created: "2024-01-11T11:00:00.000+0000",
+          },
+        ],
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
-        exec,
       });
       const page = await backend.ingest("PROJ-7");
 
@@ -310,28 +331,29 @@ describe("Jira backend", () => {
 
   describe("pull", () => {
     it("detects status changes", async () => {
-      const mockIssue = {
-        key: "PROJ-123",
-        fields: {
-          summary: "Test task",
-          description: "Updated description",
-          status: { name: "In Progress" },
-          priority: { name: "High" },
-          assignee: { displayName: "Alice" },
-          labels: ["bug"],
-          created: "2024-01-01T00:00:00.000+0000",
-          updated: "2024-01-02T00:00:00.000+0000",
-          resolutiondate: null,
-          duedate: null,
-          comment: { total: 0, comments: [] },
-        },
-      };
-
-      const exec = () => JSON.stringify(mockIssue);
+      const client = makeMockClient({
+        getIssue: async () => ({
+          key: "PROJ-123",
+          fields: {
+            summary: "Test task",
+            description: "Updated description",
+            status: { name: "In Progress" },
+            priority: { name: "High" },
+            assignee: { displayName: "Alice" },
+            labels: ["bug"],
+            created: "2024-01-01T00:00:00.000+0000",
+            updated: "2024-01-02T00:00:00.000+0000",
+            resolutiondate: null,
+            duedate: null,
+            attachment: [],
+          },
+        }),
+        getComments: async () => [],
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
-        exec,
       });
       const taskPage = makeTaskPage({ status: "to-do" });
       const result = await backend.pull(taskPage);
@@ -341,28 +363,29 @@ describe("Jira backend", () => {
     });
 
     it("detects no changes when up to date", async () => {
-      const mockIssue = {
-        key: "PROJ-123",
-        fields: {
-          summary: "Test task",
-          description: "",
-          status: { name: "To Do" },
-          priority: null,
-          assignee: null,
-          labels: [],
-          created: "2024-01-01T00:00:00.000+0000",
-          updated: "2024-01-01T00:00:00.000+0000",
-          resolutiondate: null,
-          duedate: null,
-          comment: { total: 0, comments: [] },
-        },
-      };
-
-      const exec = () => JSON.stringify(mockIssue);
+      const client = makeMockClient({
+        getIssue: async () => ({
+          key: "PROJ-123",
+          fields: {
+            summary: "Test task",
+            description: "",
+            status: { name: "To Do" },
+            priority: null,
+            assignee: null,
+            labels: [],
+            created: "2024-01-01T00:00:00.000+0000",
+            updated: "2024-01-01T00:00:00.000+0000",
+            resolutiondate: null,
+            duedate: null,
+            attachment: [],
+          },
+        }),
+        getComments: async () => [],
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
-        exec,
       });
       const taskPage = makeTaskPage({
         status: "to-do",
@@ -377,42 +400,42 @@ describe("Jira backend", () => {
     });
 
     it("detects new comments", async () => {
-      const mockIssue = {
-        key: "PROJ-123",
-        fields: {
-          summary: "Test task",
-          description: "",
-          status: { name: "To Do" },
-          priority: null,
-          assignee: null,
-          labels: [],
-          created: "2024-01-01T00:00:00.000+0000",
-          updated: "2024-01-01T00:00:00.000+0000",
-          resolutiondate: null,
-          duedate: null,
-          comment: {
-            total: 2,
-            comments: [
-              {
-                body: "Old comment",
-                author: { displayName: "Alice" },
-                created: "2024-01-01T00:00:00.000+0000",
-              },
-              {
-                body: "New comment",
-                author: { displayName: "Bob" },
-                created: "2024-01-02T00:00:00.000+0000",
-              },
-            ],
+      const client = makeMockClient({
+        getIssue: async () => ({
+          key: "PROJ-123",
+          fields: {
+            summary: "Test task",
+            description: "",
+            status: { name: "To Do" },
+            priority: null,
+            assignee: null,
+            labels: [],
+            created: "2024-01-01T00:00:00.000+0000",
+            updated: "2024-01-01T00:00:00.000+0000",
+            resolutiondate: null,
+            duedate: null,
+            attachment: [],
           },
-        },
-      };
-
-      const exec = () => JSON.stringify(mockIssue);
+        }),
+        getComments: async () => [
+          {
+            id: "10001",
+            body: "Old comment",
+            author: { displayName: "Alice" },
+            created: "2024-01-01T00:00:00.000+0000",
+          },
+          {
+            id: "10002",
+            body: "New comment",
+            author: { displayName: "Bob" },
+            created: "2024-01-02T00:00:00.000+0000",
+          },
+        ],
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
-        exec,
       });
       const taskPage = makeTaskPage({ comment_count: 1 });
       const result = await backend.pull(taskPage);
@@ -423,8 +446,8 @@ describe("Jira backend", () => {
 
     it("throws when no jira_ref available", async () => {
       const backend = createJiraBackend({
+        client: makeMockClient(),
         serverUrl: "https://myorg.atlassian.net",
-        exec: () => "",
       });
       const taskPage = makeTaskPage({ jira_ref: null, ref: null });
 
@@ -436,19 +459,18 @@ describe("Jira backend", () => {
 
   describe("push", () => {
     it("creates a Jira issue from a TaskPage", async () => {
-      const calls: string[][] = [];
-      const exec = (args: string[]) => {
-        calls.push(args);
-        return JSON.stringify({
+      const client = makeMockClient({
+        createIssue: async () => ({
           key: "PROJ-99",
-          self: "https://myorg.atlassian.net/rest/api/2/issue/12345",
-        });
-      };
+          id: "12345",
+          self: "https://myorg.atlassian.net/rest/api/3/issue/12345",
+        }),
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
         projectKey: "PROJ",
-        exec,
       });
       const taskPage = makeTaskPage({
         title: "New feature",
@@ -464,39 +486,35 @@ describe("Jira backend", () => {
     });
 
     it("includes labels in push payload", async () => {
-      let capturedPayload: string | undefined;
-      const exec = (args: string[]) => {
-        capturedPayload = args.find((a) => a.includes('"labels"'));
-        // The payload is passed as a JSON string argument
-        for (const arg of args) {
-          try {
-            const parsed = JSON.parse(arg);
-            if (parsed.fields) capturedPayload = arg;
-          } catch {
-            // not JSON, skip
-          }
-        }
-        return JSON.stringify({ key: "PROJ-100", self: "https://myorg.atlassian.net/rest/api/2/issue/12346" });
-      };
+      let capturedFields: Record<string, unknown> | undefined;
+      const client = makeMockClient({
+        createIssue: async (fields) => {
+          capturedFields = fields;
+          return {
+            key: "PROJ-100",
+            id: "12346",
+            self: "https://myorg.atlassian.net/rest/api/3/issue/12346",
+          };
+        },
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
         projectKey: "PROJ",
-        exec,
       });
       const taskPage = makeTaskPage({ tags: ["bug", "urgent"] });
 
       await backend.push(taskPage);
 
-      expect(capturedPayload).toBeDefined();
-      const payload = JSON.parse(capturedPayload!);
-      expect(payload.fields.labels).toEqual(["bug", "urgent"]);
+      expect(capturedFields).toBeDefined();
+      expect(capturedFields!.labels).toEqual(["bug", "urgent"]);
     });
 
     it("throws when no project key configured", async () => {
       const backend = createJiraBackend({
+        client: makeMockClient(),
         serverUrl: "https://myorg.atlassian.net",
-        exec: () => "",
       });
       const taskPage = makeTaskPage();
 
@@ -508,18 +526,17 @@ describe("Jira backend", () => {
 
   describe("comment", () => {
     it("adds a comment to a Jira issue via jira_ref", async () => {
-      const calls: string[][] = [];
-      const exec = (args: string[]) => {
-        calls.push(args);
-        return JSON.stringify({
-          id: "10001",
-          self: "https://myorg.atlassian.net/rest/api/2/issue/12345/comment/10001",
-        });
-      };
+      const capturedCalls: { issueKey: string; text: string }[] = [];
+      const client = makeMockClient({
+        addComment: async (issueKey, text) => {
+          capturedCalls.push({ issueKey, text });
+          return { id: "10001" };
+        },
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
-        exec,
       });
       const taskPage = makeTaskPage({
         jira_ref: "https://myorg.atlassian.net/browse/PROJ-42",
@@ -530,30 +547,35 @@ describe("Jira backend", () => {
 
       expect(result.success).toBe(true);
       expect(result.commentUrl).toContain("PROJ-42");
+      expect(capturedCalls[0].issueKey).toBe("PROJ-42");
+      expect(capturedCalls[0].text).toBe("Great work!");
     });
 
     it("uses ref when jira_ref is not set", async () => {
-      const calls: string[][] = [];
-      const exec = (args: string[]) => {
-        calls.push(args);
-        return JSON.stringify({ id: "10002", self: "https://myorg.atlassian.net/rest/api/2/issue/12345/comment/10002" });
-      };
+      const capturedCalls: { issueKey: string; text: string }[] = [];
+      const client = makeMockClient({
+        addComment: async (issueKey, text) => {
+          capturedCalls.push({ issueKey, text });
+          return { id: "10002" };
+        },
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
-        exec,
       });
       const taskPage = makeTaskPage({ jira_ref: null, ref: "PROJ-42" });
 
       const result = await backend.comment(taskPage, "A comment");
 
       expect(result.success).toBe(true);
+      expect(capturedCalls[0].issueKey).toBe("PROJ-42");
     });
 
     it("throws when no reference is available", async () => {
       const backend = createJiraBackend({
+        client: makeMockClient(),
         serverUrl: "https://myorg.atlassian.net",
-        exec: () => "",
       });
       const taskPage = makeTaskPage({ ref: null, jira_ref: null });
 
@@ -565,38 +587,20 @@ describe("Jira backend", () => {
 
   describe("transition", () => {
     it("transitions a Jira issue status", async () => {
-      const calls: string[][] = [];
-      const exec = (args: string[]) => {
-        calls.push(args);
-        // Return transitions list when queried
-        if (args.some((a) => a.includes("get_transitions") || a.includes("jira_get_issue"))) {
-          return JSON.stringify({
-            key: "PROJ-123",
-            fields: {
-              summary: "Test task",
-              description: "",
-              status: { name: "To Do" },
-              priority: null,
-              assignee: null,
-              labels: [],
-              created: "2024-01-01T00:00:00.000+0000",
-              updated: "2024-01-01T00:00:00.000+0000",
-              resolutiondate: null,
-              duedate: null,
-              comment: { total: 0, comments: [] },
-            },
-            transitions: [
-              { id: "21", name: "In Progress" },
-              { id: "31", name: "Done" },
-            ],
-          });
-        }
-        return JSON.stringify({ success: true });
-      };
+      const capturedCalls: { issueKey: string; transitionId: string }[] = [];
+      const client = makeMockClient({
+        getTransitions: async () => [
+          { id: "21", name: "In Progress" },
+          { id: "31", name: "Done" },
+        ],
+        transitionIssue: async (issueKey, transitionId) => {
+          capturedCalls.push({ issueKey, transitionId });
+        },
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
-        exec,
       });
       const taskPage = makeTaskPage({ status: "to-do", ref: "PROJ-123" });
 
@@ -605,12 +609,14 @@ describe("Jira backend", () => {
       expect(result.success).toBe(true);
       expect(result.previousStatus).toBe("to-do");
       expect(result.newStatus).toBe("in-progress");
+      expect(capturedCalls[0].issueKey).toBe("PROJ-123");
+      expect(capturedCalls[0].transitionId).toBe("21");
     });
 
     it("throws when no reference is available", async () => {
       const backend = createJiraBackend({
+        client: makeMockClient(),
         serverUrl: "https://myorg.atlassian.net",
-        exec: () => "",
       });
       const taskPage = makeTaskPage({ ref: null, jira_ref: null });
 
@@ -620,31 +626,15 @@ describe("Jira backend", () => {
     });
 
     it("throws when target transition not found", async () => {
-      const exec = (args: string[]) => {
-        return JSON.stringify({
-          key: "PROJ-123",
-          fields: {
-            summary: "Test",
-            description: "",
-            status: { name: "To Do" },
-            priority: null,
-            assignee: null,
-            labels: [],
-            created: "2024-01-01T00:00:00.000+0000",
-            updated: "2024-01-01T00:00:00.000+0000",
-            resolutiondate: null,
-            duedate: null,
-            comment: { total: 0, comments: [] },
-          },
-          transitions: [
-            { id: "21", name: "In Progress" },
-          ],
-        });
-      };
+      const client = makeMockClient({
+        getTransitions: async () => [
+          { id: "21", name: "In Progress" },
+        ],
+      });
 
       const backend = createJiraBackend({
+        client,
         serverUrl: "https://myorg.atlassian.net",
-        exec,
       });
       const taskPage = makeTaskPage({ status: "to-do" });
 
@@ -654,20 +644,76 @@ describe("Jira backend", () => {
     });
   });
 
-  describe("checkJiraConnectivity", () => {
-    it("returns authenticated when MCP server responds", () => {
-      const exec = () => JSON.stringify({ user: "alice@myorg.com" });
-      const result = checkJiraConnectivity("https://myorg.atlassian.net", exec);
+  describe("checkJiraConnectivityRest", () => {
+    it("returns authenticated when REST API responds", async () => {
+      const mockFetch = async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ displayName: "Alice Smith", emailAddress: "alice@myorg.com" }),
+        text: async () => JSON.stringify({ displayName: "Alice Smith" }),
+      }) as Response;
+
+      const result = await checkJiraConnectivityRest({
+        serverUrl: "https://myorg.atlassian.net",
+        email: "alice@myorg.com",
+        apiToken: "test-token",
+        fetch: mockFetch,
+      });
+
       expect(result.authenticated).toBe(true);
+      expect(result.user).toBe("Alice Smith");
     });
 
-    it("returns not authenticated when MCP server fails", () => {
-      const exec = () => {
-        throw new Error("connection refused");
-      };
-      const result = checkJiraConnectivity("https://myorg.atlassian.net", exec);
+    it("returns not authenticated when email is missing", async () => {
+      const result = await checkJiraConnectivityRest({
+        serverUrl: "https://myorg.atlassian.net",
+        email: "",
+        apiToken: "test-token",
+      });
+
       expect(result.authenticated).toBe(false);
-      expect(result.error).toBeDefined();
+      expect(result.error).toContain("JIRA_EMAIL");
+    });
+
+    it("returns not authenticated when apiToken is missing", async () => {
+      const result = await checkJiraConnectivityRest({
+        serverUrl: "https://myorg.atlassian.net",
+        email: "alice@myorg.com",
+        apiToken: "",
+      });
+
+      expect(result.authenticated).toBe(false);
+      expect(result.error).toContain("JIRA_API_TOKEN");
+    });
+
+    it("returns not authenticated when serverUrl is missing", async () => {
+      const result = await checkJiraConnectivityRest({
+        serverUrl: "",
+        email: "alice@myorg.com",
+        apiToken: "test-token",
+      });
+
+      expect(result.authenticated).toBe(false);
+      expect(result.error).toContain("server_url");
+    });
+
+    it("returns not authenticated when REST API fails", async () => {
+      const mockFetch = async () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({ message: "Unauthorized" }),
+        text: async () => '{"message":"Unauthorized"}',
+      }) as Response;
+
+      const result = await checkJiraConnectivityRest({
+        serverUrl: "https://myorg.atlassian.net",
+        email: "alice@myorg.com",
+        apiToken: "bad-token",
+        fetch: mockFetch,
+      });
+
+      expect(result.authenticated).toBe(false);
+      expect(result.error).toContain("Jira REST API check failed");
     });
   });
 });

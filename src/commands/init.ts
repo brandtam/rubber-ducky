@@ -4,18 +4,19 @@ import * as path from "node:path";
 import chalk from "chalk";
 import { createWorkspace, migrateWorkspace, detectExistingContent } from "../lib/workspace.js";
 import { formatOutput } from "../lib/output.js";
-import type { BackendConfig, VocabularyOptions } from "../lib/templates.js";
+import type { BackendConfig, VocabularyOptions, TemplateOptions } from "../lib/templates.js";
+import { slugify } from "../lib/page.js";
+import { createAsanaClient, type AsanaClient } from "../lib/asana-client.js";
+import { createJiraClient, type JiraClient } from "../lib/jira-client.js";
 
 const BACKEND_CHOICES = [
   { value: "github", label: "GitHub", hint: "via gh CLI" },
-  { value: "jira", label: "Jira", hint: "via atlassian-remote MCP" },
-  { value: "asana", label: "Asana", hint: "via Asana MCP" },
+  { value: "jira", label: "Jira", hint: "via JIRA_EMAIL + JIRA_API_TOKEN env vars" },
+  { value: "asana", label: "Asana", hint: "via ASANA_ACCESS_TOKEN env var" },
 ] as const;
 
 const MCP_DEFAULTS: Record<string, string> = {
   github: "github",
-  jira: "atlassian-remote",
-  asana: "asana",
 };
 
 export function registerInitCommand(program: Command): void {
@@ -47,23 +48,26 @@ export function registerInitCommand(program: Command): void {
 async function collectBackendConfig(backendType: string): Promise<BackendConfig> {
   const config: BackendConfig = {
     type: backendType as BackendConfig["type"],
-    mcp_server: MCP_DEFAULTS[backendType] ?? backendType,
   };
 
   clack.log.info(chalk.bold(`Configuring ${backendType} backend`));
 
-  const mcpServer = await clack.text({
-    message: `MCP server name for ${backendType}:`,
-    placeholder: MCP_DEFAULTS[backendType] ?? backendType,
-    defaultValue: MCP_DEFAULTS[backendType] ?? backendType,
-  });
+  // Only prompt for MCP server name for GitHub (still uses gh CLI / MCP).
+  // Asana and Jira now use direct REST APIs via env var tokens.
+  if (MCP_DEFAULTS[backendType]) {
+    const mcpServer = await clack.text({
+      message: `MCP server name for ${backendType}:`,
+      placeholder: MCP_DEFAULTS[backendType],
+      defaultValue: MCP_DEFAULTS[backendType],
+    });
 
-  if (clack.isCancel(mcpServer)) {
-    clack.cancel("Setup cancelled.");
-    process.exit(0);
+    if (clack.isCancel(mcpServer)) {
+      clack.cancel("Setup cancelled.");
+      process.exit(0);
+    }
+
+    config.mcp_server = (mcpServer as string) || MCP_DEFAULTS[backendType];
   }
-
-  config.mcp_server = (mcpServer as string) || (MCP_DEFAULTS[backendType] ?? backendType);
 
   if (backendType === "github") {
     const reposInput = await clack.text({
@@ -104,38 +108,193 @@ async function collectBackendConfig(backendType: string): Promise<BackendConfig>
 
     config.server_url = serverUrl as string;
 
-    const projectKey = await clack.text({
-      message: "Jira project key (optional):",
-      placeholder: "PROJ",
-    });
+    // Check if Jira API credentials are available for discovery
+    const jiraEmail = process.env.JIRA_EMAIL;
+    const jiraToken = process.env.JIRA_API_TOKEN;
 
-    if (clack.isCancel(projectKey)) {
-      clack.cancel("Setup cancelled.");
-      process.exit(0);
-    }
+    if (jiraEmail && jiraToken) {
+      await discoverJiraConfig(config, config.server_url, jiraEmail, jiraToken);
+    } else {
+      clack.log.warn(
+        "JIRA_EMAIL and JIRA_API_TOKEN are not set. " +
+        "Set them in your environment, then run /get-setup to complete discovery."
+      );
 
-    if ((projectKey as string)?.trim()) {
-      config.project_key = projectKey as string;
+      const projectKey = await clack.text({
+        message: "Jira project key (optional — can be discovered later via /get-setup):",
+        placeholder: "PROJ",
+      });
+
+      if (clack.isCancel(projectKey)) {
+        clack.cancel("Setup cancelled.");
+        process.exit(0);
+      }
+
+      if ((projectKey as string)?.trim()) {
+        config.project_key = projectKey as string;
+      }
     }
   }
 
   if (backendType === "asana") {
-    const workspaceId = await clack.text({
-      message: "Asana workspace ID (optional):",
-      placeholder: "12345",
-    });
+    const asanaToken = process.env.ASANA_ACCESS_TOKEN;
 
-    if (clack.isCancel(workspaceId)) {
-      clack.cancel("Setup cancelled.");
-      process.exit(0);
-    }
+    if (asanaToken) {
+      await discoverAsanaConfig(config, asanaToken);
+    } else {
+      clack.log.warn(
+        "ASANA_ACCESS_TOKEN is not set. " +
+        "Set it in your environment, then run /get-setup to complete discovery."
+      );
 
-    if ((workspaceId as string)?.trim()) {
-      config.workspace_id = workspaceId as string;
+      const workspaceId = await clack.text({
+        message: "Asana workspace ID (optional — can be discovered later via /get-setup):",
+        placeholder: "12345",
+      });
+
+      if (clack.isCancel(workspaceId)) {
+        clack.cancel("Setup cancelled.");
+        process.exit(0);
+      }
+
+      if ((workspaceId as string)?.trim()) {
+        config.workspace_id = workspaceId as string;
+      }
     }
   }
 
   return config;
+}
+
+async function discoverAsanaConfig(config: BackendConfig, token: string): Promise<void> {
+  const client = createAsanaClient({ token });
+
+  // Verify connectivity
+  const spinner = clack.spinner();
+  spinner.start("Connecting to Asana...");
+  try {
+    const me = await client.getMe();
+    spinner.stop(`Connected as ${chalk.cyan(me.name)} (${me.email})`);
+  } catch {
+    spinner.stop("Could not connect to Asana.");
+    clack.log.warn(
+      "Failed to connect with ASANA_ACCESS_TOKEN. Run /get-setup after verifying your token."
+    );
+    return;
+  }
+
+  // Discover workspaces
+  const workspaces = await client.getWorkspaces();
+  if (workspaces.length === 0) {
+    clack.log.warn("No workspaces found in your Asana account.");
+    return;
+  }
+
+  let workspaceGid: string;
+  if (workspaces.length === 1) {
+    workspaceGid = workspaces[0].gid;
+    clack.log.info(`Using workspace: ${chalk.cyan(workspaces[0].name)}`);
+  } else {
+    const selected = await clack.select({
+      message: "Select your Asana workspace:",
+      options: workspaces.map((w) => ({ value: w.gid, label: w.name })),
+    });
+
+    if (clack.isCancel(selected)) {
+      clack.cancel("Setup cancelled.");
+      process.exit(0);
+    }
+
+    workspaceGid = selected as string;
+  }
+
+  config.workspace_id = workspaceGid;
+
+  // Discover projects
+  const projects = await client.getProjects(workspaceGid);
+  if (projects.length === 0) {
+    clack.log.warn("No projects found in this workspace.");
+    return;
+  }
+
+  const selectedProject = await clack.select({
+    message: "Select your default Asana project:",
+    options: projects.map((p) => ({ value: p.gid, label: p.name })),
+  });
+
+  if (clack.isCancel(selectedProject)) {
+    clack.cancel("Setup cancelled.");
+    process.exit(0);
+  }
+
+  config.project_gid = selectedProject as string;
+
+  // Discover custom fields for identifier_field
+  const customFieldSettings = await client.getCustomFieldSettings(config.project_gid);
+  if (customFieldSettings.length > 0) {
+    const noneOption = { value: "__none__", label: "(none — use Asana GID)" };
+    const fieldOptions = customFieldSettings.map((s) => ({
+      value: s.custom_field.name,
+      label: s.custom_field.name,
+      hint: s.custom_field.resource_subtype,
+    }));
+
+    const selectedField = await clack.select({
+      message: "Select a custom field for task identifiers (optional):",
+      options: [noneOption, ...fieldOptions],
+    });
+
+    if (clack.isCancel(selectedField)) {
+      clack.cancel("Setup cancelled.");
+      process.exit(0);
+    }
+
+    if (selectedField !== "__none__") {
+      config.identifier_field = selectedField as string;
+    }
+  }
+}
+
+async function discoverJiraConfig(
+  config: BackendConfig,
+  serverUrl: string,
+  email: string,
+  apiToken: string,
+): Promise<void> {
+  const client = createJiraClient({ serverUrl, email, apiToken });
+
+  // Verify connectivity
+  const spinner = clack.spinner();
+  spinner.start("Connecting to Jira...");
+  try {
+    const me = await client.getMyself();
+    spinner.stop(`Connected as ${chalk.cyan(me.displayName)} (${me.emailAddress})`);
+  } catch {
+    spinner.stop("Could not connect to Jira.");
+    clack.log.warn(
+      "Failed to connect with JIRA_EMAIL/JIRA_API_TOKEN. Run /get-setup after verifying your credentials."
+    );
+    return;
+  }
+
+  // Discover projects
+  const projects = await client.getProjects();
+  if (projects.length === 0) {
+    clack.log.warn("No projects found in your Jira instance.");
+    return;
+  }
+
+  const selectedProject = await clack.select({
+    message: "Select your default Jira project:",
+    options: projects.map((p) => ({ value: p.key, label: `${p.key} — ${p.name}` })),
+  });
+
+  if (clack.isCancel(selectedProject)) {
+    clack.cancel("Setup cancelled.");
+    process.exit(0);
+  }
+
+  config.project_key = selectedProject as string;
 }
 
 async function collectVocabulary(): Promise<VocabularyOptions> {
@@ -233,11 +392,32 @@ async function runInteractive(directory: string | undefined): Promise<void> {
     process.exit(0);
   }
 
-  // Collect MCP server config for each selected backend
+  // Collect backend config for each selected backend
   const backends: BackendConfig[] = [];
   for (const backendType of selectedBackends as string[]) {
     const config = await collectBackendConfig(backendType);
     backends.push(config);
+  }
+
+  // Ingest scope prompt (only if Asana or Jira is selected)
+  let ingestScope: "mine" | "all" | "ask" | undefined;
+  const hasTaskBackend = backends.some((b) => b.type === "asana" || b.type === "jira");
+  if (hasTaskBackend) {
+    const scopeChoice = await clack.select({
+      message: "Default ingest scope — ingest your tasks only, or everything?",
+      options: [
+        { value: "mine", label: "My tasks only", hint: "filter to tasks assigned to you" },
+        { value: "all", label: "All tasks", hint: "ingest everything in the project" },
+        { value: "ask", label: "Ask each time", hint: "prompt before each ingest" },
+      ],
+    });
+
+    if (clack.isCancel(scopeChoice)) {
+      clack.cancel("Setup cancelled.");
+      process.exit(0);
+    }
+
+    ingestScope = scopeChoice as "mine" | "all" | "ask";
   }
 
   // Vocabulary collection
@@ -332,6 +512,7 @@ async function runInteractive(directory: string | undefined): Promise<void> {
       targetDir: fullPath,
       backends: backends.length > 0 ? backends : undefined,
       vocabulary: hasVocabulary(vocabulary) ? vocabulary : undefined,
+      ingest_scope: ingestScope,
     });
 
     spinner.stop("Workspace created!");
@@ -484,9 +665,3 @@ function hasVocabulary(v: VocabularyOptions): boolean {
   );
 }
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}

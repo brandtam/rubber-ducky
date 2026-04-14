@@ -125,8 +125,8 @@ The wizard walks you through four things:
 
 3. **Backends** — Optionally connect external tools. Use Space to select, Enter to confirm:
    - **GitHub** — Tracks issues and PRs via the `gh` CLI. You'll be asked which repos to track (e.g., `myorg/project-a`).
-   - **Jira** — Tracks issues via the Atlassian Remote MCP server. You'll be asked for your Jira server URL (e.g., `https://myorg.atlassian.net`) and optionally a default project key.
-   - **Asana** — Tracks tasks via the Asana MCP server. You'll optionally be asked for a workspace ID.
+   - **Jira** — Tracks issues via the Jira REST API. Requires `JIRA_EMAIL` and `JIRA_API_TOKEN` env vars. If set during init, the wizard auto-discovers your projects so you never need to find project keys manually.
+   - **Asana** — Tracks tasks via the Asana REST API. Requires `ASANA_ACCESS_TOKEN` env var. If set during init, the wizard auto-discovers your workspaces, projects, and custom fields.
    - You can skip all backends and add them later by editing `workspace.md`.
 
 4. **Controlled vocabulary** — Define brands, teams, and labels for consistent metadata across your workspace. For example:
@@ -406,6 +406,8 @@ Every command supports `--json` for structured output, so you can pipe them into
 | `remind add\|list\|resolve`        | Date-keyed reminders                                         |
 | `idea add\|list`                   | Someday/maybe ideas                                          |
 | `screenshot ingest <path> <title>` | Capture a screenshot with a linked task page                 |
+| `ingest asana [ref]`               | Ingest Asana tasks (single, project, section, or `--mine`)   |
+| `ingest jira [ref]`                | Ingest Jira issues (single, project, or `--mine`)            |
 | `index rebuild`                    | Regenerate wiki/index.md                                     |
 | `log append <message>`             | Add timestamped entry to wiki/log.md                         |
 | `wiki search <query>`              | Search across all wiki pages                                 |
@@ -426,25 +428,47 @@ backends:
   - type: github
     mcp_server: github
   - type: jira
-    mcp_server: atlassian-remote
     server_url: https://myorg.atlassian.net
     project_key: PROJ
   - type: asana
-    mcp_server: asana
     workspace_id: "12345"
+    project_gid: "67890"
+    identifier_field: ECOMM
 ```
 
-| Backend | Requires                    | Capabilities                            |
-| ------- | --------------------------- | --------------------------------------- |
-| GitHub  | `gh` CLI, authenticated     | ingest, push, comment                   |
-| Jira    | atlassian-remote MCP server | ingest, pull, push, comment, transition |
-| Asana   | Asana MCP server            | ingest, pull, push, comment             |
+| Backend | Auth                                          | Capabilities                            |
+| ------- | --------------------------------------------- | --------------------------------------- |
+| GitHub  | `gh` CLI (`gh auth login`)                    | ingest, push, comment                   |
+| Jira    | `JIRA_EMAIL` + `JIRA_API_TOKEN` env vars      | ingest, pull, push, comment, transition |
+| Asana   | `ASANA_ACCESS_TOKEN` env var                   | ingest, pull, push, comment             |
+
+Asana and Jira use direct REST API calls — no MCP servers required. Set up auth by creating a Personal Access Token (Asana) or API token (Jira) and exporting the env vars. The `/get-setup` skill walks you through it step by step.
 
 Check connectivity:
 
 ```bash
 rubber-ducky backend check
 ```
+
+### Ingest
+
+The `ingest` command pulls tasks from external systems into your wiki with full data — description, comments, attachments, status, assignee, tags. Everything is fetched deterministically by the CLI, so no fields are ever skipped.
+
+```bash
+rubber-ducky ingest asana                    # all tasks from default project
+rubber-ducky ingest asana <task-gid>         # single task
+rubber-ducky ingest asana project:<gid>      # specific project
+rubber-ducky ingest asana --mine             # only tasks assigned to you
+
+rubber-ducky ingest jira                     # all issues from default project
+rubber-ducky ingest jira ECOMM-4643          # single issue
+rubber-ducky ingest jira project:ECOMM       # specific project
+rubber-ducky ingest jira --mine              # only issues assigned to you
+```
+
+Ingest is idempotent — tasks that already exist in your wiki are skipped. Attachments are downloaded to `raw/assets/` so Claude can inspect them. The wiki index and log are updated automatically.
+
+Set `ingest_scope: mine` in your `workspace.md` frontmatter to always filter to your tasks without the `--mine` flag.
 
 ### Write-back safety
 

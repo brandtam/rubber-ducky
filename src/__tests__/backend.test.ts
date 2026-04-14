@@ -66,11 +66,14 @@ describe("Backend interface", () => {
     });
 
     it("returns a jira backend for jira config", () => {
-      const backend = getBackend({
-        type: "jira",
-        mcp_server: "atlassian-remote",
-        server_url: "https://myorg.atlassian.net",
-      });
+      const backend = getBackend(
+        {
+          type: "jira",
+          mcp_server: "atlassian-remote",
+          server_url: "https://myorg.atlassian.net",
+        },
+        { email: "alice@myorg.com", apiToken: "test-token" }
+      );
       expect(backend.name).toBe("jira");
       expect(backend.capabilities).toContain("ingest");
       expect(backend.capabilities).toContain("pull");
@@ -82,7 +85,6 @@ describe("Backend interface", () => {
     it("returns an asana backend for asana config", () => {
       const backend = getBackend(
         { type: "asana", mcp_server: "asana" },
-        { mcp: () => ({}) }
       );
       expect(backend.name).toBe("asana");
       expect(backend.capabilities).toContain("ingest");
@@ -99,26 +101,31 @@ describe("Backend interface", () => {
   });
 
   describe("checkConnectivity", () => {
-    it("delegates to GitHub for github backend config", () => {
+    it("delegates to GitHub for github backend config", async () => {
       const exec = () => "github.com\n  ✓ Logged in to github.com account testuser\n";
-      const result = checkConnectivity(
+      const result = await checkConnectivity(
         { type: "github", mcp_server: "github" },
         { exec }
       );
       expect(result.authenticated).toBe(true);
     });
 
-    it("delegates to Jira for jira backend config", () => {
-      const exec = () => JSON.stringify({ user: "alice@myorg.com" });
-      const result = checkConnectivity(
+    it("delegates to Jira REST for jira backend config", async () => {
+      const mockFetch = async (url: string, init?: RequestInit) => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ displayName: "Alice Smith", emailAddress: "alice@myorg.com" }),
+        text: async () => JSON.stringify({ displayName: "Alice Smith" }),
+      }) as Response;
+      const result = await checkConnectivity(
         { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net" },
-        { exec }
+        { email: "alice@myorg.com", apiToken: "test-token", fetch: mockFetch }
       );
       expect(result.authenticated).toBe(true);
     });
 
-    it("returns not-implemented for unimplemented backends", () => {
-      const result = checkConnectivity({
+    it("returns not-implemented for unimplemented backends", async () => {
+      const result = await checkConnectivity({
         type: "linear" as any,
         mcp_server: "linear",
       });

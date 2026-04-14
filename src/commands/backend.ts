@@ -166,10 +166,12 @@ export function registerBackendCommand(program: Command): void {
           process.exit(1);
         }
 
-        const results = targets.map((bc) => {
-          const result = checkConnectivity(bc);
-          return { backend: bc.type, ...result };
-        });
+        const results = await Promise.all(
+          targets.map(async (bc) => {
+            const result = await checkConnectivity(bc);
+            return { backend: bc.type, ...result };
+          })
+        );
 
         const allOk = results.every((r) => r.authenticated);
 

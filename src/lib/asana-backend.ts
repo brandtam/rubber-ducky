@@ -9,36 +9,7 @@ import type {
   ConnectivityResult,
 } from "./backend.js";
 import { VALID_STATUSES } from "./backend.js";
-
-/**
- * Type for an injectable MCP call function.
- * The real implementation calls the Asana MCP server;
- * tests inject a mock.
- */
-export type McpCall = (
-  tool: string,
-  params: Record<string, unknown>
-) => unknown;
-
-interface AsanaTask {
-  gid: string;
-  name: string;
-  notes: string;
-  completed: boolean;
-  completed_at: string | null;
-  assignee: { name: string; gid: string } | null;
-  due_on: string | null;
-  memberships: { section: { name: string; gid: string } }[];
-  tags: { name: string }[];
-  permalink_url: string;
-}
-
-interface AsanaStory {
-  type: string;
-  text: string;
-  created_by: { name: string };
-  created_at: string;
-}
+import type { AsanaClient, AsanaTask, AsanaStory } from "./asana-client.js";
 
 /**
  * Map an Asana task's completion state and section name to the controlled vocabulary status.
@@ -50,7 +21,7 @@ interface AsanaStory {
 export function mapAsanaToStatus(
   completed: boolean,
   sectionName?: string,
-  statusMapping?: Record<string, string>
+  statusMapping?: Record<string, Status>
 ): Status {
   if (completed) return "done";
   if (!sectionName) return "to-do";
@@ -61,7 +32,7 @@ export function mapAsanaToStatus(
   if (statusMapping) {
     for (const [key, value] of Object.entries(statusMapping)) {
       if (key.toLowerCase().replace(/\s+/g, "-") === normalized) {
-        return value as Status;
+        return value;
       }
     }
   }
@@ -86,7 +57,7 @@ export function mapStatusToAsanaCompleted(status: Status): boolean {
  * Extract an Asana task GID from a reference string.
  * Accepts plain GIDs or full Asana URLs.
  */
-function extractTaskGid(ref: string): string {
+export function extractTaskGid(ref: string): string {
   // URL format: https://app.asana.com/0/PROJECT_GID/TASK_GID
   // The task GID is the last numeric segment in the path
   if (ref.includes("asana.com")) {
@@ -110,12 +81,14 @@ function resolveTaskGid(taskPage: TaskPage): string | null {
 }
 
 /**
- * Convert a raw Asana task object to a TaskPage.
+ * Convert a raw Asana task + stories into a TaskPage.
+ * When resolvedRef is provided (e.g., from identifier_field), it overrides the GID as ref.
  */
-function asanaTaskToPage(
+export function asanaTaskToPage(
   task: AsanaTask,
   stories: AsanaStory[],
-  statusMapping?: Record<string, string>
+  statusMapping?: Record<string, Status>,
+  resolvedRef?: string | null
 ): TaskPage {
   const sectionName = task.memberships?.[0]?.section?.name;
   const status = mapAsanaToStatus(task.completed, sectionName, statusMapping);
@@ -123,11 +96,11 @@ function asanaTaskToPage(
 
   const comments = stories
     .filter((s) => s.type === "comment")
-    .map((s) => `**${s.created_by.name}** (${s.created_at}):\n${s.text}`);
+    .map((s) => `**${s.created_by.name}** \u2014 ${s.created_at}:\n${s.text}`);
 
   return {
     title: task.name,
-    ref: task.gid,
+    ref: resolvedRef ?? task.gid,
     source: "asana",
     status,
     priority: null,
@@ -148,120 +121,31 @@ function asanaTaskToPage(
 }
 
 export interface AsanaBackendOptions {
-  mcp: McpCall;
+  client: AsanaClient;
   workspaceId?: string;
-  statusMapping?: Record<string, string>;
+  statusMapping?: Record<string, Status>;
 }
 
 /**
  * Create an Asana backend instance.
  * Supports: ingest, pull, push, comment.
  *
- * Uses the Asana MCP server for all API interactions.
- * Inject `mcp` for testing with mocked MCP responses.
+ * Uses the Asana REST API client for all interactions.
+ * Inject `client` for testing with mocked responses.
  */
 export function createAsanaBackend(options: AsanaBackendOptions): Backend {
-  const { mcp, workspaceId, statusMapping } = options;
+  const { client, workspaceId, statusMapping } = options;
 
   return {
     name: "asana",
     capabilities: ["ingest", "pull", "push", "comment"],
 
     async ingest(ref: string): Promise<TaskPage> {
-      // Bulk ingest: "project:GID" or "section:GID"
-      if (ref.startsWith("project:")) {
-        const projectGid = ref.replace("project:", "");
-        const tasks = mcp("asana_get_tasks_for_project", {
-          project_gid: projectGid,
-        }) as AsanaTask[];
-
-        const pages: TaskPage[] = [];
-        for (const task of tasks) {
-          const fullTask = mcp("asana_get_task", {
-            task_gid: task.gid,
-          }) as AsanaTask;
-          const stories = (mcp("asana_get_task_stories", {
-            task_gid: task.gid,
-          }) ?? []) as AsanaStory[];
-          pages.push(asanaTaskToPage(fullTask, stories, statusMapping));
-        }
-
-        // Return a summary TaskPage for bulk operations
-        const taskList = pages
-          .map((p) => `- ${p.title} (${p.ref}) [${p.status}]`)
-          .join("\n");
-
-        return {
-          title: `Bulk ingest: ${ref}`,
-          ref,
-          source: "asana",
-          status: "to-do",
-          priority: null,
-          assignee: null,
-          tags: [],
-          created: new Date().toISOString(),
-          updated: new Date().toISOString(),
-          closed: null,
-          pushed: null,
-          due: null,
-          jira_ref: null,
-          asana_ref: null,
-          gh_ref: null,
-          comment_count: 0,
-          description: `Ingested ${pages.length} tasks:\n${taskList}`,
-          comments: [],
-        };
-      }
-
-      if (ref.startsWith("section:")) {
-        const sectionGid = ref.replace("section:", "");
-        const tasks = mcp("asana_get_tasks_for_section", {
-          section_gid: sectionGid,
-        }) as AsanaTask[];
-
-        const pages: TaskPage[] = [];
-        for (const task of tasks) {
-          const fullTask = mcp("asana_get_task", {
-            task_gid: task.gid,
-          }) as AsanaTask;
-          const stories = (mcp("asana_get_task_stories", {
-            task_gid: task.gid,
-          }) ?? []) as AsanaStory[];
-          pages.push(asanaTaskToPage(fullTask, stories, statusMapping));
-        }
-
-        const taskList = pages
-          .map((p) => `- ${p.title} (${p.ref}) [${p.status}]`)
-          .join("\n");
-
-        return {
-          title: `Bulk ingest: ${ref}`,
-          ref,
-          source: "asana",
-          status: "to-do",
-          priority: null,
-          assignee: null,
-          tags: [],
-          created: new Date().toISOString(),
-          updated: new Date().toISOString(),
-          closed: null,
-          pushed: null,
-          due: null,
-          jira_ref: null,
-          asana_ref: null,
-          gh_ref: null,
-          comment_count: 0,
-          description: `Ingested ${pages.length} tasks:\n${taskList}`,
-          comments: [],
-        };
-      }
-
-      // Single task ingest
+      // Single task ingest (bulk ingest via project:/section: is handled
+      // by the ingest orchestration layer in asana-ingest.ts)
       const taskGid = extractTaskGid(ref);
-      const task = mcp("asana_get_task", { task_gid: taskGid }) as AsanaTask;
-      const stories = (mcp("asana_get_task_stories", {
-        task_gid: taskGid,
-      }) ?? []) as AsanaStory[];
+      const task = await client.getTask(taskGid);
+      const stories = await client.getStories(taskGid);
 
       return asanaTaskToPage(task, stories, statusMapping);
     },
@@ -274,10 +158,8 @@ export function createAsanaBackend(options: AsanaBackendOptions): Backend {
         );
       }
 
-      const task = mcp("asana_get_task", { task_gid: taskGid }) as AsanaTask;
-      const stories = (mcp("asana_get_task_stories", {
-        task_gid: taskGid,
-      }) ?? []) as AsanaStory[];
+      const task = await client.getTask(taskGid);
+      const stories = await client.getStories(taskGid);
 
       const fresh = asanaTaskToPage(task, stories, statusMapping);
       const changes: string[] = [];
@@ -324,10 +206,7 @@ export function createAsanaBackend(options: AsanaBackendOptions): Backend {
         params.due_on = taskPage.due;
       }
 
-      const result = mcp("asana_create_task", params) as {
-        gid: string;
-        permalink_url: string;
-      };
+      const result = await client.createTask(params);
 
       return {
         success: true,
@@ -344,10 +223,7 @@ export function createAsanaBackend(options: AsanaBackendOptions): Backend {
         );
       }
 
-      mcp("asana_create_task_story", {
-        task_gid: taskGid,
-        text,
-      });
+      await client.createStory(taskGid, text);
 
       return {
         success: true,
@@ -365,29 +241,32 @@ export function createAsanaBackend(options: AsanaBackendOptions): Backend {
 }
 
 /**
- * Check Asana MCP server connectivity.
- * Calls asana_get_me to verify authentication.
+ * Check Asana connectivity via REST API.
+ * Calls GET /users/me with Bearer token from ASANA_ACCESS_TOKEN.
  */
-export function checkAsanaConnectivity(mcp?: McpCall): ConnectivityResult {
-  if (!mcp) {
+export async function checkAsanaConnectivityRest(
+  options?: { token?: string; fetch?: (url: string, init?: RequestInit) => Promise<Response> }
+): Promise<ConnectivityResult> {
+  const token = options?.token ?? process.env.ASANA_ACCESS_TOKEN;
+
+  if (!token) {
     return {
       authenticated: false,
       error:
-        "Asana MCP server is not configured. Ensure the Asana MCP server is running. See references/backend-setup.md for setup instructions.",
+        "ASANA_ACCESS_TOKEN is not set. Export your Asana Personal Access Token as ASANA_ACCESS_TOKEN. See references/backend-setup.md for setup instructions.",
     };
   }
 
   try {
-    const result = mcp("asana_get_me", {}) as {
-      name?: string;
-      email?: string;
-    };
-    return { authenticated: true, user: result.name };
-  } catch {
+    const { createAsanaClient } = await import("./asana-client.js");
+    const client = createAsanaClient({ token, fetch: options?.fetch });
+    const user = await client.getMe();
+    return { authenticated: true, user: user.name };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     return {
       authenticated: false,
-      error:
-        "Asana MCP server is not responding. Ensure the Asana MCP server is running and authenticated. See references/backend-setup.md for setup instructions.",
+      error: `Asana REST API check failed: ${message}. Verify your ASANA_ACCESS_TOKEN is valid. See references/backend-setup.md for setup instructions.`,
     };
   }
 }
