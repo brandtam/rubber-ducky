@@ -94,23 +94,10 @@ async function collectBackendConfig(backendType: string): Promise<BackendConfig>
   if (backendType === "jira") {
     const jiraEmail = process.env.JIRA_EMAIL;
     const jiraToken = process.env.JIRA_API_TOKEN;
+    const jiraServerUrl = process.env.JIRA_SERVER_URL;
 
-    if (jiraEmail && jiraToken) {
-      const serverUrl = await clack.text({
-        message: "Jira server URL:",
-        placeholder: "https://myorg.atlassian.net",
-        validate: (value) => {
-          if (!value.trim()) return "Server URL is required for Jira";
-          return undefined;
-        },
-      });
-
-      if (clack.isCancel(serverUrl)) {
-        clack.cancel("Setup cancelled.");
-        process.exit(0);
-      }
-
-      config.server_url = serverUrl as string;
+    if (jiraEmail && jiraToken && jiraServerUrl) {
+      config.server_url = jiraServerUrl;
       await discoverJiraConfig(config, config.server_url, jiraEmail, jiraToken);
     }
   }

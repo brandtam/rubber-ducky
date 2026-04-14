@@ -517,6 +517,7 @@ Then click **Create API token**, give it a label like "rubber-ducky", and copy t
 Tell the user to open \`.env.local\` in the workspace root (copy from \`.env.example\` if it doesn't exist) and set:
 
 \`\`\`
+export JIRA_SERVER_URL=https://yourcompany.atlassian.net
 export JIRA_EMAIL=<their-atlassian-email>
 export JIRA_API_TOKEN=<their-token>
 \`\`\`
@@ -533,9 +534,9 @@ rubber-ducky backend check jira
 
 If it fails, ask the user to double-check their credentials and confirm they ran \`source .env.local\` in the same terminal before starting Claude Code.
 
-**Step 4: Run discovery (if project not yet configured)**
+**Step 4: Run discovery**
 
-If the workspace config is missing \`server_url\` or \`project_key\`, tell the user to run \`rubber-ducky init\` again with their credentials set — it will prompt for the server URL and auto-discover projects via the API.`);
+After connectivity is confirmed, tell the user to re-run \`rubber-ducky init\` with their credentials loaded — it will read \`JIRA_SERVER_URL\` from the environment, write it to workspace config, and auto-discover projects.`);
     }
   }
 
@@ -1042,6 +1043,7 @@ ${serverNote}### Create an API token
 Copy \`.env.example\` to \`.env.local\` if it doesn't exist, then add your credentials:
 
 \`\`\`
+export JIRA_SERVER_URL="https://yourcompany.atlassian.net"
 export JIRA_EMAIL="<your-atlassian-email>"
 export JIRA_API_TOKEN="<your-token>"
 \`\`\`
@@ -1294,6 +1296,7 @@ export function generateEnvExample(backends?: BackendConfig[]): string {
   if (backendTypes.includes("jira")) {
     sections.push(
       "# Jira — create an API token at https://id.atlassian.com/manage-profile/security/api-tokens",
+      "export JIRA_SERVER_URL=https://yourcompany.atlassian.net",
       "export JIRA_EMAIL=",
       "export JIRA_API_TOKEN=",
       ""

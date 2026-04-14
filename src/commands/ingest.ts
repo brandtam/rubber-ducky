@@ -180,7 +180,7 @@ export function registerIngestCommand(program: Command): void {
       const serverUrl = jiraConfig?.server_url;
       if (!serverUrl) {
         exitWithError(
-          "No Jira backend configured with a server_url. Add a Jira backend to your workspace.md.",
+          "No Jira server_url configured. Set JIRA_SERVER_URL in .env.local and re-run `rubber-ducky init` to configure it, or run /get-setup.",
           jsonMode
         );
       }
