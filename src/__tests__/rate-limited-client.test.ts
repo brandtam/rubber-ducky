@@ -280,6 +280,91 @@ describe("rate-limited-client", () => {
     });
   });
 
+  describe("throttle notification", () => {
+    it("emits onThrottle when limiter pause exceeds 2 seconds", async () => {
+      let nowCallCount = 0;
+      const throttleCalls: Array<{ waitMs: number; queued: number }> = [];
+
+      // now() returns 0 when queuedAt is recorded, then 3000 inside the
+      // scheduled callback — simulating a 3-second limiter wait.
+      const now = () => {
+        nowCallCount++;
+        return nowCallCount <= 1 ? 0 : 3000;
+      };
+
+      const { fetch } = mockFetchSequence([
+        { status: 200, body: { data: "ok" } },
+      ]);
+
+      const client = createRateLimitedClient({
+        ...testOpts(),
+        fetch,
+        now,
+        onThrottle: (info) => throttleCalls.push(info),
+      });
+
+      await client.request("https://api.example.com/test");
+      expect(throttleCalls).toHaveLength(1);
+      expect(throttleCalls[0].waitMs).toBe(3000);
+    });
+
+    it("does NOT emit onThrottle when pause is under 2 seconds", async () => {
+      let nowCallCount = 0;
+      const throttleCalls: Array<{ waitMs: number; queued: number }> = [];
+
+      // 1-second simulated pause — below the 2s threshold
+      const now = () => {
+        nowCallCount++;
+        return nowCallCount <= 1 ? 0 : 1000;
+      };
+
+      const { fetch } = mockFetchSequence([
+        { status: 200, body: { data: "ok" } },
+      ]);
+
+      const client = createRateLimitedClient({
+        ...testOpts(),
+        fetch,
+        now,
+        onThrottle: (info) => throttleCalls.push(info),
+      });
+
+      await client.request("https://api.example.com/test");
+      expect(throttleCalls).toHaveLength(0);
+    });
+
+    it("emits onThrottle exactly once per throttled request", async () => {
+      let nowCallCount = 0;
+      const throttleCalls: Array<{ waitMs: number; queued: number }> = [];
+
+      // First request: no pause. Second request: 3s pause.
+      const now = () => {
+        nowCallCount++;
+        // Calls 1,2 are for request 1 (queued + scheduled → 0,0 → 0ms wait)
+        // Calls 3,4 are for request 2 (queued + scheduled → 0,3000 → 3000ms wait)
+        if (nowCallCount <= 2) return 0;
+        return nowCallCount === 3 ? 0 : 3000;
+      };
+
+      const { fetch } = mockFetchSequence([
+        { status: 200, body: { data: "first" } },
+        { status: 200, body: { data: "second" } },
+      ]);
+
+      const client = createRateLimitedClient({
+        ...testOpts(),
+        fetch,
+        now,
+        onThrottle: (info) => throttleCalls.push(info),
+      });
+
+      await client.request("https://api.example.com/1");
+      await client.request("https://api.example.com/2");
+      expect(throttleCalls).toHaveLength(1);
+      expect(throttleCalls[0].waitMs).toBe(3000);
+    });
+  });
+
   describe("error classification", () => {
     it("HttpError includes status code", async () => {
       const { fetch } = mockFetchSequence([

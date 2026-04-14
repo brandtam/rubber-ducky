@@ -14,6 +14,7 @@ import {
   createRateLimitedClient,
   type RateLimitedClient,
   type FetchFn as RateLimitedFetchFn,
+  type ThrottleInfo,
 } from "./http/rate-limited-client.js";
 import { createAsanaLimiter } from "./http/backends.js";
 
@@ -97,6 +98,8 @@ export interface AsanaClientOptions {
   limiter?: Bottleneck;
   /** Injectable sleep for testing. Passed through to the rate-limited client. */
   sleep?: (ms: number) => Promise<void>;
+  /** Called when a request waited longer than 2s in the limiter queue. */
+  onThrottle?: (info: ThrottleInfo) => void;
 }
 
 export interface TaskListOptions {
@@ -175,6 +178,7 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
     fetch: fetchFn as RateLimitedFetchFn,
     envVarHint: "ASANA_RATE_LIMIT_RPM",
     ...(options.sleep ? { sleep: options.sleep } : {}),
+    ...(options.onThrottle ? { onThrottle: options.onThrottle } : {}),
   });
 
   const authHeaders: Record<string, string> = {

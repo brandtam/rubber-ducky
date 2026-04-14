@@ -10,7 +10,7 @@
  */
 
 import type Bottleneck from "bottleneck";
-import { createRateLimitedClient, type FetchFn as RLFetchFn } from "./http/rate-limited-client.js";
+import { createRateLimitedClient, type FetchFn as RLFetchFn, type ThrottleInfo } from "./http/rate-limited-client.js";
 import { withRateLimitHints } from "./http/rate-limit-hints.js";
 
 export interface JiraIssue {
@@ -58,6 +58,8 @@ export interface JiraClientOptions {
   limiter?: Bottleneck;
   /** Injectable sleep for testing the rate-limited path. */
   sleep?: (ms: number) => Promise<void>;
+  /** Called when a request waited longer than 2s in the limiter queue. */
+  onThrottle?: (info: ThrottleInfo) => void;
 }
 
 export interface JiraTransition {
@@ -102,6 +104,7 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
       fetch: hintsFetch,
       envVarHint: "JIRA_RATE_LIMIT_RPM",
       sleep: options.sleep,
+      ...(options.onThrottle ? { onThrottle: options.onThrottle } : {}),
     });
     fetchFn = rlClient.request.bind(rlClient);
   } else {

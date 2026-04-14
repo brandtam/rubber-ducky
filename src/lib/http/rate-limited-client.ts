@@ -79,6 +79,13 @@ function getMethod(init?: RequestInit): string {
 /*  Client factory                                                    */
 /* ------------------------------------------------------------------ */
 
+export interface ThrottleInfo {
+  /** How long the request waited in the limiter queue (ms). */
+  waitMs: number;
+  /** Number of requests still queued behind this one. */
+  queued: number;
+}
+
 export interface RateLimitedClientOptions {
   /** Bottleneck instance for rate limiting / scheduling. */
   limiter: Bottleneck;
@@ -96,6 +103,12 @@ export interface RateLimitedClientOptions {
   envVarHint?: string;
   /** Injectable sleep for testing. Defaults to setTimeout-based sleep. */
   sleep?: (ms: number) => Promise<void>;
+  /** Called when a request waited longer than minThrottlePauseMs in the queue. */
+  onThrottle?: (info: ThrottleInfo) => void;
+  /** Minimum queue wait in ms before onThrottle fires. Default: 2000. */
+  minThrottlePauseMs?: number;
+  /** Injectable clock for deterministic throttle-timing tests. Default: Date.now. */
+  now?: () => number;
 }
 
 export interface RateLimitedClient {
@@ -120,6 +133,9 @@ export function createRateLimitedClient(
     retryMaxTimeout = 30_000,
     envVarHint,
     sleep = (ms: number) => new Promise((r) => setTimeout(r, ms)),
+    onThrottle,
+    minThrottlePauseMs = 2_000,
+    now = Date.now,
   } = options;
 
   return {
@@ -129,8 +145,19 @@ export function createRateLimitedClient(
       // Track whether the last failure was a 429 for error classification
       let lastWas429 = false;
 
-      const result = await limiter.schedule(() =>
-        pRetry(
+      const queuedAt = now();
+
+      const result = await limiter.schedule(() => {
+        // Detect throttle: measure actual queue wait
+        if (onThrottle) {
+          const waitMs = now() - queuedAt;
+          if (waitMs >= minThrottlePauseMs) {
+            const counts = limiter.counts();
+            onThrottle({ waitMs, queued: counts.QUEUED });
+          }
+        }
+
+        return pRetry(
           async () => {
             let response: Response;
             try {
@@ -213,8 +240,8 @@ export function createRateLimitedClient(
               return true;
             },
           }
-        )
-      ).catch((error: unknown) => {
+        );
+      }).catch((error: unknown) => {
         // Classify the final error
         if (lastWas429) {
           const hint = envVarHint
