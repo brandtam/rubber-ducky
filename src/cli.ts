@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { Command } from "commander";
+import { findWorkspaceRoot } from "./lib/workspace.js";
 import { registerInitCommand } from "./commands/init.js";
 import { registerFrontmatterCommand } from "./commands/frontmatter.js";
 import { registerUpdateCommand } from "./commands/update.js";
@@ -59,7 +62,40 @@ const isMainModule =
     process.argv[1].endsWith("/cli.ts") ||
     process.argv[1].includes("rubber-ducky"));
 
+/**
+ * Load .env.local from the workspace root if it exists.
+ * Sets env vars that aren't already set so the user doesn't need to
+ * manually source the file before every session.
+ */
+function loadEnvLocal(): void {
+  const workspaceRoot = findWorkspaceRoot();
+  if (!workspaceRoot) return;
+
+  const envPath = path.join(workspaceRoot, ".env.local");
+  if (!fs.existsSync(envPath)) return;
+
+  const content = fs.readFileSync(envPath, "utf-8");
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    // Skip comments and empty lines
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    // Strip optional "export " prefix
+    const assignment = trimmed.startsWith("export ")
+      ? trimmed.slice(7)
+      : trimmed;
+    const eqIndex = assignment.indexOf("=");
+    if (eqIndex === -1) continue;
+    const key = assignment.slice(0, eqIndex).trim();
+    const value = assignment.slice(eqIndex + 1).trim();
+    // Don't overwrite vars already in the environment
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
 if (isMainModule) {
+  loadEnvLocal();
   const program = createProgram();
   program.parse(process.argv);
 }
