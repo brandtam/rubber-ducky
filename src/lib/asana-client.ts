@@ -85,6 +85,11 @@ export interface AsanaClientOptions {
 
 export interface TaskListOptions {
   assigneeGid?: string;
+  /**
+   * Required when assigneeGid is set — the search endpoint is
+   * workspace-scoped.  Ignored when assigneeGid is absent.
+   */
+  workspaceGid?: string;
 }
 
 export interface AsanaCreateTaskResult {
@@ -226,19 +231,45 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
     },
 
     async getTasksForProject(projectGid: string, opts?: TaskListOptions): Promise<AsanaTask[]> {
-      let url = `/projects/${projectGid}/tasks?opt_fields=${TASK_OPT_FIELDS}&limit=100`;
       if (opts?.assigneeGid) {
-        url += `&assignee.any=${opts.assigneeGid}`;
+        if (!opts.workspaceGid) {
+          throw new Error(
+            "workspaceGid is required when filtering by assignee — " +
+            "the Asana project-tasks endpoint silently ignores assignee.any. " +
+            "Pass workspaceGid so the workspace search endpoint can be used instead."
+          );
+        }
+        const url =
+          `/workspaces/${opts.workspaceGid}/tasks/search` +
+          `?projects.any=${projectGid}` +
+          `&assignee.any=${opts.assigneeGid}` +
+          `&opt_fields=${TASK_OPT_FIELDS}`;
+        return requestPaginated<AsanaTask>(url);
       }
-      return requestPaginated<AsanaTask>(url);
+      return requestPaginated<AsanaTask>(
+        `/projects/${projectGid}/tasks?opt_fields=${TASK_OPT_FIELDS}&limit=100`
+      );
     },
 
     async getTasksForSection(sectionGid: string, opts?: TaskListOptions): Promise<AsanaTask[]> {
-      let url = `/sections/${sectionGid}/tasks?opt_fields=${TASK_OPT_FIELDS}&limit=100`;
       if (opts?.assigneeGid) {
-        url += `&assignee.any=${opts.assigneeGid}`;
+        if (!opts.workspaceGid) {
+          throw new Error(
+            "workspaceGid is required when filtering by assignee — " +
+            "the Asana section-tasks endpoint silently ignores assignee.any. " +
+            "Pass workspaceGid so the workspace search endpoint can be used instead."
+          );
+        }
+        const url =
+          `/workspaces/${opts.workspaceGid}/tasks/search` +
+          `?sections.any=${sectionGid}` +
+          `&assignee.any=${opts.assigneeGid}` +
+          `&opt_fields=${TASK_OPT_FIELDS}`;
+        return requestPaginated<AsanaTask>(url);
       }
-      return requestPaginated<AsanaTask>(url);
+      return requestPaginated<AsanaTask>(
+        `/sections/${sectionGid}/tasks?opt_fields=${TASK_OPT_FIELDS}&limit=100`
+      );
     },
 
     async getAttachments(taskGid: string): Promise<AsanaAttachment[]> {

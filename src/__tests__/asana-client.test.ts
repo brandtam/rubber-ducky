@@ -295,7 +295,7 @@ describe("AsanaClient", () => {
       expect(capturedUrl).toContain("opt_fields=");
     });
 
-    it("passes assignee.any param for scope filtering", async () => {
+    it("uses workspace search endpoint when assigneeGid is present", async () => {
       let capturedUrl = "";
       const fetch = mockFetch((url) => {
         capturedUrl = url;
@@ -303,9 +303,24 @@ describe("AsanaClient", () => {
       });
 
       const client = createAsanaClient({ token: "test-token", fetch });
-      await client.getTasksForProject("proj123", { assigneeGid: "me123" });
+      await client.getTasksForProject("proj123", {
+        assigneeGid: "me123",
+        workspaceGid: "ws456",
+      });
 
+      expect(capturedUrl).toContain("/workspaces/ws456/tasks/search");
+      expect(capturedUrl).toContain("projects.any=proj123");
       expect(capturedUrl).toContain("assignee.any=me123");
+      expect(capturedUrl).not.toContain("/projects/proj123/tasks");
+    });
+
+    it("throws when assigneeGid is present but workspaceGid is missing", async () => {
+      const fetch = mockFetch(() => ({ status: 200, body: { data: [] } }));
+      const client = createAsanaClient({ token: "test-token", fetch });
+
+      await expect(
+        client.getTasksForProject("proj123", { assigneeGid: "me123" })
+      ).rejects.toThrow(/workspaceGid/i);
     });
 
     it("returns empty array when project has no tasks", async () => {
@@ -354,6 +369,25 @@ describe("AsanaClient", () => {
       expect(tasks[0].name).toBe("Section Task");
       expect(capturedUrl).toContain("/sections/sec456/tasks");
       expect(capturedUrl).toContain("opt_fields=");
+    });
+
+    it("uses workspace search endpoint when assigneeGid is present", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return { status: 200, body: { data: [] } };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      await client.getTasksForSection("sec456", {
+        assigneeGid: "me123",
+        workspaceGid: "ws789",
+      });
+
+      expect(capturedUrl).toContain("/workspaces/ws789/tasks/search");
+      expect(capturedUrl).toContain("sections.any=sec456");
+      expect(capturedUrl).toContain("assignee.any=me123");
+      expect(capturedUrl).not.toContain("/sections/sec456/tasks");
     });
 
     it("returns empty array when section has no tasks", async () => {

@@ -335,11 +335,11 @@ export async function ingestAsanaBulk(
     );
   }
 
-  // Resolve scope filtering
+  // Resolve scope filtering — the search endpoint requires workspaceGid
   let listOpts: TaskListOptions | undefined;
   if (scope === "mine") {
     const me = await client.getMe();
-    listOpts = { assigneeGid: me.gid };
+    listOpts = { assigneeGid: me.gid, workspaceGid };
   }
 
   // Fetch task list
