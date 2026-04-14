@@ -1,63 +1,71 @@
+import Bottleneck from "bottleneck";
+
 /**
  * Per-backend Bottleneck limiter factory.
  *
- * Exposes createAsanaLimiter() and createJiraLimiter() with sensible defaults
- * (80% of documented rate limits) and env-var overrides.
+ * Defaults pace at 80% of the documented per-minute ceiling (the 20% headroom
+ * rule from PRD #74): cooperative co-tenancy with other API consumers on the
+ * same token, and faster on average than running full-throttle-then-recover
+ * because 429 round-trips cost more than the headroom saves.
  *
- * Defaults (20% headroom rule):
- * - Asana: reservoir 120 (80% of 150 req/min), maxConcurrent 5, minTime 50ms
- * - Jira:  reservoir 60 (static floor), maxConcurrent 5, minTime 50ms
+ * Jira Cloud adapts its reservoir live from X-RateLimit-* response headers
+ * via rate-limit-hints.ts; Asana has no equivalent signal and relies on
+ * defaults + env-var overrides.
  */
 
-import Bottleneck from "bottleneck";
-
-/** Parse a positive integer from an env var, or return undefined. */
 function parseEnvInt(name: string): number | undefined {
   const raw = process.env[name];
   if (!raw) return undefined;
   const n = Number(raw);
-  if (Number.isNaN(n) || !Number.isFinite(n) || n <= 0) return undefined;
+  if (!Number.isFinite(n) || n <= 0) return undefined;
   return Math.floor(n);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Asana                                                             */
-/* ------------------------------------------------------------------ */
-
-const ASANA_DEFAULT_RESERVOIR = 120;     // 80% of 150 req/min free tier
-const ASANA_DEFAULT_MAX_CONCURRENT = 5;
-const ASANA_DEFAULT_MIN_TIME = 50;       // ms between requests
-
-export function createAsanaLimiter(): Bottleneck {
-  const reservoir = parseEnvInt("ASANA_RATE_LIMIT_RPM") ?? ASANA_DEFAULT_RESERVOIR;
-  const maxConcurrent = parseEnvInt("ASANA_MAX_CONCURRENT") ?? ASANA_DEFAULT_MAX_CONCURRENT;
-
-  return new Bottleneck({
-    reservoir,
-    reservoirRefreshAmount: reservoir,
-    reservoirRefreshInterval: 60_000,  // refill every 60s
-    maxConcurrent,
-    minTime: ASANA_DEFAULT_MIN_TIME,
-  });
+interface LimiterConfig {
+  /** Requests per minute ceiling — default reservoir and refill amount. */
+  defaultRpm: number;
+  /** Default concurrency cap, well under the backend's documented limit. */
+  defaultMaxConcurrent: number;
+  /** Env var that overrides `defaultRpm`. */
+  rpmEnvVar: string;
+  /** Env var that overrides `defaultMaxConcurrent`. */
+  maxConcurrentEnvVar: string;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Jira                                                              */
-/* ------------------------------------------------------------------ */
+const ASANA: LimiterConfig = {
+  defaultRpm: 120, // 80% of Asana free tier's 150 req/min
+  defaultMaxConcurrent: 5,
+  rpmEnvVar: "ASANA_RATE_LIMIT_RPM",
+  maxConcurrentEnvVar: "ASANA_MAX_CONCURRENT",
+};
 
-const JIRA_DEFAULT_RESERVOIR = 60;
-const JIRA_DEFAULT_MAX_CONCURRENT = 5;
-const JIRA_DEFAULT_MIN_TIME = 50;
+const JIRA: LimiterConfig = {
+  defaultRpm: 60, // Static floor; Jira Cloud adapts upward via server hints
+  defaultMaxConcurrent: 5,
+  rpmEnvVar: "JIRA_RATE_LIMIT_RPM",
+  maxConcurrentEnvVar: "JIRA_MAX_CONCURRENT",
+};
 
-export function createJiraLimiter(): Bottleneck {
-  const reservoir = parseEnvInt("JIRA_RATE_LIMIT_RPM") ?? JIRA_DEFAULT_RESERVOIR;
-  const maxConcurrent = parseEnvInt("JIRA_MAX_CONCURRENT") ?? JIRA_DEFAULT_MAX_CONCURRENT;
+function createLimiter(config: LimiterConfig): Bottleneck {
+  const reservoir = parseEnvInt(config.rpmEnvVar) ?? config.defaultRpm;
+  const maxConcurrent =
+    parseEnvInt(config.maxConcurrentEnvVar) ?? config.defaultMaxConcurrent;
 
   return new Bottleneck({
     reservoir,
     reservoirRefreshAmount: reservoir,
     reservoirRefreshInterval: 60_000,
     maxConcurrent,
-    minTime: JIRA_DEFAULT_MIN_TIME,
+    // Smooths micro-bursts so a worker pool launching N tasks in the same
+    // tick doesn't fire N requests in the same millisecond.
+    minTime: 50,
   });
+}
+
+export function createAsanaLimiter(): Bottleneck {
+  return createLimiter(ASANA);
+}
+
+export function createJiraLimiter(): Bottleneck {
+  return createLimiter(JIRA);
 }

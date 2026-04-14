@@ -1324,7 +1324,7 @@ export function generateClaudeSettings(backends?: BackendConfig[]): string {
     `INPUT=$(cat); ` +
     `FILE_PATH=$(echo "$INPUT" | grep -o '"file_path":"[^"]*"' | cut -d'"' -f4); ` +
     `COMMAND=$(echo "$INPUT" | grep -o '"command":"[^"]*"' | cut -d'"' -f4); ` +
-    `if echo "$FILE_PATH" | grep -qE '\\.env($|\\.)'; then ` +
+    `if echo "$FILE_PATH" | grep -qE '(^|/)\\.env(rc)?($|[._-])'; then ` +
       `echo "BLOCKED: Reading .env files is not allowed — they contain secrets. Use rubber-ducky backend check to verify connectivity."; exit 2; ` +
     `fi; ` +
     `if echo "$COMMAND" | grep -qE '(cat|head|tail|less|more|bat).*\\.env'; then ` +

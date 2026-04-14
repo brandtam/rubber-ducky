@@ -114,6 +114,7 @@ describe("Backend interface", () => {
       const mockFetch = async (url: string, init?: RequestInit) => ({
         ok: true,
         status: 200,
+        headers: new Headers(),
         json: async () => ({ displayName: "Alice Smith", emailAddress: "alice@myorg.com" }),
         text: async () => JSON.stringify({ displayName: "Alice Smith" }),
       }) as Response;

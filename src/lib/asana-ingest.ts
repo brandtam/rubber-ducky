@@ -173,8 +173,9 @@ export async function ingestAsanaTask(
     }
   }
 
-  // From here on, stories/attachments use the resolved task's GID.
-  // Calls go serially through the Bottleneck limiter — no parallel bursts.
+  // Stories and attachments are fetched serially rather than via Promise.all:
+  // the rate limiter already caps concurrency, so parallelizing here only
+  // lengthens the queue without increasing throughput (PRD #74).
   const taskGid = task.gid;
   const stories = await client.getStories(taskGid);
   const attachments = await client.getAttachments(taskGid);

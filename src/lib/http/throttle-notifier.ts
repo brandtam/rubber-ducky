@@ -1,11 +1,3 @@
-/**
- * Factory for the throttle notification callback used by the rate-limited
- * client's `onThrottle` option.
- *
- * Formats the standard message:
- *   ⏸ <backend> rate limit — waiting <N>s (<M> requests queued)
- */
-
 import type { ThrottleInfo } from "./rate-limited-client.js";
 
 export interface ThrottleNotifierOptions {
@@ -13,12 +5,6 @@ export interface ThrottleNotifierOptions {
   log?: (msg: string) => void;
 }
 
-/**
- * Create a callback suitable for `RateLimitedClientOptions.onThrottle`.
- *
- * @param backendName  Human-readable backend label (e.g. "Asana", "Jira").
- * @param options      Optional overrides (injectable log sink for testing).
- */
 export function createThrottleNotifier(
   backendName: string,
   options?: ThrottleNotifierOptions,

@@ -1,17 +1,14 @@
 /**
- * Thin REST API client for Jira Cloud using Node's built-in fetch().
- *
- * Auth: Basic Auth via JIRA_EMAIL + JIRA_API_TOKEN env vars.
- * All HTTP I/O is injectable via the `fetch` option for testing.
- *
- * When a Bottleneck `limiter` is provided, all requests are routed through
- * the rate-limited HTTP client with the Jira Cloud rate-limit-hints adapter,
- * giving adaptive pacing via X-RateLimit-* response headers.
+ * Thin REST API client for Jira Cloud.
+ * Auth: Basic via JIRA_EMAIL + JIRA_API_TOKEN. When `limiter` is provided,
+ * requests route through the rate-limited client with X-RateLimit-* hints
+ * driving adaptive pacing; otherwise calls `fetch` directly.
  */
 
 import type Bottleneck from "bottleneck";
 import { createRateLimitedClient, type FetchFn as RLFetchFn, type ThrottleInfo } from "./http/rate-limited-client.js";
 import { withRateLimitHints } from "./http/rate-limit-hints.js";
+import { createJiraLimiter } from "./http/backends.js";
 
 export interface JiraIssue {
   key: string;
@@ -53,9 +50,10 @@ export interface JiraClientOptions {
   serverUrl: string;
   email: string;
   apiToken: string;
-  fetch?: FetchFn;
-  /** Optional Bottleneck limiter — enables rate-limited client + hints adapter. */
+  /** Bottleneck limiter. Defaults to createJiraLimiter() — pass an explicit
+   *  one for tests (zero delays) or when sharing a limiter across clients. */
   limiter?: Bottleneck;
+  fetch?: FetchFn;
   /** Injectable sleep for testing the rate-limited path. */
   sleep?: (ms: number) => Promise<void>;
   /** Called when a request waited longer than 2s in the limiter queue. */
@@ -88,34 +86,25 @@ export interface JiraClient {
 export function createJiraClient(options: JiraClientOptions): JiraClient {
   const { email, apiToken } = options;
   const serverUrl = options.serverUrl.replace(/\/+$/, "");
+  const limiter = options.limiter ?? createJiraLimiter();
 
-  let fetchFn: FetchFn;
-  if (options.limiter) {
-    // Wire rate-limited client with Jira Cloud hints adapter.
-    // The hints adapter wraps the raw fetch so it sees every response
-    // (including ones the retry logic will retry) and updates the
-    // limiter's reservoir from X-RateLimit-* headers.
-    const hintsFetch = withRateLimitHints(
-      (options.fetch ?? globalThis.fetch) as RLFetchFn,
-      { limiter: options.limiter }
-    );
-    const rlClient = createRateLimitedClient({
-      limiter: options.limiter,
-      fetch: hintsFetch,
-      envVarHint: "JIRA_RATE_LIMIT_RPM",
-      sleep: options.sleep,
-      ...(options.onThrottle ? { onThrottle: options.onThrottle } : {}),
-    });
-    fetchFn = rlClient.request.bind(rlClient);
-  } else {
-    fetchFn = options.fetch ?? globalThis.fetch;
-  }
+  // Hints adapter wraps fetch so it sees every response (including ones the
+  // retry logic retries) and reflects X-RateLimit-* into the reservoir.
+  const hintsFetch = withRateLimitHints(
+    (options.fetch ?? globalThis.fetch) as RLFetchFn,
+    { limiter }
+  );
+  const rlClient = createRateLimitedClient({
+    limiter,
+    fetch: hintsFetch,
+    envVarHint: "JIRA_RATE_LIMIT_RPM",
+    sleep: options.sleep,
+    ...(options.onThrottle ? { onThrottle: options.onThrottle } : {}),
+  });
+  const fetchFn: FetchFn = rlClient.request.bind(rlClient);
 
-  /**
-   * Cached auth headers — computed once on first request, reused thereafter.
-   * Validation is deferred to first use so backend list/capabilities work
-   * without credentials set.
-   */
+  // Validation is deferred to first use so backend list/capabilities calls
+  // work without credentials set.
   let cachedHeaders: Record<string, string> | null = null;
 
   function getAuthHeaders(): Record<string, string> {

@@ -1,18 +1,12 @@
 /**
  * Thin REST API client for Asana.
- *
- * Auth: Bearer token via ASANA_ACCESS_TOKEN env var.
- * All HTTP I/O routes through the rate-limited client from
- * `http/rate-limited-client.ts`, which handles 429 retries,
- * exponential backoff, and Bottleneck scheduling.
- *
- * For testing, inject a permissive Bottleneck limiter and a stub fetch.
+ * Auth: Bearer token via ASANA_ACCESS_TOKEN. HTTP I/O goes through the
+ * rate-limited client (429 + backoff + Bottleneck scheduling).
  */
 
-import Bottleneck from "bottleneck";
+import type Bottleneck from "bottleneck";
 import {
   createRateLimitedClient,
-  type RateLimitedClient,
   type FetchFn as RateLimitedFetchFn,
   type ThrottleInfo,
 } from "./http/rate-limited-client.js";
@@ -93,9 +87,10 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
 export interface AsanaClientOptions {
   token: string;
-  fetch?: FetchFn;
-  /** Bottleneck limiter instance. Defaults to createAsanaLimiter(). */
+  /** Bottleneck limiter. Defaults to createAsanaLimiter() — pass an explicit
+   *  one for tests (zero delays) or when sharing a limiter across clients. */
   limiter?: Bottleneck;
+  fetch?: FetchFn;
   /** Injectable sleep for testing. Passed through to the rate-limited client. */
   sleep?: (ms: number) => Promise<void>;
   /** Called when a request waited longer than 2s in the limiter queue. */
@@ -296,6 +291,10 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
     },
 
     async downloadFile(url: string): Promise<Buffer> {
+      // Attachment URLs point at Asana's CDN, not the API bucket metered by
+      // the 150 req/min limit — routing them through the rate limiter would
+      // needlessly share budget with API calls and stall task-list fetches
+      // during large ingests. Bypass the rate-limited client deliberately.
       const response = await fetchFn(url, {});
       if (!response.ok) {
         const body = await response.text();

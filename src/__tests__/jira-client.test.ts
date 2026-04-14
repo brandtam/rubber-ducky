@@ -9,13 +9,18 @@ import {
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
 function mockFetch(
-  handler: (url: string, init?: RequestInit) => { status: number; body: unknown }
+  handler: (url: string, init?: RequestInit) => {
+    status: number;
+    body: unknown;
+    headers?: Record<string, string>;
+  }
 ): FetchFn {
   return async (url: string, init?: RequestInit) => {
     const result = handler(url, init);
     return {
       ok: result.status >= 200 && result.status < 300,
       status: result.status,
+      headers: new Headers(result.headers ?? {}),
       json: async () => result.body,
       text: async () => JSON.stringify(result.body),
     } as Response;

@@ -1,24 +1,7 @@
-/**
- * Rate-limited HTTP client that wraps fetch with Bottleneck scheduling
- * and p-retry for transient error recovery.
- *
- * Handles:
- * - 429 responses: reads Retry-After (seconds and HTTP-date), retries.
- * - 5xx GETs: retries with exponential backoff + full jitter.
- * - 5xx POSTs: does NOT retry (idempotency rule).
- * - Network errors on any method: retries.
- * - 4xx (non-429): fails fast, no retry.
- * - Retry budget ceiling: ~2 minutes total, max 5 attempts.
- */
-
 import type Bottleneck from "bottleneck";
 import pRetry, { AbortError } from "p-retry";
 
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
-
-/* ------------------------------------------------------------------ */
-/*  Error types                                                       */
-/* ------------------------------------------------------------------ */
 
 export class HttpError extends Error {
   readonly statusCode: number;
@@ -36,25 +19,28 @@ export class RateLimitError extends HttpError {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Retry-After parsing                                               */
-/* ------------------------------------------------------------------ */
-
 /**
- * Parse the Retry-After header value.
- * Supports both seconds (integer) and HTTP-date formats.
- * Returns delay in milliseconds, minimum 0.
+ * Internal signal thrown from inside pRetry on 429 so the outer loop can
+ * honor Retry-After with exact timing. Never escapes to callers — always
+ * either consumed (retry) or converted to RateLimitError (exhaustion).
  */
+class RetryAfterSignal extends Error {
+  readonly waitMs: number;
+  constructor(waitMs: number) {
+    super("429");
+    this.waitMs = waitMs;
+  }
+}
+
+/** Parse Retry-After; supports integer seconds and HTTP-date. Returns ms. */
 function parseRetryAfter(value: string | null): number {
   if (!value) return 0;
 
-  // Try parsing as integer seconds first
   const seconds = Number(value);
-  if (!Number.isNaN(seconds) && Number.isFinite(seconds)) {
+  if (Number.isFinite(seconds)) {
     return Math.max(0, Math.ceil(seconds * 1000));
   }
 
-  // Try parsing as HTTP-date
   const date = new Date(value);
   if (!Number.isNaN(date.getTime())) {
     return Math.max(0, date.getTime() - Date.now());
@@ -63,21 +49,29 @@ function parseRetryAfter(value: string | null): number {
   return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Request classification                                            */
-/* ------------------------------------------------------------------ */
-
+/**
+ * WHATWG fetch rejects with TypeError for network-level failures (DNS, TLS,
+ * connection reset). Application-level TypeErrors (malformed Request args)
+ * would resurface deterministically, so retrying them is harmless.
+ * https://fetch.spec.whatwg.org/#fetch-method
+ */
 function isNetworkError(error: unknown): boolean {
   return error instanceof TypeError;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function getMethod(init?: RequestInit): string {
   return (init?.method ?? "GET").toUpperCase();
 }
 
-/* ------------------------------------------------------------------ */
-/*  Client factory                                                    */
-/* ------------------------------------------------------------------ */
+function unwrap(error: unknown): unknown {
+  return error instanceof AbortError && error.originalError
+    ? error.originalError
+    : error;
+}
 
 export interface ThrottleInfo {
   /** How long the request waited in the limiter queue (ms). */
@@ -89,34 +83,40 @@ export interface ThrottleInfo {
 export interface RateLimitedClientOptions {
   /** Bottleneck instance for rate limiting / scheduling. */
   limiter: Bottleneck;
-  /** Injectable fetch function. Defaults to globalThis.fetch. */
+  /** Injectable fetch. Defaults to globalThis.fetch. */
   fetch?: FetchFn;
-  /** Max retry attempts (default 5). */
+  /** Max retries for 5xx/network errors (default 5). */
   maxRetries?: number;
-  /** Total retry budget in ms (default 120_000 = 2 minutes). */
+  /** Max 429 retries; separate from maxRetries so server-directed waits
+   *  don't cannibalize the transient-error budget (default 5). */
+  maxRateLimitRetries?: number;
+  /** Total retry budget across both error types in ms (default 120_000). */
   maxRetryTime?: number;
-  /** Initial retry delay in ms (default 1000). */
+  /** Initial backoff for 5xx/network retries in ms (default 1_000). */
   retryMinTimeout?: number;
-  /** Max retry delay in ms (default 30_000). */
+  /** Max backoff for 5xx/network retries in ms (default 30_000). */
   retryMaxTimeout?: number;
-  /** Env-var name to mention in rate-limit error messages. */
+  /** Per-attempt fetch timeout in ms. Aborts the underlying request so a
+   *  single hung socket can't drain the whole retry budget (default 30_000). */
+  perAttemptTimeoutMs?: number;
+  /** Env-var name surfaced in RateLimitError messages (e.g. ASANA_RATE_LIMIT_RPM). */
   envVarHint?: string;
-  /** Injectable sleep for testing. Defaults to setTimeout-based sleep. */
+  /** Injectable sleep for testing. Defaults to setTimeout. */
   sleep?: (ms: number) => Promise<void>;
-  /** Called when a request waited longer than minThrottlePauseMs in the queue. */
+  /** Called when queue wait exceeds minThrottlePauseMs. */
   onThrottle?: (info: ThrottleInfo) => void;
-  /** Minimum queue wait in ms before onThrottle fires. Default: 2000. */
+  /** Queue-wait threshold before onThrottle fires (default 2_000). */
   minThrottlePauseMs?: number;
-  /** Injectable clock for deterministic throttle-timing tests. Default: Date.now. */
+  /** Injectable clock for deterministic tests. Default: Date.now. */
   now?: () => number;
 }
 
 export interface RateLimitedClient {
   /**
    * Make an HTTP request through the rate limiter with retry logic.
-   * Returns the raw Response on success.
-   * Throws HttpError on non-retryable failures.
-   * Throws RateLimitError when retry budget is exhausted due to 429s.
+   * Returns the Response on success. Throws `HttpError` for non-retryable
+   * failures; throws `RateLimitError` when the retry budget is exhausted
+   * by 429s. Honors `init.signal` if provided.
    */
   request(url: string, init?: RequestInit): Promise<Response>;
 }
@@ -128,9 +128,11 @@ export function createRateLimitedClient(
     limiter,
     fetch: fetchFn = globalThis.fetch,
     maxRetries = 5,
+    maxRateLimitRetries = 5,
     maxRetryTime = 120_000,
     retryMinTimeout = 1_000,
     retryMaxTimeout = 30_000,
+    perAttemptTimeoutMs = 30_000,
     envVarHint,
     sleep = (ms: number) => new Promise((r) => setTimeout(r, ms)),
     onThrottle,
@@ -141,135 +143,151 @@ export function createRateLimitedClient(
   return {
     async request(url: string, init?: RequestInit): Promise<Response> {
       const method = getMethod(init);
-
-      // Track whether the last failure was a 429 for error classification
-      let lastWas429 = false;
-
       const queuedAt = now();
+      const deadline = queuedAt + maxRetryTime;
+      let rateLimitAttempts = 0;
 
-      const result = await limiter.schedule(() => {
-        // Detect throttle: measure actual queue wait
+      const exhausted = (): RateLimitError => {
+        const hint = envVarHint
+          ? ` Try again later, or set ${envVarHint} to adjust the rate limit.`
+          : " Try again later.";
+        return new RateLimitError(`Rate limit exceeded for ${url}.${hint}`);
+      };
+
+      return limiter.schedule(async () => {
         if (onThrottle) {
           const waitMs = now() - queuedAt;
           if (waitMs >= minThrottlePauseMs) {
-            const counts = limiter.counts();
-            onThrottle({ waitMs, queued: counts.QUEUED });
+            onThrottle({ waitMs, queued: limiter.counts().QUEUED });
           }
         }
 
-        return pRetry(
-          async () => {
-            let response: Response;
-            try {
-              response = await fetchFn(url, init);
-            } catch (error) {
-              // Network errors are retryable for all methods
-              if (isNetworkError(error)) {
-                lastWas429 = false;
-                throw error; // p-retry retries TypeErrors that look like network errors
+        // Two-layer design:
+        // • Inner pRetry handles 5xx GETs and network errors with exponential
+        //   + jittered backoff (AWS "Exponential Backoff and Jitter" 2015).
+        // • Outer loop handles 429 with exact Retry-After timing. Stacking
+        //   p-retry's backoff on top of server-directed waits would overshoot
+        //   the hint, so 429s abort pRetry and are replayed here.
+        while (true) {
+          try {
+            return await pRetry(
+              () =>
+                attemptOnce({
+                  url,
+                  init,
+                  method,
+                  fetchFn,
+                  perAttemptTimeoutMs,
+                }),
+              {
+                retries: maxRetries,
+                minTimeout: retryMinTimeout,
+                maxTimeout: retryMaxTimeout,
+                randomize: true,
+                maxRetryTime,
               }
-              throw new AbortError(
-                error instanceof Error ? error : new Error(String(error))
-              );
-            }
-
-            // 2xx — success
-            if (response.ok) {
-              return response;
-            }
-
-            // 429 — rate limited, always retryable
-            if (response.status === 429) {
-              lastWas429 = true;
-              const retryAfterMs = parseRetryAfter(
-                response.headers.get("retry-after")
-              );
-              // If Retry-After specifies a wait, sleep for it.
-              // The p-retry backoff will be in addition, but for 429 we
-              // primarily want to honor the server hint.
-              if (retryAfterMs > 0) {
-                await sleep(retryAfterMs);
-              }
-              throw new HttpError(
-                `HTTP 429: rate limited`,
-                429
-              );
-            }
-
-            // 5xx — retryable for GETs, not for POSTs
-            if (response.status >= 500) {
-              lastWas429 = false;
-              if (method === "POST") {
-                // POST idempotency rule: never retry 5xx on POST
-                throw new AbortError(
-                  new HttpError(
-                    `HTTP ${response.status}: server error (POST not retried)`,
-                    response.status
-                  )
-                );
-              }
-              throw new HttpError(
-                `HTTP ${response.status}: server error`,
-                response.status
-              );
-            }
-
-            // 4xx (non-429) — fail fast
-            lastWas429 = false;
-            throw new AbortError(
-              new HttpError(
-                `HTTP ${response.status}`,
-                response.status
-              )
             );
-          },
-          {
-            retries: maxRetries,
-            minTimeout: retryMinTimeout,
-            maxTimeout: retryMaxTimeout,
-            randomize: true,
-            maxRetryTime,
-            // 429s should not consume the retry budget — they're server-directed waits
-            shouldConsumeRetry: ({ error }) => {
+          } catch (error) {
+            const inner = unwrap(error);
+
+            if (inner instanceof RetryAfterSignal) {
+              rateLimitAttempts++;
+              const remaining = deadline - now();
               if (
-                error instanceof HttpError &&
-                error.statusCode === 429
+                rateLimitAttempts > maxRateLimitRetries ||
+                remaining <= 0 ||
+                inner.waitMs > remaining
               ) {
-                return false;
+                throw exhausted();
               }
-              return true;
-            },
+              if (inner.waitMs > 0) await sleep(inner.waitMs);
+              continue;
+            }
+
+            throw inner instanceof Error ? inner : error;
           }
-        );
-      }).catch((error: unknown) => {
-        // Classify the final error
-        if (lastWas429) {
-          const hint = envVarHint
-            ? ` Try again later, or set ${envVarHint} to adjust the rate limit.`
-            : " Try again later.";
-          throw new RateLimitError(
-            `Rate limit exceeded for ${url}.${hint}`
-          );
         }
-
-        // If it's already our error type, re-throw as-is
-        if (error instanceof HttpError) {
-          throw error;
-        }
-
-        // AbortError wraps the original — unwrap if it's ours
-        if (
-          error instanceof AbortError &&
-          error.originalError instanceof HttpError
-        ) {
-          throw error.originalError;
-        }
-
-        // Network or unknown errors
-        throw error;
       });
-
-      return result;
     },
   };
+}
+
+async function attemptOnce(params: {
+  url: string;
+  init: RequestInit | undefined;
+  method: string;
+  fetchFn: FetchFn;
+  perAttemptTimeoutMs: number;
+}): Promise<Response> {
+  const { url, init, method, fetchFn, perAttemptTimeoutMs } = params;
+
+  // Combine the caller's signal (if any) with a per-attempt timeout.
+  // Either abort trigger cancels the in-flight fetch.
+  const controller = new AbortController();
+  const userSignal = init?.signal;
+  if (userSignal) {
+    if (userSignal.aborted) {
+      controller.abort(userSignal.reason);
+    } else {
+      userSignal.addEventListener(
+        "abort",
+        () => controller.abort(userSignal.reason),
+        { once: true }
+      );
+    }
+  }
+  const timer = setTimeout(
+    () =>
+      controller.abort(
+        new Error(`per-attempt timeout after ${perAttemptTimeoutMs}ms`)
+      ),
+    perAttemptTimeoutMs
+  );
+
+  let response: Response;
+  try {
+    response = await fetchFn(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    // A caller-initiated abort is terminal; timeout + network errors are
+    // retryable. Discriminate by inspecting the shared controller.
+    if (userSignal?.aborted) {
+      throw new AbortError(
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+    if (isNetworkError(error) || isAbortError(error)) throw error;
+    throw new AbortError(
+      error instanceof Error ? error : new Error(String(error))
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (response.ok) return response;
+
+  if (response.status === 429) {
+    const waitMs = parseRetryAfter(response.headers.get("retry-after"));
+    throw new AbortError(new RetryAfterSignal(waitMs));
+  }
+
+  if (response.status >= 500) {
+    if (method === "POST") {
+      // POST idempotency rule: Asana/Jira don't support idempotency keys,
+      // so retrying a 5xx on POST risks duplicate tasks/comments.
+      throw new AbortError(
+        new HttpError(
+          `HTTP ${response.status}: server error (POST not retried)`,
+          response.status
+        )
+      );
+    }
+    throw new HttpError(
+      `HTTP ${response.status}: server error`,
+      response.status
+    );
+  }
+
+  throw new AbortError(
+    new HttpError(`HTTP ${response.status}`, response.status)
+  );
 }
