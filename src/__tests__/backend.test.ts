@@ -107,11 +107,16 @@ describe("Backend interface", () => {
       expect(result.authenticated).toBe(true);
     });
 
-    it("delegates to Jira for jira backend config", async () => {
-      const exec = () => JSON.stringify({ user: "alice@myorg.com" });
+    it("delegates to Jira REST for jira backend config", async () => {
+      const mockFetch = async (url: string, init?: RequestInit) => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ displayName: "Alice Smith", emailAddress: "alice@myorg.com" }),
+        text: async () => JSON.stringify({ displayName: "Alice Smith" }),
+      }) as Response;
       const result = await checkConnectivity(
         { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net" },
-        { exec }
+        { email: "alice@myorg.com", apiToken: "test-token", fetch: mockFetch }
       );
       expect(result.authenticated).toBe(true);
     });

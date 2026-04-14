@@ -271,6 +271,7 @@ function defaultExecJira(_args: string[]): string {
 /**
  * Check Jira connectivity via MCP server.
  * Returns without throwing -- caller inspects the result.
+ * @deprecated Use checkJiraConnectivityRest for REST-based checks.
  */
 export function checkJiraConnectivity(
   serverUrl: string,
@@ -285,6 +286,60 @@ export function checkJiraConnectivity(
     return {
       authenticated: false,
       error: `Cannot connect to Jira at ${serverUrl}. Ensure the atlassian-remote MCP server is configured and running. See references/backend-setup.md for setup instructions.`,
+    };
+  }
+}
+
+/**
+ * Check Jira connectivity via REST API.
+ * Calls GET /myself with Basic Auth from JIRA_EMAIL + JIRA_API_TOKEN.
+ */
+export async function checkJiraConnectivityRest(
+  options?: {
+    serverUrl?: string;
+    email?: string;
+    apiToken?: string;
+    fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  }
+): Promise<ConnectivityResult> {
+  const serverUrl = options?.serverUrl;
+  const email = options?.email ?? process.env.JIRA_EMAIL;
+  const apiToken = options?.apiToken ?? process.env.JIRA_API_TOKEN;
+
+  if (!serverUrl) {
+    return {
+      authenticated: false,
+      error:
+        "Jira server_url is not configured. Set server_url in your backend config. See references/backend-setup.md for instructions.",
+    };
+  }
+
+  if (!email) {
+    return {
+      authenticated: false,
+      error:
+        "JIRA_EMAIL is not set. Export your Jira account email as JIRA_EMAIL. See references/backend-setup.md for instructions.",
+    };
+  }
+
+  if (!apiToken) {
+    return {
+      authenticated: false,
+      error:
+        "JIRA_API_TOKEN is not set. Export your Jira API token as JIRA_API_TOKEN. See references/backend-setup.md for instructions.",
+    };
+  }
+
+  try {
+    const { createJiraClient } = await import("./jira-client.js");
+    const client = createJiraClient({ serverUrl, email, apiToken, fetch: options?.fetch });
+    const user = await client.getMyself();
+    return { authenticated: true, user: user.displayName };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      authenticated: false,
+      error: `Jira REST API check failed: ${message}. Verify your JIRA_EMAIL and JIRA_API_TOKEN are valid. See references/backend-setup.md for instructions.`,
     };
   }
 }
