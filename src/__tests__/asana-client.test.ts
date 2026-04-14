@@ -187,4 +187,127 @@ describe("AsanaClient", () => {
       expect(stories).toEqual([]);
     });
   });
+
+  describe("getTasksForProject", () => {
+    it("fetches tasks for a project GID", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            data: [
+              {
+                gid: "t1",
+                name: "Task 1",
+                notes: "",
+                completed: false,
+                completed_at: null,
+                assignee: null,
+                due_on: null,
+                memberships: [],
+                tags: [],
+                permalink_url: "https://app.asana.com/0/proj/t1",
+                custom_fields: [],
+              },
+              {
+                gid: "t2",
+                name: "Task 2",
+                notes: "",
+                completed: true,
+                completed_at: "2024-01-20T00:00:00.000Z",
+                assignee: { name: "Alice", gid: "111" },
+                due_on: null,
+                memberships: [],
+                tags: [],
+                permalink_url: "https://app.asana.com/0/proj/t2",
+                custom_fields: [],
+              },
+            ],
+          },
+        };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const tasks = await client.getTasksForProject("proj123");
+
+      expect(tasks).toHaveLength(2);
+      expect(tasks[0].gid).toBe("t1");
+      expect(tasks[1].gid).toBe("t2");
+      expect(capturedUrl).toContain("/projects/proj123/tasks");
+      expect(capturedUrl).toContain("opt_fields=");
+    });
+
+    it("passes assignee.any param for scope filtering", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return { status: 200, body: { data: [] } };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      await client.getTasksForProject("proj123", { assigneeGid: "me123" });
+
+      expect(capturedUrl).toContain("assignee.any=me123");
+    });
+
+    it("returns empty array when project has no tasks", async () => {
+      const fetch = mockFetch(() => ({
+        status: 200,
+        body: { data: [] },
+      }));
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const tasks = await client.getTasksForProject("proj-empty");
+      expect(tasks).toEqual([]);
+    });
+  });
+
+  describe("getTasksForSection", () => {
+    it("fetches tasks for a section GID", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            data: [
+              {
+                gid: "t1",
+                name: "Section Task",
+                notes: "In a section",
+                completed: false,
+                completed_at: null,
+                assignee: null,
+                due_on: null,
+                memberships: [],
+                tags: [],
+                permalink_url: "https://app.asana.com/0/proj/t1",
+                custom_fields: [],
+              },
+            ],
+          },
+        };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const tasks = await client.getTasksForSection("sec456");
+
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].name).toBe("Section Task");
+      expect(capturedUrl).toContain("/sections/sec456/tasks");
+      expect(capturedUrl).toContain("opt_fields=");
+    });
+
+    it("returns empty array when section has no tasks", async () => {
+      const fetch = mockFetch(() => ({
+        status: 200,
+        body: { data: [] },
+      }));
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      const tasks = await client.getTasksForSection("sec-empty");
+      expect(tasks).toEqual([]);
+    });
+  });
 });

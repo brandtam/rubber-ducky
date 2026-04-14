@@ -204,6 +204,8 @@ export async function migrateWorkspace(opts: WorkspaceOptions): Promise<Workspac
   };
 }
 
+export type IngestScope = "mine" | "all" | "ask";
+
 export interface WorkspaceConfig {
   name: string;
   purpose: string;
@@ -211,6 +213,7 @@ export interface WorkspaceConfig {
   created: string;
   backends: BackendConfig[];
   workspaceRoot: string;
+  ingest_scope?: IngestScope;
 }
 
 /**
@@ -262,5 +265,6 @@ export function loadWorkspaceConfig(workspaceRoot: string): WorkspaceConfig {
     created: frontmatter.created,
     backends: frontmatter.backends ?? [],
     workspaceRoot,
+    ingest_scope: frontmatter.ingest_scope,
   };
 }

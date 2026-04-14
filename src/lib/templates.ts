@@ -7,6 +7,7 @@ export interface BackendConfig {
   server_url?: string;
   project_key?: string;
   workspace_id?: string;
+  project_gid?: string;
 }
 
 export interface VocabularyOptions {
@@ -31,6 +32,7 @@ export function generateWorkspaceMd(opts: TemplateOptions): string {
     if (b.server_url) entry.server_url = b.server_url;
     if (b.project_key) entry.project_key = b.project_key;
     if (b.workspace_id) entry.workspace_id = b.workspace_id;
+    if (b.project_gid) entry.project_gid = b.project_gid;
     return entry;
   });
 

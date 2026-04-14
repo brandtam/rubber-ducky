@@ -67,10 +67,16 @@ export interface AsanaClientOptions {
   fetch?: FetchFn;
 }
 
+export interface TaskListOptions {
+  assigneeGid?: string;
+}
+
 export interface AsanaClient {
   getMe(): Promise<AsanaUser>;
   getTask(gid: string): Promise<AsanaTask>;
   getStories(taskGid: string): Promise<AsanaStory[]>;
+  getTasksForProject(projectGid: string, opts?: TaskListOptions): Promise<AsanaTask[]>;
+  getTasksForSection(sectionGid: string, opts?: TaskListOptions): Promise<AsanaTask[]>;
 }
 
 export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
@@ -117,6 +123,22 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
       return request<AsanaStory[]>(
         `/tasks/${taskGid}/stories?opt_fields=${STORY_OPT_FIELDS}`
       );
+    },
+
+    async getTasksForProject(projectGid: string, opts?: TaskListOptions): Promise<AsanaTask[]> {
+      let url = `/projects/${projectGid}/tasks?opt_fields=${TASK_OPT_FIELDS}`;
+      if (opts?.assigneeGid) {
+        url += `&assignee.any=${opts.assigneeGid}`;
+      }
+      return request<AsanaTask[]>(url);
+    },
+
+    async getTasksForSection(sectionGid: string, opts?: TaskListOptions): Promise<AsanaTask[]> {
+      let url = `/sections/${sectionGid}/tasks?opt_fields=${TASK_OPT_FIELDS}`;
+      if (opts?.assigneeGid) {
+        url += `&assignee.any=${opts.assigneeGid}`;
+      }
+      return request<AsanaTask[]>(url);
     },
   };
 }

@@ -5,16 +5,18 @@ import * as os from "node:os";
 import { parseFrontmatter } from "../lib/frontmatter.js";
 import {
   ingestAsanaTask,
+  ingestAsanaBulk,
+  resolveScope,
+  parseAsanaRef,
   type IngestAsanaOptions,
   type IngestResult,
+  type BulkIngestResult,
 } from "../lib/asana-ingest.js";
 import type { AsanaClient } from "../lib/asana-client.js";
+import type { IngestScope } from "../lib/workspace.js";
 
-function makeMockClient(overrides?: {
-  task?: Record<string, unknown>;
-  stories?: Record<string, unknown>[];
-}): AsanaClient {
-  const task = {
+function makeTask(overrides?: Record<string, unknown>) {
+  return {
     gid: "1234567890",
     name: "Fix the login bug",
     notes: "The login form crashes on submit",
@@ -26,8 +28,18 @@ function makeMockClient(overrides?: {
     tags: [{ name: "bug" }, { name: "urgent" }],
     permalink_url: "https://app.asana.com/0/project/1234567890",
     custom_fields: [],
-    ...overrides?.task,
+    ...overrides,
   };
+}
+
+function makeMockClient(overrides?: {
+  task?: Record<string, unknown>;
+  stories?: Record<string, unknown>[];
+  projectTasks?: Record<string, unknown>[];
+  sectionTasks?: Record<string, unknown>[];
+  me?: Record<string, unknown>;
+}): AsanaClient {
+  const task = makeTask(overrides?.task);
 
   const stories = overrides?.stories ?? [
     {
@@ -39,10 +51,30 @@ function makeMockClient(overrides?: {
     },
   ];
 
+  const taskMap = new Map<string, Record<string, unknown>>();
+  taskMap.set(task.gid as string, task);
+  if (overrides?.projectTasks) {
+    for (const t of overrides.projectTasks) {
+      taskMap.set(t.gid as string, t);
+    }
+  }
+  if (overrides?.sectionTasks) {
+    for (const t of overrides.sectionTasks) {
+      taskMap.set(t.gid as string, t);
+    }
+  }
+
   return {
-    getMe: async () => ({ gid: "me", name: "Test User", email: "test@example.com" }),
-    getTask: async () => task,
+    getMe: async () => ({
+      gid: "me-gid",
+      name: "Test User",
+      email: "test@example.com",
+      ...overrides?.me,
+    }),
+    getTask: async (gid: string) => taskMap.get(gid) ?? task,
     getStories: async () => stories,
+    getTasksForProject: async () => overrides?.projectTasks ?? [],
+    getTasksForSection: async () => overrides?.sectionTasks ?? [],
   } as AsanaClient;
 }
 
@@ -436,6 +468,239 @@ describe("ingestAsanaTask", () => {
       expect(result.skipped).toBe(true);
       expect(result.reason).toBeDefined();
       expect(result.existingFile).toBeDefined();
+    });
+  });
+});
+
+describe("parseAsanaRef", () => {
+  it("parses project:<gid> format", () => {
+    const result = parseAsanaRef("project:12345");
+    expect(result).toEqual({ type: "project", gid: "12345" });
+  });
+
+  it("parses section:<gid> format", () => {
+    const result = parseAsanaRef("section:67890");
+    expect(result).toEqual({ type: "section", gid: "67890" });
+  });
+
+  it("parses plain GID as task", () => {
+    const result = parseAsanaRef("1234567890");
+    expect(result).toEqual({ type: "task", gid: "1234567890" });
+  });
+
+  it("parses Asana URL as task", () => {
+    const result = parseAsanaRef("https://app.asana.com/0/111111/1234567890");
+    expect(result).toEqual({ type: "task", gid: "1234567890" });
+  });
+});
+
+describe("resolveScope", () => {
+  it("returns 'all' when no flags and no config", () => {
+    expect(resolveScope({})).toBe("all");
+  });
+
+  it("returns 'mine' when --mine flag is set", () => {
+    expect(resolveScope({ mine: true })).toBe("mine");
+  });
+
+  it("returns 'all' when --all flag is set", () => {
+    expect(resolveScope({ all: true })).toBe("all");
+  });
+
+  it("CLI flag overrides config: --all overrides config mine", () => {
+    expect(resolveScope({ all: true, configScope: "mine" })).toBe("all");
+  });
+
+  it("CLI flag overrides config: --mine overrides config all", () => {
+    expect(resolveScope({ mine: true, configScope: "all" })).toBe("mine");
+  });
+
+  it("uses config scope when no flags", () => {
+    expect(resolveScope({ configScope: "mine" })).toBe("mine");
+  });
+
+  it("config 'ask' defaults to 'all' at CLI level", () => {
+    expect(resolveScope({ configScope: "ask" })).toBe("all");
+  });
+});
+
+describe("ingestAsanaBulk", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rubber-ducky-bulk-test-"));
+    setupWorkspace(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe("project bulk ingest", () => {
+    it("ingests all tasks from a project", async () => {
+      const tasks = [
+        makeTask({ gid: "t1", name: "Task One", permalink_url: "https://app.asana.com/0/p/t1" }),
+        makeTask({ gid: "t2", name: "Task Two", permalink_url: "https://app.asana.com/0/p/t2" }),
+      ];
+
+      const client = makeMockClient({ projectTasks: tasks });
+      const result = await ingestAsanaBulk({
+        client,
+        ref: "project:proj123",
+        workspaceRoot: tmpDir,
+      });
+
+      expect(result.ingested).toBe(2);
+      expect(result.skipped).toBe(0);
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0].success).toBe(true);
+      expect(result.results[0].skipped).toBe(false);
+      expect(result.results[1].success).toBe(true);
+    });
+
+    it("skips already-ingested tasks during bulk ingest", async () => {
+      // Create existing task
+      const existingContent = [
+        "---",
+        "title: Task One",
+        "type: task",
+        "ref: t1",
+        "source: asana",
+        "status: to-do",
+        "asana_ref: https://app.asana.com/0/p/t1",
+        "created: 2024-01-01T00:00:00.000Z",
+        "comment_count: 0",
+        "---",
+      ].join("\n");
+      fs.writeFileSync(
+        path.join(tmpDir, "wiki", "tasks", "task-one.md"),
+        existingContent
+      );
+
+      const tasks = [
+        makeTask({ gid: "t1", name: "Task One", permalink_url: "https://app.asana.com/0/p/t1" }),
+        makeTask({ gid: "t2", name: "Task Two", permalink_url: "https://app.asana.com/0/p/t2" }),
+      ];
+
+      const client = makeMockClient({ projectTasks: tasks });
+      const result = await ingestAsanaBulk({
+        client,
+        ref: "project:proj123",
+        workspaceRoot: tmpDir,
+      });
+
+      expect(result.ingested).toBe(1);
+      expect(result.skipped).toBe(1);
+      expect(result.results[0].skipped).toBe(true);
+      expect(result.results[1].skipped).toBe(false);
+    });
+
+    it("returns zero counts for empty project", async () => {
+      const client = makeMockClient({ projectTasks: [] });
+      const result = await ingestAsanaBulk({
+        client,
+        ref: "project:empty-proj",
+        workspaceRoot: tmpDir,
+      });
+
+      expect(result.ingested).toBe(0);
+      expect(result.skipped).toBe(0);
+      expect(result.results).toHaveLength(0);
+    });
+  });
+
+  describe("section bulk ingest", () => {
+    it("ingests all tasks from a section", async () => {
+      const tasks = [
+        makeTask({ gid: "s1", name: "Section Task", permalink_url: "https://app.asana.com/0/p/s1" }),
+      ];
+
+      const client = makeMockClient({ sectionTasks: tasks });
+      const result = await ingestAsanaBulk({
+        client,
+        ref: "section:sec456",
+        workspaceRoot: tmpDir,
+      });
+
+      expect(result.ingested).toBe(1);
+      expect(result.skipped).toBe(0);
+      expect(result.results).toHaveLength(1);
+    });
+  });
+
+  describe("default project", () => {
+    it("uses project_gid from config when no ref provided", async () => {
+      const tasks = [
+        makeTask({ gid: "d1", name: "Default Project Task", permalink_url: "https://app.asana.com/0/p/d1" }),
+      ];
+
+      const client = makeMockClient({ projectTasks: tasks });
+      const result = await ingestAsanaBulk({
+        client,
+        workspaceRoot: tmpDir,
+        defaultProjectGid: "default-proj",
+      });
+
+      expect(result.ingested).toBe(1);
+      expect(result.results[0].taskPage?.title).toBe("Default Project Task");
+    });
+
+    it("errors when no ref and no default project configured", async () => {
+      const client = makeMockClient();
+      await expect(
+        ingestAsanaBulk({
+          client,
+          workspaceRoot: tmpDir,
+        })
+      ).rejects.toThrow(/no ref.*no default project/i);
+    });
+  });
+
+  describe("scope filtering", () => {
+    it("passes assignee GID for mine scope", async () => {
+      let capturedOpts: unknown;
+      const client = {
+        getMe: async () => ({ gid: "me-gid", name: "Test User", email: "test@example.com" }),
+        getTask: async (gid: string) => makeTask({ gid }),
+        getStories: async () => [],
+        getTasksForProject: async (_gid: string, opts?: unknown) => {
+          capturedOpts = opts;
+          return [];
+        },
+        getTasksForSection: async () => [],
+      } as AsanaClient;
+
+      await ingestAsanaBulk({
+        client,
+        ref: "project:proj123",
+        workspaceRoot: tmpDir,
+        scope: "mine",
+      });
+
+      expect(capturedOpts).toEqual({ assigneeGid: "me-gid" });
+    });
+
+    it("does not pass assignee GID for all scope", async () => {
+      let capturedOpts: unknown;
+      const client = {
+        getMe: async () => ({ gid: "me-gid", name: "Test User", email: "test@example.com" }),
+        getTask: async (gid: string) => makeTask({ gid }),
+        getStories: async () => [],
+        getTasksForProject: async (_gid: string, opts?: unknown) => {
+          capturedOpts = opts;
+          return [];
+        },
+        getTasksForSection: async () => [],
+      } as AsanaClient;
+
+      await ingestAsanaBulk({
+        client,
+        ref: "project:proj123",
+        workspaceRoot: tmpDir,
+        scope: "all",
+      });
+
+      expect(capturedOpts).toBeUndefined();
     });
   });
 });
