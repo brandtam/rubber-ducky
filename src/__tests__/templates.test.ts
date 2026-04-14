@@ -728,6 +728,100 @@ describe("generateBackendSkills", () => {
     expect(setup.content).toContain("rubber-ducky init");
     expect(setup.content).toContain("auto-discover");
   });
+
+  it("get-setup skill runs backend configure non-interactively before ingest", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", workspace_id: "12345", project_gid: "67890" },
+      { type: "jira", server_url: "https://myorg.atlassian.net" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    expect(setup.content).toContain("Step 4 — Ensure each backend has a default project");
+    // Non-interactive flow — Bash tool can't render clack prompts.
+    expect(setup.content).toContain("rubber-ducky backend configure <type> --list --json");
+    expect(setup.content).toContain("--project-key <KEY>");
+    expect(setup.content).toContain("--project-gid <GID>");
+    // Explanation blurbs for URL patterns still present as a fallback.
+    expect(setup.content).toContain("/browse/");
+    expect(setup.content).toContain("app.asana.com/0/");
+  });
+
+  it("get-setup skill offers initial ingest for asana and jira backends", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", workspace_id: "12345", project_gid: "67890" },
+      { type: "jira", server_url: "https://myorg.atlassian.net" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    expect(setup.content).toContain("Step 5 — Offer initial ingest");
+    expect(setup.content).toContain("rubber-ducky ingest asana --mine --json");
+    expect(setup.content).toContain("rubber-ducky ingest jira --mine --json");
+    expect(setup.content).toContain("asana, jira");
+    // --mine is the safe default; --all is only mentioned in a do-not warning
+    expect(setup.content).toMatch(/do \*\*not\*\* pass `--all`/i);
+  });
+
+  it("get-setup skill offers github ingest via /ingest-github when github backend present", () => {
+    const backends: BackendConfig[] = [{ type: "github" }];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    expect(setup.content).toContain("Step 5 — Offer initial ingest");
+    expect(setup.content).toContain("/ingest-github");
+  });
+
+  it("ingest-jira skill recovers inline via list+set on missing project_key", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://myorg.atlassian.net" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const ingest = skills.find((s) => s.path === ".claude/commands/ingest-jira.md")!;
+
+    expect(ingest.content).toMatch(/No project specified and no project_key/i);
+    expect(ingest.content).toContain("rubber-ducky backend configure jira --list --json");
+    expect(ingest.content).toContain("--project-key <KEY>");
+    expect(ingest.content).toMatch(/do not ask the user to look it up/i);
+  });
+
+  it("ingest-asana skill recovers inline via list+set on missing project_gid", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", workspace_id: "123" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const ingest = skills.find((s) => s.path === ".claude/commands/ingest-asana.md")!;
+
+    expect(ingest.content).toMatch(/No ref provided and no default project configured/i);
+    expect(ingest.content).toContain("rubber-ducky backend configure asana --list --json");
+    expect(ingest.content).toContain("--project-gid <GID>");
+    expect(ingest.content).toMatch(/do not ask the user to look it up/i);
+  });
+
+  it("get-setup skill skips ingest step when no ingestable backends are configured", () => {
+    const backends: BackendConfig[] = [];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md");
+
+    // No backends at all means no get-setup skill is generated.
+    expect(setup).toBeUndefined();
+  });
+});
+
+describe("generateClaudeMd natural-language triggers", () => {
+  it("instructs the agent to dispatch good-morning greetings directly", () => {
+    const content = generateClaudeMd({ name: "W", purpose: "P" });
+
+    expect(content).toContain("/good-morning");
+    expect(content).toContain("do not ask for confirmation");
+  });
+
+  it("instructs the agent to dispatch wrap-up triggers directly", () => {
+    const content = generateClaudeMd({ name: "W", purpose: "P" });
+
+    expect(content).toContain("/wrap-up");
+    expect(content).toContain("eod");
+  });
 });
 
 describe("generateReferenceFiles", () => {

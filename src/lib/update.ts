@@ -47,6 +47,10 @@ export function getBundledTemplates(): BundledTemplate[] {
 
 Start the day with a prioritized brief.
 
+## When to invoke
+
+Run this skill whenever the user greets with "good morning", "morning", "gm", or any variant that signals the start of their day. Invoke it immediately — do not ask "would you like me to run /good-morning?" first. The greeting *is* the request.
+
 ## Behavior
 
 ### Step 1 — Ensure today's daily page exists
@@ -116,6 +120,10 @@ A concise, prioritized morning brief. Use short bullet points. Do not reproduce 
       content: `# Wrap Up
 
 End-of-day summary and workspace update.
+
+## When to invoke
+
+Run this skill whenever the user signals the end of their day — "wrap up", "wrapping up", "end of day", "eod", "done for today", or similar. Invoke it immediately — do not ask "would you like me to run /wrap-up?" first.
 
 ## Behavior
 

@@ -208,10 +208,115 @@ describe("backend CLI", () => {
       expect(output).toContain("backend");
     });
 
-    it("backend list appears in backend help", () => {
+    it("backend list, check, and configure appear in backend help", () => {
       const output = runCli(["backend", "--help"]);
       expect(output).toContain("list");
       expect(output).toContain("check");
+      expect(output).toContain("configure");
+    });
+  });
+
+  describe("backend configure", () => {
+    it("refuses unsupported backend types", () => {
+      const target = path.join(tmpDir, "ws-github");
+      const backends = JSON.stringify([{ type: "github", mcp_server: "github" }]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      try {
+        runCli(["--json", "backend", "configure", "github"], target);
+        throw new Error("expected failure");
+      } catch (err) {
+        const stdout = (err as { stdout?: string | Buffer }).stdout?.toString() ?? "";
+        const output = JSON.parse(stdout);
+        expect(output.success).toBe(false);
+        expect(output.error).toMatch(/only 'jira' and 'asana'/i);
+      }
+    });
+
+    it("errors when backend type is not configured in the workspace", () => {
+      const target = path.join(tmpDir, "ws-github-only");
+      const backends = JSON.stringify([{ type: "github", mcp_server: "github" }]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      try {
+        runCli(["--json", "backend", "configure", "jira"], target);
+        throw new Error("expected failure");
+      } catch (err) {
+        const stdout = (err as { stdout?: string | Buffer }).stdout?.toString() ?? "";
+        const output = JSON.parse(stdout);
+        expect(output.success).toBe(false);
+        expect(output.error).toMatch(/no jira backend/i);
+      }
+    });
+
+    it("refuses --json mode without non-interactive flags since clack can't run headless", () => {
+      const target = path.join(tmpDir, "ws-jira");
+      const backends = JSON.stringify([
+        { type: "jira", server_url: "https://example.atlassian.net" },
+      ]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      try {
+        runCli(["--json", "backend", "configure", "jira"], target);
+        throw new Error("expected failure");
+      } catch (err) {
+        const stdout = (err as { stdout?: string | Buffer }).stdout?.toString() ?? "";
+        const output = JSON.parse(stdout);
+        expect(output.success).toBe(false);
+        expect(output.error).toMatch(/interactive configure requires a TTY/i);
+        // The error message should point the caller at the non-interactive flags
+        expect(output.error).toMatch(/--list/);
+        expect(output.error).toMatch(/--project-key/);
+      }
+    });
+
+    it("persists --project-key non-interactively for jira", () => {
+      const target = path.join(tmpDir, "ws-jira-set");
+      const backends = JSON.stringify([
+        { type: "jira", server_url: "https://example.atlassian.net" },
+      ]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      const output = runCli(
+        ["--json", "backend", "configure", "jira", "--project-key", "WEB"],
+        target
+      );
+      const result = JSON.parse(output);
+      expect(result.success).toBe(true);
+      expect(result.project_key).toBe("WEB");
+
+      const workspaceMd = fs.readFileSync(path.join(target, "workspace.md"), "utf-8");
+      expect(workspaceMd).toContain("project_key: WEB");
+    });
+
+    it("persists --project-gid and --workspace-id non-interactively for asana", () => {
+      const target = path.join(tmpDir, "ws-asana-set");
+      const backends = JSON.stringify([
+        { type: "asana", mcp_server: "asana" },
+      ]);
+      runCli(["--json", "init", target, "--backends-json", backends]);
+
+      const output = runCli(
+        [
+          "--json",
+          "backend",
+          "configure",
+          "asana",
+          "--workspace-id",
+          "111",
+          "--project-gid",
+          "222",
+        ],
+        target
+      );
+      const result = JSON.parse(output);
+      expect(result.success).toBe(true);
+      expect(result.workspace_id).toBe("111");
+      expect(result.project_gid).toBe("222");
+
+      const workspaceMd = fs.readFileSync(path.join(target, "workspace.md"), "utf-8");
+      expect(workspaceMd).toMatch(/workspace_id:\s*['"]?111['"]?/);
+      expect(workspaceMd).toMatch(/project_gid:\s*['"]?222['"]?/);
     });
   });
 });

@@ -158,6 +158,13 @@ describe("good-morning skill template", () => {
     const gm = getGoodMorningTemplate();
     expect(gm.content).toContain("rubber-ducky");
   });
+
+  it("tells the agent to invoke on natural-language greetings without confirmation", () => {
+    const gm = getGoodMorningTemplate();
+    expect(gm.content).toContain("When to invoke");
+    expect(gm.content).toMatch(/good morning/i);
+    expect(gm.content).toMatch(/do not ask/i);
+  });
 });
 
 describe("wrap-up skill template", () => {
@@ -196,6 +203,13 @@ describe("wrap-up skill template", () => {
   it("uses CLI commands for mechanical operations", () => {
     const wu = getWrapUpTemplate();
     expect(wu.content).toContain("rubber-ducky");
+  });
+
+  it("tells the agent to invoke on natural-language end-of-day signals without confirmation", () => {
+    const wu = getWrapUpTemplate();
+    expect(wu.content).toContain("When to invoke");
+    expect(wu.content).toMatch(/wrap up|end of day|eod/i);
+    expect(wu.content).toMatch(/do not ask/i);
   });
 });
 

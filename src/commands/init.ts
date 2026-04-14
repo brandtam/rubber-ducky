@@ -6,9 +6,10 @@ import { createWorkspace, migrateWorkspace, detectExistingContent } from "../lib
 import { formatOutput } from "../lib/output.js";
 import type { BackendConfig, VocabularyOptions, TemplateOptions } from "../lib/templates.js";
 import { slugify } from "../lib/page.js";
-import { createAsanaClient, type AsanaClient } from "../lib/asana-client.js";
-import { createJiraClient, type JiraClient } from "../lib/jira-client.js";
-import { runNamingPrompt } from "../lib/naming-prompt.js";
+import {
+  discoverAsanaConfig as runAsanaDiscovery,
+  discoverJiraConfig as runJiraDiscovery,
+} from "../lib/backend-discovery.js";
 
 const BACKEND_CHOICES = [
   { value: "github", label: "GitHub", hint: "via gh CLI" },
@@ -99,7 +100,18 @@ async function collectBackendConfig(backendType: string): Promise<BackendConfig>
 
     if (jiraEmail && jiraToken && jiraServerUrl) {
       config.server_url = jiraServerUrl;
-      await discoverJiraConfig(config, config.server_url, jiraEmail, jiraToken);
+      const result = await runJiraDiscovery({
+        serverUrl: jiraServerUrl,
+        email: jiraEmail,
+        apiToken: jiraToken,
+      });
+      if (result) {
+        config.project_key = result.project_key;
+      } else {
+        clack.log.warn(
+          "Jira discovery did not complete. Run /get-setup after verifying your credentials."
+        );
+      }
     }
   }
 
@@ -107,129 +119,24 @@ async function collectBackendConfig(backendType: string): Promise<BackendConfig>
     const asanaToken = process.env.ASANA_ACCESS_TOKEN;
 
     if (asanaToken) {
-      await discoverAsanaConfig(config, asanaToken);
+      const result = await runAsanaDiscovery({ token: asanaToken });
+      if (result) {
+        config.workspace_id = result.workspace_id;
+        config.project_gid = result.project_gid;
+        config.naming_source = result.naming_source;
+        config.naming_case = result.naming_case;
+        if (result.identifier_field) {
+          config.identifier_field = result.identifier_field;
+        }
+      } else {
+        clack.log.warn(
+          "Asana discovery did not complete. Run /get-setup after verifying your token."
+        );
+      }
     }
   }
 
   return config;
-}
-
-async function discoverAsanaConfig(config: BackendConfig, token: string): Promise<void> {
-  const client = createAsanaClient({ token });
-
-  // Verify connectivity
-  const spinner = clack.spinner();
-  spinner.start("Connecting to Asana...");
-  try {
-    const me = await client.getMe();
-    spinner.stop(`Connected as ${chalk.cyan(me.name)} (${me.email})`);
-  } catch {
-    spinner.stop("Could not connect to Asana.");
-    clack.log.warn(
-      "Failed to connect with ASANA_ACCESS_TOKEN. Run /get-setup after verifying your token."
-    );
-    return;
-  }
-
-  // Discover workspaces
-  const workspaces = await client.getWorkspaces();
-  if (workspaces.length === 0) {
-    clack.log.warn("No workspaces found in your Asana account.");
-    return;
-  }
-
-  let workspaceGid: string;
-  if (workspaces.length === 1) {
-    workspaceGid = workspaces[0].gid;
-    clack.log.info(`Using workspace: ${chalk.cyan(workspaces[0].name)}`);
-  } else {
-    const selected = await clack.select({
-      message: "Select your Asana workspace:",
-      options: workspaces.map((w) => ({ value: w.gid, label: w.name })),
-    });
-
-    if (clack.isCancel(selected)) {
-      clack.cancel("Setup cancelled.");
-      process.exit(0);
-    }
-
-    workspaceGid = selected as string;
-  }
-
-  config.workspace_id = workspaceGid;
-
-  // Discover projects
-  const projects = await client.getProjects(workspaceGid);
-  if (projects.length === 0) {
-    clack.log.warn("No projects found in this workspace.");
-    return;
-  }
-
-  const selectedProject = await clack.select({
-    message: "Select your default Asana project:",
-    options: projects.map((p) => ({ value: p.gid, label: p.name })),
-  });
-
-  if (clack.isCancel(selectedProject)) {
-    clack.cancel("Setup cancelled.");
-    process.exit(0);
-  }
-
-  config.project_gid = selectedProject as string;
-
-  // Run the full naming prompt (source → casing → preview → confirm)
-  const namingResult = await runNamingPrompt({
-    client,
-    projectGid: config.project_gid,
-  });
-
-  config.naming_source = namingResult.naming_source;
-  config.naming_case = namingResult.naming_case;
-  if (namingResult.identifier_field) {
-    config.identifier_field = namingResult.identifier_field;
-  }
-}
-
-async function discoverJiraConfig(
-  config: BackendConfig,
-  serverUrl: string,
-  email: string,
-  apiToken: string,
-): Promise<void> {
-  const client = createJiraClient({ serverUrl, email, apiToken });
-
-  // Verify connectivity
-  const spinner = clack.spinner();
-  spinner.start("Connecting to Jira...");
-  try {
-    const me = await client.getMyself();
-    spinner.stop(`Connected as ${chalk.cyan(me.displayName)} (${me.emailAddress})`);
-  } catch {
-    spinner.stop("Could not connect to Jira.");
-    clack.log.warn(
-      "Failed to connect with JIRA_EMAIL/JIRA_API_TOKEN. Run /get-setup after verifying your credentials."
-    );
-    return;
-  }
-
-  // Discover projects
-  const projects = await client.getProjects();
-  if (projects.length === 0) {
-    clack.log.warn("No projects found in your Jira instance.");
-    return;
-  }
-
-  const selectedProject = await clack.select({
-    message: "Select your default Jira project:",
-    options: projects.map((p) => ({ value: p.key, label: `${p.key} — ${p.name}` })),
-  });
-
-  if (clack.isCancel(selectedProject)) {
-    clack.cancel("Setup cancelled.");
-    process.exit(0);
-  }
-
-  config.project_key = selectedProject as string;
 }
 
 async function collectVocabulary(): Promise<VocabularyOptions> {
