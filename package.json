@@ -18,7 +18,7 @@
     "claude code",
     "llm wiki"
   ],
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "AI-assisted work log & second brain CLI",
   "type": "module",
   "bin": {
