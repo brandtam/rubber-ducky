@@ -1195,7 +1195,12 @@ export function generateClaudeSettings(backends?: BackendConfig[]): string {
       PreToolUse: [
         {
           matcher: "Read|Bash",
-          command: envFileGuard,
+          hooks: [
+            {
+              type: "command",
+              command: envFileGuard,
+            },
+          ],
         },
       ],
     },
