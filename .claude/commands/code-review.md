@@ -57,9 +57,20 @@ Before presenting the report, re-read your own findings and ask:
 
 This step catches more real issues than the initial read-through. Don't skip it.
 
-### 5. Present the report
+### 5. Present the report — ONE FINDING AT A TIME
 
-Ordered Critical → High → Medium → Low. Use the item format below.
+**This is a conversation, not a report dump.** Presenting all findings in a single message is illegible and forces the user to hold every issue in their head at once.
+
+Instead:
+
+1. State the total count up front, then present **only the first finding** using the item format below.
+2. End that message with: **"What's your call — fix now, skip, or file a GitHub issue?"**
+3. **Stop and wait for the user's response.** Do not present the next finding until the user has responded to this one.
+4. The user may want to discuss, push back, ask for more context, or redirect — leave room for that conversation. Only after they've given a verdict ("fix", "skip", "file") do you move to the next finding.
+5. Repeat for each remaining finding, in severity order (Critical → High → Medium → Low).
+6. Track verdicts as you go. After the last finding, give a one-line summary of the verdicts (e.g., "3 to fix, 1 filed as issue, 1 skipped") and — if anything is queued to fix — begin fixing per section 6.
+
+Do not batch findings together "for efficiency." The point of one-at-a-time is to make each finding legible on its own and leave room for the user to disagree. A user who sees five findings at once reads none of them carefully.
 
 ### 6. If the user asks you to fix
 

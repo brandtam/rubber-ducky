@@ -5,10 +5,12 @@ export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
 export class HttpError extends Error {
   readonly statusCode: number;
-  constructor(message: string, statusCode: number) {
-    super(message);
+  readonly body: string;
+  constructor(message: string, statusCode: number, body = "") {
+    super(body ? `${message}: ${body}` : message);
     this.name = "HttpError";
     this.statusCode = statusCode;
+    this.body = body;
   }
 }
 
@@ -270,6 +272,8 @@ async function attemptOnce(params: {
     throw new AbortError(new RetryAfterSignal(waitMs));
   }
 
+  const body = await safeReadBody(response);
+
   if (response.status >= 500) {
     if (method === "POST") {
       // POST idempotency rule: Asana/Jira don't support idempotency keys,
@@ -277,17 +281,27 @@ async function attemptOnce(params: {
       throw new AbortError(
         new HttpError(
           `HTTP ${response.status}: server error (POST not retried)`,
-          response.status
+          response.status,
+          body
         )
       );
     }
     throw new HttpError(
       `HTTP ${response.status}: server error`,
-      response.status
+      response.status,
+      body
     );
   }
 
   throw new AbortError(
-    new HttpError(`HTTP ${response.status}`, response.status)
+    new HttpError(`HTTP ${response.status}`, response.status, body)
   );
+}
+
+async function safeReadBody(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return "";
+  }
 }

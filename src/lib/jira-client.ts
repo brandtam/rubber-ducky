@@ -98,7 +98,7 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
     limiter,
     fetch: hintsFetch,
     envVarHint: "JIRA_RATE_LIMIT_RPM",
-    sleep: options.sleep,
+    ...(options.sleep ? { sleep: options.sleep } : {}),
     ...(options.onThrottle ? { onThrottle: options.onThrottle } : {}),
   });
   const fetchFn: FetchFn = rlClient.request.bind(rlClient);
@@ -138,12 +138,6 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
     const headers = getAuthHeaders();
     const url = `${serverUrl}${apiPath}`;
     const response = await fetchFn(url, { headers });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Jira API ${response.status}: ${body}`);
-    }
-
     return (await response.json()) as T;
   }
 
@@ -155,28 +149,17 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Jira API ${response.status}: ${text}`);
-    }
-
     return (await response.json()) as T;
   }
 
   async function postNoContent(apiPath: string, body: unknown): Promise<void> {
     const headers = getAuthHeaders();
     const url = `${serverUrl}${apiPath}`;
-    const response = await fetchFn(url, {
+    await fetchFn(url, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Jira API ${response.status}: ${text}`);
-    }
   }
 
   return {

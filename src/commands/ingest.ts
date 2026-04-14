@@ -12,7 +12,6 @@ import {
 } from "../lib/asana-ingest.js";
 import { resolveScope } from "../lib/ingest-shared.js";
 import { createJiraClient } from "../lib/jira-client.js";
-import { createJiraLimiter } from "../lib/http/backends.js";
 import { ingestJiraIssue, ingestJiraProject } from "../lib/jira-ingest.js";
 import { createThrottleNotifier } from "../lib/http/throttle-notifier.js";
 import { runNamingPrompt, persistNamingResult } from "../lib/naming-prompt.js";
@@ -299,7 +298,6 @@ export function registerIngestCommand(program: Command): void {
           serverUrl,
           email,
           apiToken,
-          limiter: createJiraLimiter(),
           onThrottle: createThrottleNotifier("Jira"),
         });
         const issueKey = ref && !ref.startsWith("project:") ? ref : null;

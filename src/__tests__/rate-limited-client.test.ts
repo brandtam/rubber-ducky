@@ -365,6 +365,83 @@ describe("rate-limited-client", () => {
     });
   });
 
+  describe("per-attempt timeout", () => {
+    it("aborts a hung fetch after perAttemptTimeoutMs and retries", async () => {
+      let attempt = 0;
+      let firstAttemptSignal: AbortSignal | undefined;
+
+      const fetchFn: FetchFn = async (_url, init) => {
+        attempt++;
+        if (attempt === 1) {
+          firstAttemptSignal = init?.signal ?? undefined;
+          // Hung socket: never resolve; only reject when the per-attempt
+          // controller fires, which is the behavior under test.
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              const err = new Error("aborted");
+              err.name = "AbortError";
+              reject(err);
+            });
+          });
+        }
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          json: async () => ({ data: "ok" }),
+          text: async () => "ok",
+        } as Response;
+      };
+
+      const client = createRateLimitedClient({
+        ...testOpts(),
+        fetch: fetchFn,
+        perAttemptTimeoutMs: 50,
+      });
+
+      const result = await client.request("https://api.example.com/hung");
+      expect(result.status).toBe(200);
+      expect(attempt).toBe(2);
+      expect(firstAttemptSignal?.aborted).toBe(true);
+    });
+
+    it("a single hung attempt does not drain the whole retry budget", async () => {
+      const startedAt = Date.now();
+      let attempt = 0;
+
+      const fetchFn: FetchFn = async (_url, init) => {
+        attempt++;
+        if (attempt === 1) {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              const err = new Error("aborted");
+              err.name = "AbortError";
+              reject(err);
+            });
+          });
+        }
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          json: async () => ({ data: "ok" }),
+          text: async () => "ok",
+        } as Response;
+      };
+
+      const client = createRateLimitedClient({
+        ...testOpts(),
+        fetch: fetchFn,
+        perAttemptTimeoutMs: 50,
+        maxRetryTime: 10_000,
+      });
+
+      await client.request("https://api.example.com/hung");
+      const elapsed = Date.now() - startedAt;
+      expect(elapsed).toBeLessThan(1_000);
+    });
+  });
+
   describe("error classification", () => {
     it("HttpError includes status code", async () => {
       const { fetch } = mockFetchSequence([
