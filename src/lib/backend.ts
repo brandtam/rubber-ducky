@@ -30,6 +30,7 @@ import {
 import {
   createAsanaBackend,
   checkAsanaConnectivity,
+  checkAsanaConnectivityRest,
   type McpCall,
 } from "./asana-backend.js";
 
@@ -194,21 +195,29 @@ export function getBackend(
 /**
  * Check connectivity for a configured backend.
  * Returns authentication status without throwing.
+ *
+ * Asana uses the REST API (ASANA_ACCESS_TOKEN) by default.
+ * Falls back to MCP if a `mcp` option is explicitly provided and no token is set.
  */
-export function checkConnectivity(
+export async function checkConnectivity(
   config: BackendConfig,
   options?: {
     exec?: (args: string[]) => string;
     mcp?: McpCall;
+    token?: string;
+    fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   }
-): ConnectivityResult {
+): Promise<ConnectivityResult> {
   switch (config.type) {
     case "github":
       return checkGitHubConnectivity(options?.exec);
     case "jira":
       return checkJiraConnectivity(config.server_url ?? "", options?.exec);
     case "asana":
-      return checkAsanaConnectivity(options?.mcp);
+      return checkAsanaConnectivityRest({
+        token: options?.token,
+        fetch: options?.fetch,
+      });
     default:
       return {
         authenticated: false,

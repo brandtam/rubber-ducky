@@ -95,27 +95,27 @@ describe("Doctor module", () => {
   });
 
   describe("runDoctor", () => {
-    it("returns all-pass for a healthy workspace", () => {
+    it("returns all-pass for a healthy workspace", async () => {
       createWorkspace(tmpDir);
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       expect(result.healthy).toBe(true);
       expect(result.checks.length).toBeGreaterThan(0);
       expect(result.checks.every((c: DoctorCheck) => c.pass)).toBe(true);
     });
 
-    it("checks workspace.md exists and is valid", () => {
+    it("checks workspace.md exists and is valid", async () => {
       createWorkspace(tmpDir);
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       const check = result.checks.find((c: DoctorCheck) => c.name === "workspace-config");
       expect(check).toBeDefined();
       expect(check!.pass).toBe(true);
     });
 
-    it("fails workspace-config check when workspace.md is missing", () => {
+    it("fails workspace-config check when workspace.md is missing", async () => {
       createWorkspace(tmpDir, { skipFiles: ["workspace.md"] });
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       const check = result.checks.find((c: DoctorCheck) => c.name === "workspace-config");
       expect(check).toBeDefined();
@@ -123,29 +123,29 @@ describe("Doctor module", () => {
       expect(check!.message).toMatch(/workspace\.md/i);
     });
 
-    it("fails workspace-config check when workspace.md has invalid frontmatter", () => {
+    it("fails workspace-config check when workspace.md has invalid frontmatter", async () => {
       createWorkspace(tmpDir);
       // Overwrite with invalid content
       fs.writeFileSync(path.join(tmpDir, "workspace.md"), "no frontmatter here\n", "utf-8");
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       const check = result.checks.find((c: DoctorCheck) => c.name === "workspace-config");
       expect(check).toBeDefined();
       expect(check!.pass).toBe(false);
     });
 
-    it("checks directory structure", () => {
+    it("checks directory structure", async () => {
       createWorkspace(tmpDir);
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       const check = result.checks.find((c: DoctorCheck) => c.name === "directory-structure");
       expect(check).toBeDefined();
       expect(check!.pass).toBe(true);
     });
 
-    it("fails directory-structure check when wiki dirs are missing", () => {
+    it("fails directory-structure check when wiki dirs are missing", async () => {
       createWorkspace(tmpDir, { skipDirs: ["wiki/tasks"] });
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       const check = result.checks.find((c: DoctorCheck) => c.name === "directory-structure");
       expect(check).toBeDefined();
@@ -153,47 +153,47 @@ describe("Doctor module", () => {
       expect(check!.message).toMatch(/wiki\/tasks/);
     });
 
-    it("checks skill files are present", () => {
+    it("checks skill files are present", async () => {
       createWorkspace(tmpDir);
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       const check = result.checks.find((c: DoctorCheck) => c.name === "skill-files");
       expect(check).toBeDefined();
       expect(check!.pass).toBe(true);
     });
 
-    it("fails skill-files check when skills are missing", () => {
+    it("fails skill-files check when skills are missing", async () => {
       createWorkspace(tmpDir, { skipFiles: ["skills"] });
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       const check = result.checks.find((c: DoctorCheck) => c.name === "skill-files");
       expect(check).toBeDefined();
       expect(check!.pass).toBe(false);
     });
 
-    it("checks agent files are present", () => {
+    it("checks agent files are present", async () => {
       createWorkspace(tmpDir);
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       const check = result.checks.find((c: DoctorCheck) => c.name === "agent-files");
       expect(check).toBeDefined();
       expect(check!.pass).toBe(true);
     });
 
-    it("fails agent-files check when agents are missing", () => {
+    it("fails agent-files check when agents are missing", async () => {
       createWorkspace(tmpDir, { skipFiles: ["agents"] });
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       const check = result.checks.find((c: DoctorCheck) => c.name === "agent-files");
       expect(check).toBeDefined();
       expect(check!.pass).toBe(false);
     });
 
-    it("checks backend connectivity with mock exec", () => {
+    it("checks backend connectivity with mock exec", async () => {
       createWorkspace(tmpDir, {
         backends: [{ type: "github", mcp_server: "github" }],
       });
-      const result = runDoctor(tmpDir, {
+      const result = await runDoctor(tmpDir, {
         backendExec: () => "Logged in to github.com account testuser",
       });
 
@@ -202,11 +202,11 @@ describe("Doctor module", () => {
       expect(check!.pass).toBe(true);
     });
 
-    it("fails backend-connectivity check when backend auth fails", () => {
+    it("fails backend-connectivity check when backend auth fails", async () => {
       createWorkspace(tmpDir, {
         backends: [{ type: "github", mcp_server: "github" }],
       });
-      const result = runDoctor(tmpDir, {
+      const result = await runDoctor(tmpDir, {
         backendExec: () => { throw new Error("not authenticated"); },
       });
 
@@ -215,9 +215,9 @@ describe("Doctor module", () => {
       expect(check!.pass).toBe(false);
     });
 
-    it("skips backend-connectivity check when no backends configured", () => {
+    it("skips backend-connectivity check when no backends configured", async () => {
       createWorkspace(tmpDir);
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       const check = result.checks.find((c: DoctorCheck) => c.name === "backend-connectivity");
       expect(check).toBeDefined();
@@ -225,17 +225,17 @@ describe("Doctor module", () => {
       expect(check!.message).toMatch(/no backends/i);
     });
 
-    it("reports overall healthy=false when any check fails", () => {
+    it("reports overall healthy=false when any check fails", async () => {
       createWorkspace(tmpDir, { skipDirs: ["wiki/tasks"] });
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       expect(result.healthy).toBe(false);
       expect(result.passed).toBeLessThan(result.total);
     });
 
-    it("includes passed/total counts", () => {
+    it("includes passed/total counts", async () => {
       createWorkspace(tmpDir);
-      const result = runDoctor(tmpDir);
+      const result = await runDoctor(tmpDir);
 
       expect(result.passed).toBe(result.total);
       expect(result.total).toBeGreaterThan(0);

@@ -99,26 +99,26 @@ describe("Backend interface", () => {
   });
 
   describe("checkConnectivity", () => {
-    it("delegates to GitHub for github backend config", () => {
+    it("delegates to GitHub for github backend config", async () => {
       const exec = () => "github.com\n  ✓ Logged in to github.com account testuser\n";
-      const result = checkConnectivity(
+      const result = await checkConnectivity(
         { type: "github", mcp_server: "github" },
         { exec }
       );
       expect(result.authenticated).toBe(true);
     });
 
-    it("delegates to Jira for jira backend config", () => {
+    it("delegates to Jira for jira backend config", async () => {
       const exec = () => JSON.stringify({ user: "alice@myorg.com" });
-      const result = checkConnectivity(
+      const result = await checkConnectivity(
         { type: "jira", mcp_server: "atlassian-remote", server_url: "https://myorg.atlassian.net" },
         { exec }
       );
       expect(result.authenticated).toBe(true);
     });
 
-    it("returns not-implemented for unimplemented backends", () => {
-      const result = checkConnectivity({
+    it("returns not-implemented for unimplemented backends", async () => {
+      const result = await checkConnectivity({
         type: "linear" as any,
         mcp_server: "linear",
       });

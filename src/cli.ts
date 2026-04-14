@@ -16,6 +16,7 @@ import {
 } from "./commands/capture.js";
 import { registerTaskCommand } from "./commands/task.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
+import { registerIngestCommand } from "./commands/ingest.js";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -45,6 +46,7 @@ export function createProgram(): Command {
   registerScreenshotCommand(program);
   registerTaskCommand(program);
   registerDoctorCommand(program);
+  registerIngestCommand(program);
 
   return program;
 }

@@ -32,17 +32,17 @@ const REQUIRED_DIRS = [
  * Run all doctor checks against a workspace root directory.
  * Returns a structured result with pass/fail per check.
  */
-export function runDoctor(
+export async function runDoctor(
   workspaceRoot: string,
   options?: DoctorOptions
-): DoctorResult {
+): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
 
   checks.push(checkWorkspaceConfig(workspaceRoot));
   checks.push(checkDirectoryStructure(workspaceRoot));
   checks.push(checkSkillFiles(workspaceRoot));
   checks.push(checkAgentFiles(workspaceRoot));
-  checks.push(checkBackendConnectivity(workspaceRoot, options));
+  checks.push(await checkBackendConnectivity(workspaceRoot, options));
 
   const passed = checks.filter((c) => c.pass).length;
 
@@ -168,10 +168,10 @@ function checkAgentFiles(workspaceRoot: string): DoctorCheck {
   };
 }
 
-function checkBackendConnectivity(
+async function checkBackendConnectivity(
   workspaceRoot: string,
   options?: DoctorOptions
-): DoctorCheck {
+): Promise<DoctorCheck> {
   let config;
   try {
     config = loadWorkspaceConfig(workspaceRoot);
@@ -193,7 +193,7 @@ function checkBackendConnectivity(
 
   const failures: string[] = [];
   for (const bc of config.backends) {
-    const result = checkConnectivity(bc, options?.backendExec ? { exec: options.backendExec } : undefined);
+    const result = await checkConnectivity(bc, options?.backendExec ? { exec: options.backendExec } : undefined);
     if (!result.authenticated) {
       failures.push(`${bc.type}: ${result.error ?? "not authenticated"}`);
     }

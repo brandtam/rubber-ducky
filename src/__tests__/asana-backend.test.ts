@@ -10,6 +10,7 @@ import {
   mapAsanaToStatus,
   mapStatusToAsanaCompleted,
   checkAsanaConnectivity,
+  checkAsanaConnectivityRest,
   type McpCall,
 } from "../lib/asana-backend.js";
 
@@ -666,7 +667,7 @@ describe("Asana backend", () => {
     });
   });
 
-  describe("checkAsanaConnectivity", () => {
+  describe("checkAsanaConnectivity (MCP, legacy)", () => {
     it("returns authenticated when MCP server responds", () => {
       const mcp: McpCall = (tool) => {
         if (tool === "asana_get_me") {
@@ -689,6 +690,42 @@ describe("Asana backend", () => {
       expect(result.error).toContain("Asana MCP");
     });
   });
+
+  describe("checkAsanaConnectivityRest", () => {
+    it("returns authenticated when REST API responds", async () => {
+      const fetch = async (url: string, init?: RequestInit) => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: { gid: "12345", name: "Test User", email: "test@example.com" },
+        }),
+        text: async () => "",
+      }) as Response;
+
+      const result = await checkAsanaConnectivityRest({ token: "test-token", fetch });
+      expect(result.authenticated).toBe(true);
+      expect(result.user).toBe("Test User");
+    });
+
+    it("returns not authenticated when token is missing", async () => {
+      const result = await checkAsanaConnectivityRest({ token: undefined });
+      expect(result.authenticated).toBe(false);
+      expect(result.error).toContain("ASANA_ACCESS_TOKEN");
+    });
+
+    it("returns not authenticated when REST API fails", async () => {
+      const fetch = async () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({ errors: [{ message: "Not Authorized" }] }),
+        text: async () => '{"errors":[{"message":"Not Authorized"}]}',
+      }) as Response;
+
+      const result = await checkAsanaConnectivityRest({ token: "bad-token", fetch });
+      expect(result.authenticated).toBe(false);
+      expect(result.error).toContain("Asana REST API check failed");
+    });
+  });
 });
 
 describe("Backend factory — Asana", () => {
@@ -704,12 +741,21 @@ describe("Backend factory — Asana", () => {
     expect(backend.capabilities).toContain("comment");
   });
 
-  it("checkConnectivity delegates to Asana for asana config", () => {
-    const mcp: McpCall = () => ({ name: "User", email: "u@e.com" });
-    const result = checkConnectivity(
+  it("checkConnectivity delegates to Asana REST for asana config", async () => {
+    const fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: { gid: "12345", name: "User", email: "u@e.com" },
+      }),
+      text: async () => "",
+    }) as Response;
+
+    const result = await checkConnectivity(
       { type: "asana", mcp_server: "asana" },
-      { mcp }
+      { token: "test-token", fetch }
     );
     expect(result.authenticated).toBe(true);
+    expect(result.user).toBe("User");
   });
 });

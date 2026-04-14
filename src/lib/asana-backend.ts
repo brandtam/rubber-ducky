@@ -367,6 +367,7 @@ export function createAsanaBackend(options: AsanaBackendOptions): Backend {
 /**
  * Check Asana MCP server connectivity.
  * Calls asana_get_me to verify authentication.
+ * @deprecated Use checkAsanaConnectivityRest for REST-based checks.
  */
 export function checkAsanaConnectivity(mcp?: McpCall): ConnectivityResult {
   if (!mcp) {
@@ -388,6 +389,37 @@ export function checkAsanaConnectivity(mcp?: McpCall): ConnectivityResult {
       authenticated: false,
       error:
         "Asana MCP server is not responding. Ensure the Asana MCP server is running and authenticated. See references/backend-setup.md for setup instructions.",
+    };
+  }
+}
+
+/**
+ * Check Asana connectivity via REST API.
+ * Calls GET /users/me with Bearer token from ASANA_ACCESS_TOKEN.
+ */
+export async function checkAsanaConnectivityRest(
+  options?: { token?: string; fetch?: (url: string, init?: RequestInit) => Promise<Response> }
+): Promise<ConnectivityResult> {
+  const token = options?.token ?? process.env.ASANA_ACCESS_TOKEN;
+
+  if (!token) {
+    return {
+      authenticated: false,
+      error:
+        "ASANA_ACCESS_TOKEN is not set. Export your Asana Personal Access Token as ASANA_ACCESS_TOKEN. See references/backend-setup.md for setup instructions.",
+    };
+  }
+
+  try {
+    const { createAsanaClient } = await import("./asana-client.js");
+    const client = createAsanaClient({ token, fetch: options?.fetch });
+    const user = await client.getMe();
+    return { authenticated: true, user: user.name };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      authenticated: false,
+      error: `Asana REST API check failed: ${message}. Verify your ASANA_ACCESS_TOKEN is valid. See references/backend-setup.md for setup instructions.`,
     };
   }
 }
