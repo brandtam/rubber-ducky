@@ -220,7 +220,7 @@ export async function checkConnectivity(
       return checkGitHubConnectivity(options?.exec);
     case "jira":
       return checkJiraConnectivityRest({
-        serverUrl: config.server_url,
+        serverUrl: config.server_url ?? process.env.JIRA_SERVER_URL,
         email: options?.email,
         apiToken: options?.apiToken,
         fetch: options?.fetch,

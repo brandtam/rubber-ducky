@@ -86,7 +86,12 @@ function loadEnvLocal(): void {
     const eqIndex = assignment.indexOf("=");
     if (eqIndex === -1) continue;
     const key = assignment.slice(0, eqIndex).trim();
-    const value = assignment.slice(eqIndex + 1).trim();
+    let value = assignment.slice(eqIndex + 1).trim();
+    // Strip surrounding quotes (single or double) — mimics shell behavior
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
     // Don't overwrite vars already in the environment
     if (!process.env[key]) {
       process.env[key] = value;

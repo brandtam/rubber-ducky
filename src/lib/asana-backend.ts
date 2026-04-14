@@ -95,17 +95,17 @@ export function asanaTaskToPage(
   const now = new Date().toISOString();
 
   const comments = stories
-    .filter((s) => s.type === "comment")
-    .map((s) => `**${s.created_by.name}** \u2014 ${s.created_at}:\n${s.text}`);
+    .filter((s) => s.type === "comment" && s.text)
+    .map((s) => `**${s.created_by?.name ?? "Unknown"}** \u2014 ${s.created_at}:\n${s.text}`);
 
   return {
-    title: task.name,
+    title: task.name ?? "Untitled",
     ref: resolvedRef ?? task.gid,
     source: "asana",
     status,
     priority: null,
     assignee: task.assignee?.name ?? null,
-    tags: task.tags.map((t) => t.name),
+    tags: (task.tags ?? []).filter((t) => t?.name).map((t) => t.name),
     created: now,
     updated: now,
     closed: task.completed ? (task.completed_at ?? now) : null,
