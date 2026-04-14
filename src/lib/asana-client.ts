@@ -1,9 +1,21 @@
 /**
- * Thin REST API client for Asana using Node's built-in fetch().
+ * Thin REST API client for Asana.
  *
  * Auth: Bearer token via ASANA_ACCESS_TOKEN env var.
- * All HTTP I/O is injectable via the `fetch` option for testing.
+ * All HTTP I/O routes through the rate-limited client from
+ * `http/rate-limited-client.ts`, which handles 429 retries,
+ * exponential backoff, and Bottleneck scheduling.
+ *
+ * For testing, inject a permissive Bottleneck limiter and a stub fetch.
  */
+
+import Bottleneck from "bottleneck";
+import {
+  createRateLimitedClient,
+  type RateLimitedClient,
+  type FetchFn as RateLimitedFetchFn,
+} from "./http/rate-limited-client.js";
+import { createAsanaLimiter } from "./http/backends.js";
 
 const ASANA_API_BASE = "https://app.asana.com/api/1.0";
 
@@ -81,6 +93,10 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 export interface AsanaClientOptions {
   token: string;
   fetch?: FetchFn;
+  /** Bottleneck limiter instance. Defaults to createAsanaLimiter(). */
+  limiter?: Bottleneck;
+  /** Injectable sleep for testing. Passed through to the rate-limited client. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface TaskListOptions {
@@ -152,6 +168,14 @@ export interface AsanaClient {
 export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
   const { token } = options;
   const fetchFn: FetchFn = options.fetch ?? globalThis.fetch;
+  const limiter = options.limiter ?? createAsanaLimiter();
+
+  const httpClient = createRateLimitedClient({
+    limiter,
+    fetch: fetchFn as RateLimitedFetchFn,
+    envVarHint: "ASANA_RATE_LIMIT_RPM",
+    ...(options.sleep ? { sleep: options.sleep } : {}),
+  });
 
   const authHeaders: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -170,14 +194,7 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
       ? Object.fromEntries(new Headers(init.headers).entries())
       : {};
     const mergedHeaders = { ...authHeaders, ...extraHeaders };
-    const response = await fetchFn(url, { ...init, headers: mergedHeaders });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(
-        `Asana API ${response.status}: ${body}`
-      );
-    }
+    const response = await httpClient.request(url, { ...init, headers: mergedHeaders });
 
     const json = (await response.json()) as { data: T };
     return json.data;
@@ -192,11 +209,7 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
     let nextUrl: string | null = `${ASANA_API_BASE}${initialPath}`;
 
     while (nextUrl) {
-      const response = await fetchFn(nextUrl, { headers: authHeaders });
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`Asana API ${response.status}: ${body}`);
-      }
+      const response = await httpClient.request(nextUrl, { headers: authHeaders });
 
       const json = (await response.json()) as {
         data: T[];

@@ -173,12 +173,11 @@ export async function ingestAsanaTask(
     }
   }
 
-  // From here on, stories/attachments use the resolved task's GID
+  // From here on, stories/attachments use the resolved task's GID.
+  // Calls go serially through the Bottleneck limiter — no parallel bursts.
   const taskGid = task.gid;
-  const [stories, attachments] = await Promise.all([
-    client.getStories(taskGid),
-    client.getAttachments(taskGid),
-  ]);
+  const stories = await client.getStories(taskGid);
+  const attachments = await client.getAttachments(taskGid);
 
   // Resolve identifier from custom fields or fall back to GID
   const resolvedIdentifier = resolveIdentifier(task, identifierField);
@@ -353,8 +352,9 @@ export async function ingestAsanaBulk(
   // Build dedup index once before the loop
   const dedupIndex = buildDedupIndex(workspaceRoot, "asana_ref");
 
-  // Process tasks with bounded concurrency (5 concurrent API calls)
-  const results = await mapWithConcurrency(tasks, 5, (task) =>
+  // Process tasks with bounded concurrency — the Bottleneck limiter is the
+  // authoritative throttle, so workers can be generous.
+  const results = await mapWithConcurrency(tasks, 20, (task) =>
     ingestAsanaTask({
       client,
       ref: task.gid,
