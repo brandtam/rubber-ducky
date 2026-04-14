@@ -29,22 +29,19 @@ describe("JiraClient", () => {
   };
 
   describe("auth", () => {
-    it("throws when JIRA_EMAIL is not set", () => {
-      expect(() =>
-        createJiraClient({ ...baseOpts, email: "" })
-      ).toThrow("JIRA_EMAIL");
+    it("throws when JIRA_EMAIL is not set on first request", async () => {
+      const client = createJiraClient({ ...baseOpts, email: "" });
+      await expect(client.getMyself()).rejects.toThrow("JIRA_EMAIL");
     });
 
-    it("throws when JIRA_API_TOKEN is not set", () => {
-      expect(() =>
-        createJiraClient({ ...baseOpts, apiToken: "" })
-      ).toThrow("JIRA_API_TOKEN");
+    it("throws when JIRA_API_TOKEN is not set on first request", async () => {
+      const client = createJiraClient({ ...baseOpts, apiToken: "" });
+      await expect(client.getMyself()).rejects.toThrow("JIRA_API_TOKEN");
     });
 
-    it("throws when serverUrl is not set", () => {
-      expect(() =>
-        createJiraClient({ ...baseOpts, serverUrl: "" })
-      ).toThrow("server_url");
+    it("throws when serverUrl is not set on first request", async () => {
+      const client = createJiraClient({ ...baseOpts, serverUrl: "" });
+      await expect(client.getMyself()).rejects.toThrow("server_url");
     });
 
     it("sends Basic Auth header with base64-encoded email:token", async () => {
@@ -245,6 +242,151 @@ describe("JiraClient", () => {
       await client.searchIssues("project = ECOMM", { maxResults: 50 });
 
       expect(capturedUrl).toContain("maxResults=50");
+    });
+  });
+
+  describe("createIssue", () => {
+    it("creates an issue with correct endpoint and payload", async () => {
+      let capturedUrl = "";
+      let capturedInit: RequestInit | undefined;
+      const fetch = mockFetch((url, init) => {
+        capturedUrl = url;
+        capturedInit = init;
+        return {
+          status: 201,
+          body: { key: "PROJ-99", id: "12345", self: "https://myorg.atlassian.net/rest/api/3/issue/12345" },
+        };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const result = await client.createIssue({
+        project: { key: "PROJ" },
+        summary: "New task",
+        description: "Build this",
+        issuetype: { name: "Task" },
+        labels: ["bug"],
+      });
+
+      expect(result.key).toBe("PROJ-99");
+      expect(result.id).toBe("12345");
+      expect(capturedUrl).toContain("/rest/api/3/issue");
+      expect(capturedInit?.method).toBe("POST");
+      const body = JSON.parse(capturedInit?.body as string);
+      expect(body.fields.summary).toBe("New task");
+      expect(body.fields.labels).toEqual(["bug"]);
+    });
+
+    it("throws on 400 bad request", async () => {
+      const fetch = mockFetch(() => ({
+        status: 400,
+        body: { errorMessages: ["Project is required"] },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await expect(
+        client.createIssue({ summary: "No project" })
+      ).rejects.toThrow("400");
+    });
+  });
+
+  describe("addComment", () => {
+    it("adds a comment to an issue with correct endpoint and body", async () => {
+      let capturedUrl = "";
+      let capturedInit: RequestInit | undefined;
+      const fetch = mockFetch((url, init) => {
+        capturedUrl = url;
+        capturedInit = init;
+        return {
+          status: 201,
+          body: { id: "10001", body: "Great work!", author: { displayName: "Alice" }, created: "2024-01-15T10:00:00.000+0000" },
+        };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const result = await client.addComment("PROJ-42", "Great work!");
+
+      expect(result.id).toBe("10001");
+      expect(capturedUrl).toContain("/rest/api/3/issue/PROJ-42/comment");
+      expect(capturedInit?.method).toBe("POST");
+      const body = JSON.parse(capturedInit?.body as string);
+      expect(body.body).toBe("Great work!");
+    });
+
+    it("throws on 404 when issue not found", async () => {
+      const fetch = mockFetch(() => ({
+        status: 404,
+        body: { errorMessages: ["Issue does not exist"] },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await expect(client.addComment("NOPE-1", "comment")).rejects.toThrow("404");
+    });
+  });
+
+  describe("getTransitions", () => {
+    it("fetches available transitions for an issue", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return {
+          status: 200,
+          body: {
+            transitions: [
+              { id: "21", name: "In Progress" },
+              { id: "31", name: "Done" },
+            ],
+          },
+        };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const transitions = await client.getTransitions("PROJ-42");
+
+      expect(transitions).toHaveLength(2);
+      expect(transitions[0]).toEqual({ id: "21", name: "In Progress" });
+      expect(transitions[1]).toEqual({ id: "31", name: "Done" });
+      expect(capturedUrl).toContain("/rest/api/3/issue/PROJ-42/transitions");
+    });
+
+    it("returns empty array when no transitions available", async () => {
+      const fetch = mockFetch(() => ({
+        status: 200,
+        body: { transitions: [] },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      const transitions = await client.getTransitions("PROJ-1");
+      expect(transitions).toEqual([]);
+    });
+  });
+
+  describe("transitionIssue", () => {
+    it("sends transition request with correct endpoint and body", async () => {
+      let capturedUrl = "";
+      let capturedInit: RequestInit | undefined;
+      const fetch = mockFetch((url, init) => {
+        capturedUrl = url;
+        capturedInit = init;
+        return { status: 204, body: null };
+      });
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await client.transitionIssue("PROJ-42", "21");
+
+      expect(capturedUrl).toContain("/rest/api/3/issue/PROJ-42/transitions");
+      expect(capturedInit?.method).toBe("POST");
+      const body = JSON.parse(capturedInit?.body as string);
+      expect(body.transition.id).toBe("21");
+    });
+
+    it("throws on 400 when transition is invalid", async () => {
+      const fetch = mockFetch(() => ({
+        status: 400,
+        body: { errorMessages: ["Invalid transition"] },
+      }));
+
+      const client = createJiraClient({ ...baseOpts, fetch });
+      await expect(client.transitionIssue("PROJ-42", "999")).rejects.toThrow("400");
     });
   });
 

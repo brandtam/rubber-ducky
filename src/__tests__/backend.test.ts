@@ -66,11 +66,14 @@ describe("Backend interface", () => {
     });
 
     it("returns a jira backend for jira config", () => {
-      const backend = getBackend({
-        type: "jira",
-        mcp_server: "atlassian-remote",
-        server_url: "https://myorg.atlassian.net",
-      });
+      const backend = getBackend(
+        {
+          type: "jira",
+          mcp_server: "atlassian-remote",
+          server_url: "https://myorg.atlassian.net",
+        },
+        { email: "alice@myorg.com", apiToken: "test-token" }
+      );
       expect(backend.name).toBe("jira");
       expect(backend.capabilities).toContain("ingest");
       expect(backend.capabilities).toContain("pull");

@@ -8,6 +8,7 @@ import type {
   Status,
   ConnectivityResult,
 } from "./backend.js";
+import type { JiraClient, JiraIssue, JiraComment } from "./jira-client.js";
 
 /**
  * Default mapping from Jira status names (lowercased) to controlled vocabulary statuses.
@@ -66,48 +67,58 @@ export function mapStatusToJiraTransition(status: Status): string {
   return STATUS_TO_TRANSITION[status];
 }
 
-interface JiraIssueJson {
-  key: string;
-  fields: {
-    summary: string;
-    description: string | null;
-    status: { name: string };
-    priority: { name: string } | null;
-    assignee: { displayName: string } | null;
-    labels: string[];
-    created: string;
-    updated: string;
-    resolutiondate: string | null;
-    duedate: string | null;
-    comment: {
-      total: number;
-      comments: {
-        body: string;
-        author: { displayName: string };
-        created: string;
-      }[];
-    };
+/**
+ * Convert a Jira issue + comments from the REST API into a TaskPage.
+ */
+function jiraIssueToPage(
+  issue: JiraIssue,
+  comments: JiraComment[],
+  serverUrl: string,
+  statusMap?: Record<string, Status>
+): TaskPage {
+  const status = mapJiraStatusToStatus(issue.fields.status.name, statusMap);
+  const formattedComments = comments.map(
+    (c) => `**${c.author.displayName}** (${c.created}):\n${c.body}`
+  );
+
+  return {
+    title: issue.fields.summary,
+    ref: issue.key,
+    source: "jira",
+    status,
+    priority: issue.fields.priority?.name ?? null,
+    assignee: issue.fields.assignee?.displayName ?? null,
+    tags: issue.fields.labels,
+    created: issue.fields.created,
+    updated: issue.fields.updated,
+    closed: issue.fields.resolutiondate ?? (status === "done" ? issue.fields.updated : null),
+    pushed: null,
+    due: issue.fields.duedate ?? null,
+    jira_ref: `${serverUrl}/browse/${issue.key}`,
+    asana_ref: null,
+    gh_ref: null,
+    comment_count: comments.length,
+    description: issue.fields.description ?? "",
+    comments: formattedComments,
   };
-  transitions?: { id: string; name: string }[];
 }
 
-interface JiraBackendOptions {
+export interface JiraBackendOptions {
+  client: JiraClient;
   serverUrl: string;
   projectKey?: string;
   statusMap?: Record<string, Status>;
-  exec?: (args: string[]) => string;
 }
 
 /**
  * Create a Jira backend instance.
  * Supports: ingest, pull, push, comment, transition (full support).
  *
- * Uses the `atlassian-remote` MCP server for all Jira API interactions.
- * Inject `exec` for testing with mocked MCP output.
+ * Uses the Jira REST API client for all interactions.
+ * Inject `client` for testing with mocked responses.
  */
 export function createJiraBackend(options: JiraBackendOptions): Backend {
-  const { serverUrl, projectKey, statusMap } = options;
-  const exec = options.exec ?? defaultExecJira;
+  const { client, serverUrl, projectKey, statusMap } = options;
 
   function issueKeyFromTaskPage(taskPage: TaskPage): string {
     if (taskPage.jira_ref) {
@@ -123,34 +134,9 @@ export function createJiraBackend(options: JiraBackendOptions): Backend {
     capabilities: ["ingest", "pull", "push", "comment", "transition"],
 
     async ingest(ref: string): Promise<TaskPage> {
-      const output = exec(["jira_get_issue", ref]);
-      const data: JiraIssueJson = JSON.parse(output);
-
-      const status = mapJiraStatusToStatus(data.fields.status.name, statusMap);
-      const comments = data.fields.comment.comments.map(
-        (c) => `**${c.author.displayName}** (${c.created}):\n${c.body}`
-      );
-
-      return {
-        title: data.fields.summary,
-        ref: data.key,
-        source: "jira",
-        status,
-        priority: data.fields.priority?.name ?? null,
-        assignee: data.fields.assignee?.displayName ?? null,
-        tags: data.fields.labels,
-        created: data.fields.created,
-        updated: data.fields.updated,
-        closed: data.fields.resolutiondate ?? (status === "done" ? data.fields.updated : null),
-        pushed: null,
-        due: data.fields.duedate ?? null,
-        jira_ref: `${serverUrl}/browse/${data.key}`,
-        asana_ref: null,
-        gh_ref: null,
-        comment_count: data.fields.comment.comments.length,
-        description: data.fields.description ?? "",
-        comments,
-      };
+      const issue = await client.getIssue(ref);
+      const comments = await client.getComments(ref);
+      return jiraIssueToPage(issue, comments, serverUrl, statusMap);
     },
 
     async pull(taskPage: TaskPage): Promise<PullResult> {
@@ -161,17 +147,17 @@ export function createJiraBackend(options: JiraBackendOptions): Backend {
       }
 
       const issueKey = issueKeyFromTaskPage(taskPage);
-      const output = exec(["jira_get_issue", issueKey]);
-      const data: JiraIssueJson = JSON.parse(output);
+      const issue = await client.getIssue(issueKey);
+      const comments = await client.getComments(issueKey);
 
       const changes: string[] = [];
-      const newStatus = mapJiraStatusToStatus(data.fields.status.name, statusMap);
+      const newStatus = mapJiraStatusToStatus(issue.fields.status.name, statusMap);
 
       if (newStatus !== taskPage.status) {
         changes.push(`status: ${taskPage.status} -> ${newStatus}`);
       }
 
-      const newCommentCount = data.fields.comment.comments.length;
+      const newCommentCount = comments.length;
       if (newCommentCount > taskPage.comment_count) {
         changes.push(`comments: ${newCommentCount - taskPage.comment_count} new`);
       }
@@ -189,18 +175,13 @@ export function createJiraBackend(options: JiraBackendOptions): Backend {
         );
       }
 
-      const payload = JSON.stringify({
-        fields: {
-          project: { key: projectKey },
-          summary: taskPage.title,
-          description: taskPage.description,
-          issuetype: { name: "Task" },
-          labels: taskPage.tags,
-        },
+      const result = await client.createIssue({
+        project: { key: projectKey },
+        summary: taskPage.title,
+        description: taskPage.description,
+        issuetype: { name: "Task" },
+        labels: taskPage.tags,
       });
-
-      const output = exec(["jira_create_issue", payload]);
-      const result = JSON.parse(output);
 
       return {
         success: true,
@@ -217,7 +198,7 @@ export function createJiraBackend(options: JiraBackendOptions): Backend {
       }
 
       const issueKey = issueKeyFromTaskPage(taskPage);
-      exec(["jira_add_comment", issueKey, text]);
+      await client.addComment(issueKey, text);
 
       return {
         success: true,
@@ -235,10 +216,7 @@ export function createJiraBackend(options: JiraBackendOptions): Backend {
       const issueKey = issueKeyFromTaskPage(taskPage);
       const targetTransitionName = mapStatusToJiraTransition(status);
 
-      // Fetch available transitions
-      const output = exec(["jira_get_issue", issueKey]);
-      const data: JiraIssueJson = JSON.parse(output);
-      const transitions = data.transitions ?? [];
+      const transitions = await client.getTransitions(issueKey);
 
       const transition = transitions.find(
         (t) => t.name.toLowerCase() === targetTransitionName.toLowerCase()
@@ -251,7 +229,7 @@ export function createJiraBackend(options: JiraBackendOptions): Backend {
         );
       }
 
-      exec(["jira_transition_issue", issueKey, transition.id]);
+      await client.transitionIssue(issueKey, transition.id);
 
       return {
         success: true,
@@ -260,34 +238,6 @@ export function createJiraBackend(options: JiraBackendOptions): Backend {
       };
     },
   };
-}
-
-function defaultExecJira(_args: string[]): string {
-  throw new Error(
-    "Jira backend requires the atlassian-remote MCP server. Ensure it is configured."
-  );
-}
-
-/**
- * Check Jira connectivity via MCP server.
- * Returns without throwing -- caller inspects the result.
- * @deprecated Use checkJiraConnectivityRest for REST-based checks.
- */
-export function checkJiraConnectivity(
-  serverUrl: string,
-  exec?: (args: string[]) => string
-): ConnectivityResult {
-  const run = exec ?? defaultExecJira;
-  try {
-    const output = run(["jira_get_server_info"]);
-    const data = JSON.parse(output);
-    return { authenticated: true, user: data.user };
-  } catch {
-    return {
-      authenticated: false,
-      error: `Cannot connect to Jira at ${serverUrl}. Ensure the atlassian-remote MCP server is configured and running. See references/backend-setup.md for setup instructions.`,
-    };
-  }
 }
 
 /**

@@ -49,44 +49,61 @@ export interface JiraClientOptions {
   fetch?: FetchFn;
 }
 
+export interface JiraTransition {
+  id: string;
+  name: string;
+}
+
 export interface JiraClient {
   getMyself(): Promise<JiraUser>;
   getIssue(issueKey: string): Promise<JiraIssue>;
   getComments(issueKey: string): Promise<JiraComment[]>;
   searchIssues(jql: string, options?: { maxResults?: number }): Promise<JiraSearchResult>;
+  createIssue(fields: Record<string, unknown>): Promise<{ key: string; id: string; self: string }>;
+  addComment(issueKey: string, body: string): Promise<{ id: string }>;
+  getTransitions(issueKey: string): Promise<JiraTransition[]>;
+  transitionIssue(issueKey: string, transitionId: string): Promise<void>;
 }
 
 export function createJiraClient(options: JiraClientOptions): JiraClient {
   const { email, apiToken } = options;
   const serverUrl = options.serverUrl.replace(/\/+$/, "");
-
-  if (!serverUrl) {
-    throw new Error(
-      "Jira server_url is not configured. Set server_url in your backend config. See references/backend-setup.md for instructions."
-    );
-  }
-
-  if (!email) {
-    throw new Error(
-      "JIRA_EMAIL is not set. Export your Jira account email as JIRA_EMAIL. See references/backend-setup.md for instructions."
-    );
-  }
-
-  if (!apiToken) {
-    throw new Error(
-      "JIRA_API_TOKEN is not set. Export your Jira API token as JIRA_API_TOKEN. See references/backend-setup.md for instructions."
-    );
-  }
-
   const fetchFn: FetchFn = options.fetch ?? globalThis.fetch;
 
-  const credentials = Buffer.from(`${email}:${apiToken}`).toString("base64");
-  const headers: Record<string, string> = {
-    Authorization: `Basic ${credentials}`,
-    Accept: "application/json",
-  };
+  /**
+   * Validate credentials at request time (not construction time) so that
+   * backend list/capabilities work without a token set.
+   */
+  function ensureCredentials(): { headers: Record<string, string> } {
+    if (!serverUrl) {
+      throw new Error(
+        "Jira server_url is not configured. Set server_url in your backend config. See references/backend-setup.md for instructions."
+      );
+    }
+
+    if (!email) {
+      throw new Error(
+        "JIRA_EMAIL is not set. Export your Jira account email as JIRA_EMAIL. See references/backend-setup.md for instructions."
+      );
+    }
+
+    if (!apiToken) {
+      throw new Error(
+        "JIRA_API_TOKEN is not set. Export your Jira API token as JIRA_API_TOKEN. See references/backend-setup.md for instructions."
+      );
+    }
+
+    const credentials = Buffer.from(`${email}:${apiToken}`).toString("base64");
+    return {
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        Accept: "application/json",
+      },
+    };
+  }
 
   async function request<T>(path: string): Promise<T> {
+    const { headers } = ensureCredentials();
     const url = `${serverUrl}${path}`;
     const response = await fetchFn(url, { headers });
 
@@ -95,6 +112,25 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
       throw new Error(`Jira API ${response.status}: ${body}`);
     }
 
+    return (await response.json()) as T;
+  }
+
+  async function post<T>(path: string, body: unknown): Promise<T> {
+    const { headers } = ensureCredentials();
+    const url = `${serverUrl}${path}`;
+    const response = await fetchFn(url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Jira API ${response.status}: ${text}`);
+    }
+
+    // 204 No Content (e.g. transition) returns no body
+    if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
   }
 
@@ -123,6 +159,29 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
         params.set("maxResults", String(searchOptions.maxResults));
       }
       return request<JiraSearchResult>(`/rest/api/3/search?${params.toString()}`);
+    },
+
+    async createIssue(
+      fields: Record<string, unknown>
+    ): Promise<{ key: string; id: string; self: string }> {
+      return post("/rest/api/3/issue", { fields });
+    },
+
+    async addComment(issueKey: string, body: string): Promise<{ id: string }> {
+      return post(`/rest/api/3/issue/${issueKey}/comment`, { body });
+    },
+
+    async getTransitions(issueKey: string): Promise<JiraTransition[]> {
+      const result = await request<{ transitions: JiraTransition[] }>(
+        `/rest/api/3/issue/${issueKey}/transitions`
+      );
+      return result.transitions;
+    },
+
+    async transitionIssue(issueKey: string, transitionId: string): Promise<void> {
+      await post(`/rest/api/3/issue/${issueKey}/transitions`, {
+        transition: { id: transitionId },
+      });
     },
   };
 }

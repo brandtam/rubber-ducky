@@ -25,9 +25,9 @@ import {
 } from "./github-backend.js";
 import {
   createJiraBackend,
-  checkJiraConnectivity,
   checkJiraConnectivityRest,
 } from "./jira-backend.js";
+import { createJiraClient } from "./jira-client.js";
 import {
   createAsanaBackend,
   checkAsanaConnectivityRest,
@@ -161,18 +161,30 @@ export function getBackend(
   options?: {
     exec?: (args: string[]) => string;
     token?: string;
+    email?: string;
+    apiToken?: string;
     fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   }
 ): Backend {
   switch (config.type) {
     case "github":
       return createGitHubBackend(options);
-    case "jira":
-      return createJiraBackend({
-        serverUrl: config.server_url ?? "",
-        projectKey: config.project_key,
-        exec: options?.exec,
+    case "jira": {
+      const email = options?.email ?? process.env.JIRA_EMAIL ?? "";
+      const apiToken = options?.apiToken ?? process.env.JIRA_API_TOKEN ?? "";
+      const serverUrl = config.server_url ?? "";
+      const client = createJiraClient({
+        serverUrl,
+        email,
+        apiToken,
+        fetch: options?.fetch,
       });
+      return createJiraBackend({
+        client,
+        serverUrl,
+        projectKey: config.project_key,
+      });
+    }
     case "asana": {
       const token = options?.token ?? process.env.ASANA_ACCESS_TOKEN ?? "";
       const client = createAsanaClient({ token, fetch: options?.fetch });
