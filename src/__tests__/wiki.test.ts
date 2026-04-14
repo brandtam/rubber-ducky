@@ -83,8 +83,8 @@ describe("rebuildIndex", () => {
     rebuildIndex(tmpDir);
 
     const index = fs.readFileSync(path.join(tmpDir, "wiki", "index.md"), "utf-8");
-    expect(index).toContain("[[wiki/tasks/fix-bug.md|Fix bug]]");
-    expect(index).toContain("[[wiki/daily/2024-03-15.md|2024-03-15]]");
+    expect(index).toContain("[[wiki/tasks/fix-bug.md\\|Fix bug]]");
+    expect(index).toContain("[[wiki/daily/2024-03-15.md\\|2024-03-15]]");
   });
 
   it("groups pages by type", () => {
@@ -107,8 +107,8 @@ describe("rebuildIndex", () => {
     rebuildIndex(tmpDir);
 
     const index = fs.readFileSync(path.join(tmpDir, "wiki", "index.md"), "utf-8");
-    expect(index).toContain("[[wiki/projects/alpha.md|Alpha]]");
-    expect(index).toContain("[[wiki/projects/beta.md|Beta]]");
+    expect(index).toContain("[[wiki/projects/alpha.md\\|Alpha]]");
+    expect(index).toContain("[[wiki/projects/beta.md\\|Beta]]");
   });
 
   it("sorts daily pages in reverse chronological order", () => {

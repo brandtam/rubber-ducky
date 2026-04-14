@@ -13,6 +13,7 @@ const TASK_OPT_FIELDS = [
   "notes",
   "completed",
   "completed_at",
+  "created_at",
   "assignee.name",
   "assignee.gid",
   "due_on",
@@ -45,6 +46,7 @@ export interface AsanaTask {
   notes: string;
   completed: boolean;
   completed_at: string | null;
+  created_at: string;
   assignee: { name: string; gid: string } | null;
   due_on: string | null;
   memberships: { section: { name: string; gid: string } }[];

@@ -110,7 +110,7 @@ export async function ingestJiraIssue(
   }
 
   // Write task page — use issue key as filename (e.g., ecomm-4643.md)
-  const filename = `${slugify(issue.key)}.md`;
+  const filename = `${slugify(issue.key) || issue.key}.md`;
   const relativePath = path.join("wiki", "tasks", filename);
   const fullPath = path.join(workspaceRoot, relativePath);
 

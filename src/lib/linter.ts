@@ -31,7 +31,7 @@ export interface LinterOptions {
 
 const DEFAULT_STALE_DAYS = 7;
 
-const WIKILINK_REGEX = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+const WIKILINK_REGEX = /\[\[([^\]|\\]+)(?:\\?\|[^\]]+)?\]\]/g;
 
 interface PageEntry {
   filePath: string;

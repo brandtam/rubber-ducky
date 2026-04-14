@@ -106,7 +106,7 @@ export function asanaTaskToPage(
     priority: null,
     assignee: task.assignee?.name ?? null,
     tags: (task.tags ?? []).filter((t) => t?.name).map((t) => t.name),
-    created: now,
+    created: task.created_at ?? now,
     updated: now,
     closed: task.completed ? (task.completed_at ?? now) : null,
     pushed: null,

@@ -180,9 +180,9 @@ export async function ingestAsanaTask(
   }
 
   // Determine the asset ref (slugified identifier or raw GID)
-  const assetRef = resolvedIdentifier
+  const assetRef = (resolvedIdentifier
     ? slugify(resolvedIdentifier)
-    : task.gid;
+    : null) || task.gid;
 
   // Download attachments in parallel
   const downloadable = attachments.filter(
@@ -205,10 +205,10 @@ export async function ingestAsanaTask(
     isImage: isImageFilename(att.name),
   }));
 
-  // Determine filename
-  const filenameBase = resolvedIdentifier
+  // Determine filename — fall back to GID if slugify produces an empty string
+  const filenameBase = (resolvedIdentifier
     ? slugify(resolvedIdentifier)
-    : slugify(taskPage.title);
+    : slugify(taskPage.title)) || task.gid;
   const filename = `${filenameBase}.md`;
   const relativePath = path.join("wiki", "tasks", filename);
   const fullPath = path.join(workspaceRoot, relativePath);

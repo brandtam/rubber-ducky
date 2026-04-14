@@ -53,9 +53,9 @@ describe("index rebuild CLI", () => {
     expect(content).toContain("## Tasks by Status");
     expect(content).toContain("## Projects");
     expect(content).toContain("## Daily Pages");
-    expect(content).toContain("[[wiki/tasks/fix-bug.md|Fix bug]]");
-    expect(content).toContain("[[wiki/projects/alpha.md|Alpha]]");
-    expect(content).toContain("[[wiki/daily/2024-03-15.md|2024-03-15]]");
+    expect(content).toContain("[[wiki/tasks/fix-bug.md\\|Fix bug]]");
+    expect(content).toContain("[[wiki/projects/alpha.md\\|Alpha]]");
+    expect(content).toContain("[[wiki/daily/2024-03-15.md\\|2024-03-15]]");
   });
 
   it("groups tasks by status in the index", () => {

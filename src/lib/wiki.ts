@@ -155,7 +155,7 @@ export function rebuildIndex(workspaceRoot: string): IndexResult {
         ? String(task.data.created).split("T")[0]
         : "\u2014";
       const due = task.data.due ? String(task.data.due) : "\u2014";
-      lines.push(`| [[${task.relativePath}|${title}]] | ${created} | ${due} |`);
+      lines.push(`| [[${task.relativePath}\\|${title}]] | ${created} | ${due} |`);
     }
     lines.push("");
   }
@@ -178,7 +178,7 @@ export function rebuildIndex(workspaceRoot: string): IndexResult {
       const created = project.data.created
         ? String(project.data.created).split("T")[0]
         : "\u2014";
-      lines.push(`| [[${project.relativePath}|${title}]] | ${status} | ${created} |`);
+      lines.push(`| [[${project.relativePath}\\|${title}]] | ${status} | ${created} |`);
     }
   } else {
     lines.push("No projects found.");
@@ -199,7 +199,7 @@ export function rebuildIndex(workspaceRoot: string): IndexResult {
         ? String(daily.data.tasks_touched.length)
         : "\u2014";
       lines.push(
-        `| [[${daily.relativePath}|${title}]] | ${morningBrief} | ${tasksTouched} |`
+        `| [[${daily.relativePath}\\|${title}]] | ${morningBrief} | ${tasksTouched} |`
       );
     }
   } else {
