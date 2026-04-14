@@ -3,7 +3,15 @@
  *
  * Auth: Basic Auth via JIRA_EMAIL + JIRA_API_TOKEN env vars.
  * All HTTP I/O is injectable via the `fetch` option for testing.
+ *
+ * When a Bottleneck `limiter` is provided, all requests are routed through
+ * the rate-limited HTTP client with the Jira Cloud rate-limit-hints adapter,
+ * giving adaptive pacing via X-RateLimit-* response headers.
  */
+
+import type Bottleneck from "bottleneck";
+import { createRateLimitedClient, type FetchFn as RLFetchFn } from "./http/rate-limited-client.js";
+import { withRateLimitHints } from "./http/rate-limit-hints.js";
 
 export interface JiraIssue {
   key: string;
@@ -46,6 +54,10 @@ export interface JiraClientOptions {
   email: string;
   apiToken: string;
   fetch?: FetchFn;
+  /** Optional Bottleneck limiter — enables rate-limited client + hints adapter. */
+  limiter?: Bottleneck;
+  /** Injectable sleep for testing the rate-limited path. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface JiraTransition {
@@ -74,7 +86,27 @@ export interface JiraClient {
 export function createJiraClient(options: JiraClientOptions): JiraClient {
   const { email, apiToken } = options;
   const serverUrl = options.serverUrl.replace(/\/+$/, "");
-  const fetchFn: FetchFn = options.fetch ?? globalThis.fetch;
+
+  let fetchFn: FetchFn;
+  if (options.limiter) {
+    // Wire rate-limited client with Jira Cloud hints adapter.
+    // The hints adapter wraps the raw fetch so it sees every response
+    // (including ones the retry logic will retry) and updates the
+    // limiter's reservoir from X-RateLimit-* headers.
+    const hintsFetch = withRateLimitHints(
+      (options.fetch ?? globalThis.fetch) as RLFetchFn,
+      { limiter: options.limiter }
+    );
+    const rlClient = createRateLimitedClient({
+      limiter: options.limiter,
+      fetch: hintsFetch,
+      envVarHint: "JIRA_RATE_LIMIT_RPM",
+      sleep: options.sleep,
+    });
+    fetchFn = rlClient.request.bind(rlClient);
+  } else {
+    fetchFn = options.fetch ?? globalThis.fetch;
+  }
 
   /**
    * Cached auth headers — computed once on first request, reused thereafter.
