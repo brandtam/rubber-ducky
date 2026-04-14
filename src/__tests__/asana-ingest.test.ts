@@ -40,6 +40,10 @@ function makeMockClient(overrides?: {
   projectTasks?: Record<string, unknown>[];
   sectionTasks?: Record<string, unknown>[];
   me?: Record<string, unknown>;
+  /** Map of custom_id → task override for getTaskByCustomId. */
+  customIdTasks?: Record<string, Record<string, unknown>>;
+  /** Custom IDs that should simulate a 404. */
+  customIdNotFound?: string[];
 }): AsanaClient {
   const task = makeTask(overrides?.task);
 
@@ -69,6 +73,12 @@ function makeMockClient(overrides?: {
     }
   }
 
+  const customIdMap = new Map<string, Record<string, unknown>>();
+  for (const [customId, taskData] of Object.entries(overrides?.customIdTasks ?? {})) {
+    customIdMap.set(customId, taskData);
+  }
+  const customIdNotFound = new Set(overrides?.customIdNotFound ?? []);
+
   return {
     getMe: async () => ({
       gid: "me-gid",
@@ -77,6 +87,16 @@ function makeMockClient(overrides?: {
       ...overrides?.me,
     }),
     getTask: async (gid: string) => taskMap.get(gid) ?? task,
+    getTaskByCustomId: async (_workspaceGid: string, customId: string) => {
+      if (customIdNotFound.has(customId)) {
+        throw new Error(`Asana API 404: no task for custom_id ${customId}`);
+      }
+      const found = customIdMap.get(customId);
+      if (!found) {
+        throw new Error(`Asana API 404: no task for custom_id ${customId}`);
+      }
+      return found;
+    },
     getStories: async () => stories,
     getAttachments: async () => attachments,
     downloadFile: async () => downloadData,
@@ -803,6 +823,86 @@ describe("ingestAsanaTask", () => {
       );
       // No Attachments section when there are no attachments
       expect(content).not.toContain("## Attachments");
+    });
+  });
+
+  describe("custom ID resolution", () => {
+    it("resolves a custom ID ref via getTaskByCustomId", async () => {
+      const client = makeMockClient({
+        customIdTasks: {
+          "TIK-4647": makeTask({
+            gid: "1234567890",
+            name: "Fix the login bug",
+          }),
+        },
+      });
+
+      const result = await ingestAsanaTask({
+        client,
+        ref: "TIK-4647",
+        workspaceRoot: tmpDir,
+        workspaceGid: "ws-42",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBe(false);
+      const content = fs.readFileSync(path.join(tmpDir, result.filePath!), "utf-8");
+      const parsed = parseFrontmatter(content);
+      expect(parsed!.data.title).toBe("Fix the login bug");
+    });
+
+    it("throws a clear error when workspaceGid is missing for a custom ID ref", async () => {
+      const client = makeMockClient();
+
+      await expect(
+        ingestAsanaTask({
+          client,
+          ref: "TIK-4647",
+          workspaceRoot: tmpDir,
+          // workspaceGid deliberately omitted
+        }),
+      ).rejects.toThrow(/workspace_id is not configured/);
+    });
+
+    it("surfaces Asana's 404 when the custom ID does not exist", async () => {
+      const client = makeMockClient({
+        customIdNotFound: ["MISSING-999"],
+      });
+
+      await expect(
+        ingestAsanaTask({
+          client,
+          ref: "MISSING-999",
+          workspaceRoot: tmpDir,
+          workspaceGid: "ws-42",
+        }),
+      ).rejects.toThrow(/404/);
+    });
+
+    it("still uses getTask (not getTaskByCustomId) for numeric GIDs", async () => {
+      let customIdCalls = 0;
+      let getTaskCalls = 0;
+      const client = {
+        ...makeMockClient(),
+        getTask: async (gid: string) => {
+          getTaskCalls++;
+          return makeTask({ gid });
+        },
+        getTaskByCustomId: async () => {
+          customIdCalls++;
+          throw new Error("should not have been called");
+        },
+      } as AsanaClient;
+
+      await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+        workspaceGid: "ws-42",
+      });
+
+      expect(getTaskCalls).toBe(1);
+      expect(customIdCalls).toBe(0);
     });
   });
 });

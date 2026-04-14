@@ -6,10 +6,14 @@ import { parse as parseYaml } from "yaml";
 import { createWorkspace } from "../lib/workspace.js";
 import type { BackendConfig } from "../lib/templates.js";
 
-// Mock naming-prompt module
-vi.mock("../lib/naming-prompt.js", () => ({
-  runNamingPrompt: vi.fn(),
-}));
+// Mock only the interactive prompt; keep the pure helpers real so the
+// persistence and pre-selection mapping actually execute under test.
+vi.mock("../lib/naming-prompt.js", async () => {
+  const actual = await vi.importActual<typeof import("../lib/naming-prompt.js")>(
+    "../lib/naming-prompt.js",
+  );
+  return { ...actual, runNamingPrompt: vi.fn() };
+});
 
 // Mock asana-client
 vi.mock("../lib/asana-client.js", () => ({
@@ -119,10 +123,12 @@ describe("ensureNamingConfig", () => {
     });
 
     expect(mockRunNamingPrompt).toHaveBeenCalledOnce();
-    expect(mockRunNamingPrompt).toHaveBeenCalledWith({
-      client: expect.anything(),
-      projectGid: "proj-456",
-    });
+    expect(mockRunNamingPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        client: expect.anything(),
+        projectGid: "proj-456",
+      }),
+    );
     expect(result).toEqual({
       namingSource: "identifier",
       namingCase: "preserve",
@@ -171,6 +177,14 @@ describe("ensureNamingConfig", () => {
     });
 
     expect(mockRunNamingPrompt).toHaveBeenCalledOnce();
+    // Legacy migration: existing identifier_field must be passed as
+    // preselectedSource so the user's prior implicit choice is the default.
+    expect(mockRunNamingPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preselectedSource: "ECOMM",
+        preselectedCase: "lower",
+      }),
+    );
     expect(result).toEqual({
       namingSource: "identifier",
       namingCase: "lower",
@@ -182,6 +196,38 @@ describe("ensureNamingConfig", () => {
     const asana = (fm.backends as BackendConfig[])[0];
     expect(asana.naming_source).toBe("identifier");
     expect(asana.naming_case).toBe("lower");
+  });
+
+  it("does not pass preselectedSource for a fresh workspace (no identifier_field)", async () => {
+    const targetDir = path.join(tmpDir, "ws-fresh");
+    await createWorkspace({
+      name: "test",
+      purpose: "testing",
+      targetDir,
+      backends: [
+        { type: "asana", workspace_id: "ws-123", project_gid: "proj-456" },
+      ],
+    });
+
+    mockRunNamingPrompt.mockResolvedValueOnce({
+      naming_source: "title",
+      naming_case: "lower",
+      identifier_field: undefined,
+    });
+
+    await ensureNamingConfig({
+      workspaceRoot: targetDir,
+      client: {} as any,
+      projectGid: "proj-456",
+      backendConfig: { type: "asana", project_gid: "proj-456" },
+    });
+
+    expect(mockRunNamingPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preselectedSource: undefined,
+        preselectedCase: undefined,
+      }),
+    );
   });
 
   it("preserves existing backend fields when persisting naming config", async () => {

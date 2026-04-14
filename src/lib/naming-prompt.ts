@@ -13,6 +13,15 @@ import * as clack from "@clack/prompts";
 import chalk from "chalk";
 import type { AsanaClient, AsanaCustomFieldSetting } from "./asana-client.js";
 import { previewNames, type NamingInput, type NamingScheme } from "./naming.js";
+import { updateWorkspaceBackend } from "./workspace.js";
+import type { BackendConfig } from "./templates.js";
+
+// Sentinel values used as the picker's "value" for the two non-custom-field
+// sources. Kept as exported constants so callers that need to pre-select or
+// pattern-match don't drift against stringly-typed literals.
+export const SOURCE_TITLE = "__title__";
+export const SOURCE_GID = "__gid__";
+const SOURCE_SEPARATOR = "__sep__";
 
 export interface NamingPromptResult {
   naming_source: "identifier" | "title" | "gid";
@@ -23,14 +32,64 @@ export interface NamingPromptResult {
 export interface NamingPromptOptions {
   client: AsanaClient;
   projectGid: string;
+  /**
+   * Pre-select a value in the source picker. Accepts a custom field name
+   * (e.g. "TIK"), `SOURCE_TITLE`, or `SOURCE_GID`. Used by the legacy
+   * migration path and the dedicated reconfigure command so the user's
+   * existing choice is the default.
+   */
+  preselectedSource?: string;
+  preselectedCase?: "preserve" | "lower";
 }
 
-// Subtypes that typically represent ID-like fields (sort to top)
-const ID_SUBTYPES = new Set(["text"]);
+/**
+ * Map a stored BackendConfig to the picker sentinel value that represents
+ * the same source. Inverse of the sentinel → stored-value mapping inside
+ * `resolveScheme`; kept paired here so the two don't drift apart.
+ */
+export function backendConfigToPickerSource(
+  config: Pick<BackendConfig, "naming_source" | "identifier_field">,
+): string | undefined {
+  if (config.naming_source === "title") return SOURCE_TITLE;
+  if (config.naming_source === "gid") return SOURCE_GID;
+  if (config.identifier_field) return config.identifier_field;
+  return undefined;
+}
+
+/**
+ * Persist the three naming fields produced by the prompt to workspace.md.
+ * Shared between the dedicated `configure-naming` command and the
+ * ingest-time auto-trigger so both write the same shape.
+ */
+export function persistNamingResult(
+  workspaceRoot: string,
+  result: NamingPromptResult,
+): void {
+  const fields: Record<string, unknown> = {
+    naming_source: result.naming_source,
+    naming_case: result.naming_case,
+  };
+  if (result.identifier_field) {
+    fields.identifier_field = result.identifier_field;
+  }
+  updateWorkspaceBackend(workspaceRoot, "asana", fields);
+}
+
+/**
+ * Asana's first-class "ID custom field" is identified by a non-null
+ * `id_prefix` (e.g. "TIK") — not by a dedicated resource_subtype. See
+ * https://developers.asana.com/docs/custom-fields-guide. Sort these to
+ * the top of the picker because they're the canonical choice for
+ * filename generation.
+ */
+function isIdCustomField(field: AsanaCustomFieldSetting): boolean {
+  return typeof field.custom_field.id_prefix === "string"
+    && field.custom_field.id_prefix.length > 0;
+}
 
 function sortFields(fields: AsanaCustomFieldSetting[]): AsanaCustomFieldSetting[] {
-  const idFields = fields.filter((f) => ID_SUBTYPES.has(f.custom_field.resource_subtype));
-  const otherFields = fields.filter((f) => !ID_SUBTYPES.has(f.custom_field.resource_subtype));
+  const idFields = fields.filter(isIdCustomField);
+  const otherFields = fields.filter((f) => !isIdCustomField(f));
   return [...idFields, ...otherFields];
 }
 
@@ -43,18 +102,20 @@ function buildSourceOptions(fields: AsanaCustomFieldSetting[]): Array<{
   const fieldOptions = sorted.map((f) => ({
     value: f.custom_field.name,
     label: f.custom_field.name,
-    hint: f.custom_field.resource_subtype,
+    hint: isIdCustomField(f)
+      ? `ID field — prefix: ${f.custom_field.id_prefix}`
+      : f.custom_field.resource_subtype,
   }));
 
   const separator = fieldOptions.length > 0
-    ? [{ value: "__sep__", label: "───────────────────", hint: "" }]
+    ? [{ value: SOURCE_SEPARATOR, label: "───────────────────", hint: "" }]
     : [];
 
   return [
     ...fieldOptions,
     ...separator,
-    { value: "__title__", label: "Task title", hint: "slugified, always lowercase" },
-    { value: "__gid__", label: "Asana GID", hint: "numeric, stable unique ID" },
+    { value: SOURCE_TITLE, label: "Task title", hint: "slugified, always lowercase" },
+    { value: SOURCE_GID, label: "Asana GID", hint: "numeric, stable unique ID" },
   ];
 }
 
@@ -62,19 +123,18 @@ function resolveScheme(
   sourceValue: string,
   casingValue?: string,
 ): { scheme: NamingScheme; identifierField: string | undefined } {
-  if (sourceValue === "__title__") {
+  if (sourceValue === SOURCE_TITLE) {
     return {
       scheme: { source: "title", case: "lower" },
       identifierField: undefined,
     };
   }
-  if (sourceValue === "__gid__") {
+  if (sourceValue === SOURCE_GID) {
     return {
       scheme: { source: "gid", case: "lower" },
       identifierField: undefined,
     };
   }
-  // Custom field
   return {
     scheme: {
       source: "identifier",
@@ -97,7 +157,7 @@ function resolveIdentifierForPreview(
 export async function runNamingPrompt(
   opts: NamingPromptOptions,
 ): Promise<NamingPromptResult> {
-  const { client, projectGid } = opts;
+  const { client, projectGid, preselectedSource, preselectedCase } = opts;
 
   // Fetch custom fields for the source picker
   const customFieldSettings = await client.getCustomFieldSettings(projectGid);
@@ -106,16 +166,19 @@ export async function runNamingPrompt(
   const sampleTasks = await client.getTasksForProject(projectGid);
   const previewTasks = sampleTasks.slice(0, 5);
 
-  // Loop until user confirms
   while (true) {
-    // Step 1: Source picker
     const options = buildSourceOptions(customFieldSettings);
-    // Filter out separator for actual selection
-    const selectableOptions = options.filter((o) => o.value !== "__sep__");
+    const selectableOptions = options.filter((o) => o.value !== SOURCE_SEPARATOR);
+
+    const sourceInitial =
+      preselectedSource && selectableOptions.some((o) => o.value === preselectedSource)
+        ? preselectedSource
+        : undefined;
 
     const sourceValue = await clack.select({
       message: "How should task filenames be generated?",
       options: selectableOptions,
+      initialValue: sourceInitial,
     });
 
     if (clack.isCancel(sourceValue)) {
@@ -123,9 +186,8 @@ export async function runNamingPrompt(
       process.exit(0);
     }
 
-    // Step 2: Casing picker (only for custom fields)
     let casingValue: string | undefined;
-    const isCustomField = sourceValue !== "__title__" && sourceValue !== "__gid__";
+    const isCustomField = sourceValue !== SOURCE_TITLE && sourceValue !== SOURCE_GID;
 
     if (isCustomField) {
       casingValue = (await clack.select({
@@ -134,6 +196,7 @@ export async function runNamingPrompt(
           { value: "preserve", label: "Preserve original casing", hint: "e.g. TIK-4647.md" },
           { value: "lower", label: "Lowercase", hint: "e.g. tik-4647.md" },
         ],
+        initialValue: preselectedCase,
       })) as string;
 
       if (clack.isCancel(casingValue)) {

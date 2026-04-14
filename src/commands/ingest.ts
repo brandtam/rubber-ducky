@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import * as clack from "@clack/prompts";
 import chalk from "chalk";
-import { findWorkspaceRoot, loadWorkspaceConfig, updateWorkspaceBackend } from "../lib/workspace.js";
+import { findWorkspaceRoot, loadWorkspaceConfig } from "../lib/workspace.js";
 import { formatOutput } from "../lib/output.js";
 import { createAsanaClient } from "../lib/asana-client.js";
 import type { AsanaClient } from "../lib/asana-client.js";
@@ -13,7 +13,8 @@ import {
 import { resolveScope } from "../lib/ingest-shared.js";
 import { createJiraClient } from "../lib/jira-client.js";
 import { ingestJiraIssue, ingestJiraProject } from "../lib/jira-ingest.js";
-import { runNamingPrompt } from "../lib/naming-prompt.js";
+import { runNamingPrompt, persistNamingResult } from "../lib/naming-prompt.js";
+import { inferLegacyScheme } from "../lib/naming.js";
 import type { BackendConfig } from "../lib/templates.js";
 
 function exitWithError(msg: string, jsonMode: boolean): never {
@@ -67,18 +68,19 @@ export async function ensureNamingConfig(
     };
   }
 
-  // naming_source missing — run the prompt
-  const result = await runNamingPrompt({ client, projectGid });
+  // Legacy workspaces (identifier_field set in a prior init, no naming_source)
+  // get their existing field pre-selected so the user's prior implicit choice
+  // is the default.
+  const legacy = inferLegacyScheme(backendConfig);
+  const result = await runNamingPrompt({
+    client,
+    projectGid,
+    preselectedSource:
+      legacy?.source === "identifier" ? backendConfig.identifier_field : undefined,
+    preselectedCase: legacy?.case,
+  });
 
-  // Persist to workspace.md
-  const fields: Record<string, unknown> = {
-    naming_source: result.naming_source,
-    naming_case: result.naming_case,
-  };
-  if (result.identifier_field) {
-    fields.identifier_field = result.identifier_field;
-  }
-  updateWorkspaceBackend(workspaceRoot, "asana", fields);
+  persistNamingResult(workspaceRoot, result);
 
   return {
     namingSource: result.naming_source,
@@ -133,6 +135,7 @@ export function registerIngestCommand(program: Command): void {
             (b) => b.type === "asana"
           );
           const defaultProjectGid = asanaBackend?.project_gid;
+          const workspaceGid = asanaBackend?.workspace_id;
 
           const scope = resolveScope({
             mine: opts.mine,
@@ -168,6 +171,7 @@ export function registerIngestCommand(program: Command): void {
               identifierField,
               namingSource,
               namingCase,
+              workspaceGid,
             });
 
             if (jsonMode) {
@@ -192,6 +196,7 @@ export function registerIngestCommand(program: Command): void {
               identifierField,
               namingSource,
               namingCase,
+              workspaceGid,
               scope,
             });
 

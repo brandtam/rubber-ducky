@@ -15,7 +15,7 @@ import type {
   TaskListOptions,
 } from "./asana-client.js";
 import type { Status } from "./backend.js";
-import { asanaTaskToPage, extractTaskGid, mapAsanaToStatus } from "./asana-backend.js";
+import { asanaTaskToPage, extractTaskGid, mapAsanaToStatus, parseTaskRef } from "./asana-backend.js";
 import { applyNamingScheme, type NamingScheme, type NamingInput } from "./naming.js";
 import {
   type IngestResult,
@@ -46,6 +46,11 @@ export interface IngestAsanaOptions {
   identifierField?: string;
   namingSource?: "identifier" | "title" | "gid";
   namingCase?: "preserve" | "lower";
+  /**
+   * Asana workspace GID — required to resolve custom ID refs
+   * (e.g. "TIK-4647") via the workspace-scoped lookup endpoint.
+   */
+  workspaceGid?: string;
   /** Pre-fetched task data from bulk list call — avoids redundant API request. */
   prefetchedTask?: AsanaTask;
   /** Pre-built dedup index — avoids re-scanning wiki/tasks/ per task in bulk. */
@@ -62,6 +67,8 @@ export interface BulkIngestOptions {
   identifierField?: string;
   namingSource?: "identifier" | "title" | "gid";
   namingCase?: "preserve" | "lower";
+  /** Asana workspace GID — required to resolve custom ID single-task refs. */
+  workspaceGid?: string;
   defaultProjectGid?: string;
   scope?: "mine" | "all";
 }
@@ -141,15 +148,33 @@ export async function ingestAsanaTask(
     identifierField,
     namingSource,
     namingCase,
+    workspaceGid,
     prefetchedTask,
     dedupIndex,
     skipPostProcess,
   } = options;
 
-  const taskGid = extractTaskGid(ref);
+  // Resolve the task: custom IDs (e.g. "TIK-4647") go through the
+  // workspace-scoped lookup endpoint; GIDs and URLs go through /tasks/{gid}.
+  let task: AsanaTask;
+  if (prefetchedTask) {
+    task = prefetchedTask;
+  } else {
+    const parsed = parseTaskRef(ref);
+    if (parsed.kind === "custom_id") {
+      if (!workspaceGid) {
+        throw new Error(
+          `Cannot resolve custom ID "${parsed.customId}" — Asana workspace_id is not configured. Run \`rubber-ducky init\` with ASANA_ACCESS_TOKEN set, or pass a task GID / URL instead.`
+        );
+      }
+      task = await client.getTaskByCustomId(workspaceGid, parsed.customId);
+    } else {
+      task = await client.getTask(parsed.gid);
+    }
+  }
 
-  // Fetch data — use prefetched task if available, parallelize remaining calls
-  const task = prefetchedTask ?? await client.getTask(taskGid);
+  // From here on, stories/attachments use the resolved task's GID
+  const taskGid = task.gid;
   const [stories, attachments] = await Promise.all([
     client.getStories(taskGid),
     client.getAttachments(taskGid),
@@ -275,6 +300,7 @@ export async function ingestAsanaBulk(
     identifierField,
     namingSource,
     namingCase,
+    workspaceGid,
     defaultProjectGid,
     scope,
   } = options;
@@ -292,6 +318,7 @@ export async function ingestAsanaBulk(
         identifierField,
         namingSource,
         namingCase,
+        workspaceGid,
       });
       return {
         ingested: result.skipped ? 0 : 1,

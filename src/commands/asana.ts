@@ -1,9 +1,13 @@
 import { Command } from "commander";
 import * as clack from "@clack/prompts";
 import chalk from "chalk";
-import { findWorkspaceRoot, loadWorkspaceConfig, updateWorkspaceBackend } from "../lib/workspace.js";
+import { findWorkspaceRoot, loadWorkspaceConfig } from "../lib/workspace.js";
 import { createAsanaClient } from "../lib/asana-client.js";
-import { runNamingPrompt } from "../lib/naming-prompt.js";
+import {
+  runNamingPrompt,
+  backendConfigToPickerSource,
+  persistNamingResult,
+} from "../lib/naming-prompt.js";
 
 /**
  * Core logic for configure-naming — exported for testing.
@@ -28,17 +32,11 @@ export async function configureNaming(
   const result = await runNamingPrompt({
     client,
     projectGid: asanaBackend.project_gid,
+    preselectedSource: backendConfigToPickerSource(asanaBackend),
+    preselectedCase: asanaBackend.naming_case,
   });
 
-  const fields: Record<string, unknown> = {
-    naming_source: result.naming_source,
-    naming_case: result.naming_case,
-  };
-  if (result.identifier_field) {
-    fields.identifier_field = result.identifier_field;
-  }
-
-  updateWorkspaceBackend(workspaceRoot, "asana", fields);
+  persistNamingResult(workspaceRoot, result);
 
   clack.log.success(
     `Naming scheme saved: ${chalk.bold(result.naming_source)}` +

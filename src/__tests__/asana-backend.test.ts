@@ -10,6 +10,7 @@ import {
   mapAsanaToStatus,
   mapStatusToAsanaCompleted,
   checkAsanaConnectivityRest,
+  parseTaskRef,
 } from "../lib/asana-backend.js";
 import type { AsanaClient } from "../lib/asana-client.js";
 
@@ -660,5 +661,52 @@ describe("Backend factory — Asana", () => {
     );
     expect(result.authenticated).toBe(true);
     expect(result.user).toBe("User");
+  });
+});
+
+describe("parseTaskRef", () => {
+  it("classifies a numeric GID as kind: gid", () => {
+    expect(parseTaskRef("1234567890")).toEqual({
+      kind: "gid",
+      gid: "1234567890",
+    });
+  });
+
+  it("classifies an Asana URL as kind: gid and extracts the GID", () => {
+    expect(
+      parseTaskRef("https://app.asana.com/0/project/1234567890"),
+    ).toEqual({ kind: "gid", gid: "1234567890" });
+  });
+
+  it("classifies PREFIX-NUMBER as a custom ID", () => {
+    expect(parseTaskRef("TIK-4647")).toEqual({
+      kind: "custom_id",
+      customId: "TIK-4647",
+    });
+    expect(parseTaskRef("ECOMM-123")).toEqual({
+      kind: "custom_id",
+      customId: "ECOMM-123",
+    });
+  });
+
+  it("is case-insensitive on the prefix letters", () => {
+    expect(parseTaskRef("bug-9")).toEqual({
+      kind: "custom_id",
+      customId: "bug-9",
+    });
+  });
+
+  it("does not treat all-numeric strings as custom IDs", () => {
+    expect(parseTaskRef("1234567890")).toEqual({
+      kind: "gid",
+      gid: "1234567890",
+    });
+  });
+
+  it("does not treat URLs as custom IDs even if their path contains a hyphen", () => {
+    const result = parseTaskRef(
+      "https://app.asana.com/0/1234567890/9876543210",
+    );
+    expect(result.kind).toBe("gid");
   });
 });

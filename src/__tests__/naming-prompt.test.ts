@@ -88,15 +88,16 @@ function makeTasks(): AsanaTask[] {
 const ID_TYPE_FIELDS: AsanaCustomFieldSetting[] = [
   {
     gid: "cfs1",
-    custom_field: { gid: "cf1", name: "TIK", resource_subtype: "text" },
+    // Real Asana ID custom field — detected by non-null id_prefix
+    custom_field: { gid: "cf1", name: "TIK", resource_subtype: "text", id_prefix: "TIK" },
   },
   {
     gid: "cfs2",
-    custom_field: { gid: "cf2", name: "Priority", resource_subtype: "enum" },
+    custom_field: { gid: "cf2", name: "Priority", resource_subtype: "enum", id_prefix: null },
   },
   {
     gid: "cfs3",
-    custom_field: { gid: "cf3", name: "Story Points", resource_subtype: "number" },
+    custom_field: { gid: "cf3", name: "Story Points", resource_subtype: "number", id_prefix: null },
   },
 ];
 
@@ -215,11 +216,14 @@ describe("runNamingPrompt", () => {
     });
   });
 
-  it("sorts ID-type custom fields to top in source picker options", async () => {
+  it("sorts Asana ID custom fields (non-null id_prefix) to top in source picker", async () => {
     const fields: AsanaCustomFieldSetting[] = [
-      { gid: "1", custom_field: { gid: "cf1", name: "Priority", resource_subtype: "enum" } },
-      { gid: "2", custom_field: { gid: "cf2", name: "Ticket ID", resource_subtype: "text" } },
-      { gid: "3", custom_field: { gid: "cf3", name: "Points", resource_subtype: "number" } },
+      { gid: "1", custom_field: { gid: "cf1", name: "Priority", resource_subtype: "enum", id_prefix: null } },
+      // Real ID custom field — should surface first even though base type is text
+      { gid: "2", custom_field: { gid: "cf2", name: "Ticket ID", resource_subtype: "text", id_prefix: "TIK" } },
+      { gid: "3", custom_field: { gid: "cf3", name: "Points", resource_subtype: "number", id_prefix: null } },
+      // Plain text field — not an ID field, should NOT be sorted to top
+      { gid: "4", custom_field: { gid: "cf4", name: "Notes", resource_subtype: "text", id_prefix: null } },
     ];
     const client = makeClient({ customFields: fields, tasks: makeTasks() });
 
@@ -228,22 +232,30 @@ describe("runNamingPrompt", () => {
 
     await runNamingPrompt({ client, projectGid: "proj-123" });
 
-    // Inspect the options passed to the first select call
-    const firstCall = mockSelect.mock.calls[0][0] as { options: Array<{ value: string; label: string }> };
+    const firstCall = mockSelect.mock.calls[0][0] as {
+      options: Array<{ value: string; label: string; hint?: string }>;
+    };
     const values = firstCall.options.map((o) => o.value);
 
-    // Text fields (ID-like) should be before enum/number fields
+    // Ticket ID (real ID field) must come before all non-ID fields,
+    // including the plain text "Notes" field.
     const ticketIdx = values.indexOf("Ticket ID");
     const priorityIdx = values.indexOf("Priority");
     const pointsIdx = values.indexOf("Points");
+    const notesIdx = values.indexOf("Notes");
     expect(ticketIdx).toBeLessThan(priorityIdx);
     expect(ticketIdx).toBeLessThan(pointsIdx);
+    expect(ticketIdx).toBeLessThan(notesIdx);
 
     // Title and GID should be after custom fields
     const titleIdx = values.indexOf("__title__");
     const gidIdx = values.indexOf("__gid__");
-    expect(titleIdx).toBeGreaterThan(priorityIdx);
+    expect(titleIdx).toBeGreaterThan(notesIdx);
     expect(gidIdx).toBeGreaterThan(titleIdx);
+
+    // Hint for the ID field should surface the prefix
+    const ticketOption = firstCall.options.find((o) => o.value === "Ticket ID");
+    expect(ticketOption?.hint).toContain("TIK");
   });
 
   it("returns identifier with lower case", async () => {
@@ -265,5 +277,64 @@ describe("runNamingPrompt", () => {
       naming_case: "lower",
       identifier_field: "TIK",
     });
+  });
+
+  it("pre-selects a custom field when preselectedSource matches", async () => {
+    const tasks = makeTasks();
+    const client = makeClient({ customFields: ID_TYPE_FIELDS, tasks });
+
+    mockSelect
+      .mockResolvedValueOnce("TIK")
+      .mockResolvedValueOnce("preserve");
+    mockConfirm.mockResolvedValueOnce(true);
+
+    await runNamingPrompt({
+      client,
+      projectGid: "proj-123",
+      preselectedSource: "TIK",
+      preselectedCase: "preserve",
+    });
+
+    // Source picker was called with initialValue: "TIK"
+    const sourceCall = mockSelect.mock.calls[0][0] as { initialValue?: string };
+    expect(sourceCall.initialValue).toBe("TIK");
+
+    // Casing picker was called with initialValue: "preserve"
+    const casingCall = mockSelect.mock.calls[1][0] as { initialValue?: string };
+    expect(casingCall.initialValue).toBe("preserve");
+  });
+
+  it("ignores preselectedSource when it does not match any option", async () => {
+    const tasks = makeTasks();
+    const client = makeClient({ customFields: ID_TYPE_FIELDS, tasks });
+
+    mockSelect.mockResolvedValueOnce("__title__");
+    mockConfirm.mockResolvedValueOnce(true);
+
+    await runNamingPrompt({
+      client,
+      projectGid: "proj-123",
+      preselectedSource: "NonexistentField",
+    });
+
+    const sourceCall = mockSelect.mock.calls[0][0] as { initialValue?: string };
+    expect(sourceCall.initialValue).toBeUndefined();
+  });
+
+  it("pre-selects __title__ when that was the previous choice", async () => {
+    const tasks = makeTasks();
+    const client = makeClient({ customFields: ID_TYPE_FIELDS, tasks });
+
+    mockSelect.mockResolvedValueOnce("__title__");
+    mockConfirm.mockResolvedValueOnce(true);
+
+    await runNamingPrompt({
+      client,
+      projectGid: "proj-123",
+      preselectedSource: "__title__",
+    });
+
+    const sourceCall = mockSelect.mock.calls[0][0] as { initialValue?: string };
+    expect(sourceCall.initialValue).toBe("__title__");
   });
 });

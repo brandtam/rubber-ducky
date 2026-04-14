@@ -6,10 +6,14 @@ import { parse as parseYaml } from "yaml";
 import { createWorkspace } from "../lib/workspace.js";
 import type { BackendConfig } from "../lib/templates.js";
 
-// Mock naming-prompt module
-vi.mock("../lib/naming-prompt.js", () => ({
-  runNamingPrompt: vi.fn(),
-}));
+// Mock only the interactive prompt; keep the pure helpers real so we
+// exercise the actual persistence and pre-selection mapping.
+vi.mock("../lib/naming-prompt.js", async () => {
+  const actual = await vi.importActual<typeof import("../lib/naming-prompt.js")>(
+    "../lib/naming-prompt.js",
+  );
+  return { ...actual, runNamingPrompt: vi.fn() };
+});
 
 // Mock asana-client
 vi.mock("../lib/asana-client.js", () => ({
