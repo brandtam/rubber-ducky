@@ -71,6 +71,7 @@ function createWorkspace(tmpDir: string, opts?: {
     fs.writeFileSync(path.join(tmpDir, ".claude/commands/grill-me.md"), "# Grill Me\n", "utf-8");
     fs.writeFileSync(path.join(tmpDir, ".claude/commands/link.md"), "# Link\n", "utf-8");
     fs.writeFileSync(path.join(tmpDir, ".claude/commands/configure-status-mapping.md"), "# Configure Status Mapping\n", "utf-8");
+    fs.writeFileSync(path.join(tmpDir, ".claude/commands/triage.md"), "# Triage\n", "utf-8");
   }
 
   if (!skipFiles.includes("agents")) {

@@ -949,3 +949,94 @@ describe("configure-status-mapping skill template", () => {
     expect(t.content).toMatch(/each backend/i);
   });
 });
+
+describe("triage skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/triage.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("has a description", () => {
+    const t = getTemplate();
+    expect(t.description).toBeDefined();
+    expect(t.description.length).toBeGreaterThan(0);
+  });
+
+  it("default scope filters by status: backlog AND jira_ref null AND jira_needed null", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/backlog/);
+    expect(t.content).toMatch(/jira_ref/);
+    expect(t.content).toMatch(/jira_needed/);
+  });
+
+  it("supports --all flag to widen scope beyond backlog", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/--all/);
+  });
+
+  it("excludes already-triaged pages from the walk", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/exclud|skip|filter.*triaged|already.*triaged/i);
+  });
+
+  it("scans for Jira candidates using triage-candidates module", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/rubber-ducky triage-candidates|findJiraCandidates|triage.candidates|candidate/i);
+  });
+
+  it("presents candidates with the source of the mention", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/description|comments|activity log/i);
+    expect(t.content).toMatch(/location|source.*mention|where.*found/i);
+  });
+
+  it("implements accept action — invokes rubber-ducky merge", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/accept/i);
+    expect(t.content).toMatch(/rubber-ducky merge/);
+  });
+
+  it("implements override action — user types a Jira key", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/override|type.*key|different.*key/i);
+  });
+
+  it("implements push action — delegates to existing push flow", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/push/i);
+  });
+
+  it("implements not-needed action — sets jira_needed: no with reason", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/not.needed/i);
+    expect(t.content).toMatch(/jira_needed.*no|jira_needed: no/i);
+    expect(t.content).toMatch(/reason/i);
+  });
+
+  it("implements skip action — no state change", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/skip/i);
+  });
+
+  it("not-needed writes dated entry to activity log", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/activity log/i);
+    expect(t.content).toMatch(/Triaged.*no Jira|date.*activity/i);
+  });
+
+  it("handles merge conflicts by prompting user for resolution", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/conflict/i);
+    expect(t.content).toMatch(/resolution|resolve|pick.*value/i);
+  });
+
+  it("handles many-to-one rejection from merge gracefully", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/already linked|many.to.one|one Jira/i);
+  });
+});
