@@ -22,6 +22,7 @@ import {
   type IngestResult,
   type BulkIngestResult,
   type DedupIndex,
+  BULK_INGEST_CONCURRENCY,
   buildDedupIndex,
   findExistingByRef,
   checkMergedPage,
@@ -404,7 +405,7 @@ export async function ingestAsanaBulk(
 
   // Process tasks with bounded concurrency — the Bottleneck limiter is the
   // authoritative throttle, so workers can be generous.
-  const results = await mapWithConcurrency(tasks, 20, (task) =>
+  const results = await mapWithConcurrency(tasks, BULK_INGEST_CONCURRENCY, (task) =>
     ingestAsanaTask({
       client,
       ref: task.gid,

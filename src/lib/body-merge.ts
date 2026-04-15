@@ -1,18 +1,45 @@
 /**
- * Pure body merge for Asana + Jira task pages.
+ * Zero data loss: every `##`-level section from either input survives the
+ * merge. Canonical sections (description/comments/attachments/activity log/
+ * see also) are merged in a fixed output order; any other section is
+ * preserved verbatim, renamed to `<Header> (from Asana|Jira)` so the
+ * reader can always trace content back to its source.
  *
- * `mergePageBodies(asanaBody, jiraBody)` produces a merged body with:
- * backend-scoped description/comment sections, a unioned attachments
- * list, a deduped chronological activity log, and a deduped see-also.
+ * Public API: `mergePageBodies(asanaBody, jiraBody)`.
  */
 
 const SECTION_RE = /^## (.+)$/;
 
 /**
- * Parse a page body into named sections. Each section captures the trimmed
- * content between its header and the next `## ` header (or end of string).
+ * Canonical section headers. These have fixed output positions and
+ * backend-scoped or union semantics. Any `##` header NOT in this set is
+ * treated as an extra and preserved verbatim with a `(from <backend>)` suffix.
+ *
+ * Update this set — and only this set — when adding a new canonical section;
+ * the contract test in body-merge.test.ts will flag any header that slips
+ * through unannounced.
  */
-function parseSections(body: string): Map<string, string> {
+export const CANONICAL_SECTIONS: ReadonlySet<string> = new Set([
+  "Asana description",
+  "Jira description",
+  "Asana comments",
+  "Jira comments",
+  "Attachments",
+  "Activity log",
+  "See also",
+]);
+
+interface ParsedSections {
+  /** Insertion-ordered map: section header → trimmed content. */
+  sections: Map<string, string>;
+}
+
+/**
+ * Parse a page body into an insertion-ordered map of `header → content`.
+ * Content is the trimmed text between the header and the next `## ` header
+ * (or end of string).
+ */
+function parseSections(body: string): ParsedSections {
   const sections = new Map<string, string>();
   let currentSection: string | null = null;
   let currentLines: string[] = [];
@@ -32,7 +59,7 @@ function parseSections(body: string): Map<string, string> {
   if (currentSection !== null) {
     sections.set(currentSection, currentLines.join("\n").trim());
   }
-  return sections;
+  return { sections };
 }
 
 function nonEmptyLines(content: string): string[] {
@@ -68,20 +95,47 @@ function pushList(
 }
 
 /**
- * Merge two page bodies into one canonical merged body.
+ * Emit non-canonical sections from one backend, renamed with a
+ * `(from <backend>)` suffix for provenance. Preserves intra-source order.
+ */
+function pushExtras(
+  out: string[],
+  sections: Map<string, string>,
+  backendLabel: "Asana" | "Jira"
+): string[] {
+  const emitted: string[] = [];
+  for (const [header, content] of sections) {
+    if (CANONICAL_SECTIONS.has(header)) continue;
+    const renamed = `${header} (from ${backendLabel})`;
+    pushSection(out, renamed, content, { alwaysEmit: true });
+    emitted.push(renamed);
+  }
+  return emitted;
+}
+
+/**
+ * Merge two page bodies into one canonical merged body with **zero data loss**.
  *
  * Output section order:
- * 1. ## Asana description
- * 2. ## Jira description
- * 3. ## Asana comments
- * 4. ## Jira comments
- * 5. ## Attachments (only if either page has attachments)
- * 6. ## Activity log (union, chronological)
- * 7. ## See also (union, deduped)
+ * 1. ## Asana description            (always emitted)
+ * 2. ## Jira description             (always emitted)
+ * 3. ## Asana comments               (always emitted)
+ * 4. ## Jira comments                (always emitted)
+ * 5. ## Attachments                  (union, deduped; omitted when empty)
+ * 6. ## Activity log                 (union, chronological; always emitted)
+ * 7. ## See also                     (union, deduped; always emitted)
+ * 8. Asana extras — each non-canonical section from the Asana page in its
+ *    original order, renamed `<Header> (from Asana)`.
+ * 9. Jira extras — same for the Jira page, renamed `<Header> (from Jira)`.
+ *
+ * Extras are never merged with each other even when headers collide — both
+ * are preserved so the reader can decide. The returned body's `## Activity
+ * log` section is left untouched here; callers (e.g. `runMerge`) are
+ * expected to append a breadcrumb naming the preserved extras.
  */
 export function mergePageBodies(asanaBody: string, jiraBody: string): string {
-  const asana = parseSections(asanaBody);
-  const jira = parseSections(jiraBody);
+  const { sections: asana } = parseSections(asanaBody);
+  const { sections: jira } = parseSections(jiraBody);
 
   const out: string[] = [];
 
@@ -114,5 +168,33 @@ export function mergePageBodies(asanaBody: string, jiraBody: string): string {
   ];
   pushList(out, "See also", seeAlso, { alwaysEmit: true });
 
+  pushExtras(out, asana, "Asana");
+  pushExtras(out, jira, "Jira");
+
   return out.join("\n");
+}
+
+/**
+ * Collect the renamed headers that `mergePageBodies` would emit for
+ * non-canonical sections. Exposed so callers (e.g. `runMerge`) can append
+ * a breadcrumb to the activity log naming the preserved extras — this is
+ * the provenance trail that lets readers trace merged content back to its
+ * source without parsing the output body themselves.
+ */
+export function collectPreservedExtras(
+  asanaBody: string,
+  jiraBody: string
+): { asana: string[]; jira: string[] } {
+  const { sections: asana } = parseSections(asanaBody);
+  const { sections: jira } = parseSections(jiraBody);
+
+  const asanaExtras: string[] = [];
+  for (const header of asana.keys()) {
+    if (!CANONICAL_SECTIONS.has(header)) asanaExtras.push(header);
+  }
+  const jiraExtras: string[] = [];
+  for (const header of jira.keys()) {
+    if (!CANONICAL_SECTIONS.has(header)) jiraExtras.push(header);
+  }
+  return { asana: asanaExtras, jira: jiraExtras };
 }

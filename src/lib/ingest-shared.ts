@@ -20,6 +20,13 @@ import { rebuildIndex, appendLog } from "./wiki.js";
 // ---------------------------------------------------------------------------
 
 /**
+ * Worker count for bulk-ingest `mapWithConcurrency` loops. Per PRD #74, the
+ * per-backend Bottleneck limiter is the authoritative throttle, so this value
+ * only bounds the local async fan-out — not the outbound request rate.
+ */
+export const BULK_INGEST_CONCURRENCY = 20;
+
+/**
  * Process items with bounded concurrency. Unlike Promise.all (which launches
  * everything at once), this limits the number of in-flight operations to avoid
  * overwhelming external APIs with rate limits.

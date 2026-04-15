@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { mergePageBodies } from "../lib/body-merge.js";
+import {
+  CANONICAL_SECTIONS,
+  collectPreservedExtras,
+  mergePageBodies,
+} from "../lib/body-merge.js";
 
 describe("mergePageBodies", () => {
   it("places Asana sections before Jira sections", () => {
@@ -352,5 +356,276 @@ describe("mergePageBodies", () => {
 
     expect(result).toContain("## Attachments");
     expect(result).toContain("file.pdf");
+  });
+});
+
+describe("mergePageBodies — zero data loss", () => {
+  it("preserves non-canonical sections from Asana, renamed with provenance", () => {
+    const asanaBody = [
+      "## Asana description",
+      "",
+      "desc",
+      "",
+      "## Decision notes",
+      "",
+      "We chose option B because of latency.",
+      "",
+      "## Asana comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+    const jiraBody = [
+      "## Jira description",
+      "",
+      "## Jira comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+
+    const result = mergePageBodies(asanaBody, jiraBody);
+
+    expect(result).toContain("## Decision notes (from Asana)");
+    expect(result).toContain("We chose option B because of latency.");
+    expect(result).not.toMatch(/^## Decision notes$/m);
+  });
+
+  it("preserves non-canonical sections from Jira, renamed with provenance", () => {
+    const asanaBody = [
+      "## Asana description",
+      "",
+      "## Asana comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+    const jiraBody = [
+      "## Jira description",
+      "",
+      "## Repro steps",
+      "",
+      "1. Click the button",
+      "2. Observe the crash",
+      "",
+      "## Jira comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+
+    const result = mergePageBodies(asanaBody, jiraBody);
+
+    expect(result).toContain("## Repro steps (from Jira)");
+    expect(result).toContain("1. Click the button");
+    expect(result).toContain("2. Observe the crash");
+  });
+
+  it("preserves both sides when the same non-canonical header appears on both", () => {
+    const asanaBody = [
+      "## Asana description",
+      "",
+      "## Notes",
+      "",
+      "asana note",
+      "",
+      "## Asana comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+    const jiraBody = [
+      "## Jira description",
+      "",
+      "## Notes",
+      "",
+      "jira note",
+      "",
+      "## Jira comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+
+    const result = mergePageBodies(asanaBody, jiraBody);
+
+    expect(result).toContain("## Notes (from Asana)");
+    expect(result).toContain("asana note");
+    expect(result).toContain("## Notes (from Jira)");
+    expect(result).toContain("jira note");
+  });
+
+  it("emits Asana extras before Jira extras, each preserving intra-source order", () => {
+    const asanaBody = [
+      "## Asana description",
+      "",
+      "## Alpha",
+      "",
+      "a1",
+      "",
+      "## Bravo",
+      "",
+      "a2",
+      "",
+      "## Asana comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+    const jiraBody = [
+      "## Jira description",
+      "",
+      "## Charlie",
+      "",
+      "j1",
+      "",
+      "## Delta",
+      "",
+      "j2",
+      "",
+      "## Jira comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+
+    const result = mergePageBodies(asanaBody, jiraBody);
+    const alpha = result.indexOf("## Alpha (from Asana)");
+    const bravo = result.indexOf("## Bravo (from Asana)");
+    const charlie = result.indexOf("## Charlie (from Jira)");
+    const delta = result.indexOf("## Delta (from Jira)");
+
+    expect(alpha).toBeGreaterThan(-1);
+    expect(bravo).toBeGreaterThan(alpha);
+    expect(charlie).toBeGreaterThan(bravo);
+    expect(delta).toBeGreaterThan(charlie);
+  });
+
+  it("emits all extras after the canonical sections", () => {
+    const asanaBody = [
+      "## Asana description",
+      "",
+      "## Decision notes",
+      "",
+      "note",
+      "",
+      "## Asana comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+    const jiraBody = [
+      "## Jira description",
+      "",
+      "## Jira comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+
+    const result = mergePageBodies(asanaBody, jiraBody);
+    const seeAlsoIdx = result.indexOf("## See also");
+    const extraIdx = result.indexOf("## Decision notes (from Asana)");
+    expect(seeAlsoIdx).toBeGreaterThan(-1);
+    expect(extraIdx).toBeGreaterThan(seeAlsoIdx);
+  });
+
+  it("contract: every `##` header from either input appears in the output (as canonical or as a `(from …)` rename)", () => {
+    const asanaBody = [
+      "## Asana description",
+      "desc",
+      "## Custom one",
+      "c1",
+      "## Asana comments",
+      "## Shared header",
+      "asana-shared",
+      "## Activity log",
+      "## See also",
+    ].join("\n");
+    const jiraBody = [
+      "## Jira description",
+      "## Custom two",
+      "c2",
+      "## Shared header",
+      "jira-shared",
+      "## Jira comments",
+      "## Activity log",
+      "## See also",
+    ].join("\n");
+
+    const result = mergePageBodies(asanaBody, jiraBody);
+    const outputHeaders = new Set(
+      result
+        .split("\n")
+        .filter((l) => l.startsWith("## "))
+        .map((l) => l.slice(3))
+    );
+
+    const inputHeaders = (body: string, backend: "Asana" | "Jira") =>
+      body
+        .split("\n")
+        .filter((l) => l.startsWith("## "))
+        .map((l) => l.slice(3))
+        .map((h) => (CANONICAL_SECTIONS.has(h) ? h : `${h} (from ${backend})`));
+
+    for (const expected of inputHeaders(asanaBody, "Asana")) {
+      expect(outputHeaders.has(expected)).toBe(true);
+    }
+    for (const expected of inputHeaders(jiraBody, "Jira")) {
+      expect(outputHeaders.has(expected)).toBe(true);
+    }
+  });
+
+  it("collectPreservedExtras reports non-canonical headers per backend in source order", () => {
+    const asanaBody = [
+      "## Asana description",
+      "## Zeta",
+      "## Alpha",
+      "## Asana comments",
+      "## Activity log",
+      "## See also",
+    ].join("\n");
+    const jiraBody = [
+      "## Jira description",
+      "## Bravo",
+      "## Jira comments",
+      "## Activity log",
+      "## See also",
+    ].join("\n");
+
+    expect(collectPreservedExtras(asanaBody, jiraBody)).toEqual({
+      asana: ["Zeta", "Alpha"],
+      jira: ["Bravo"],
+    });
+  });
+
+  it("collectPreservedExtras returns empty arrays when both pages are purely canonical", () => {
+    const body = [
+      "## Asana description",
+      "## Asana comments",
+      "## Activity log",
+      "## See also",
+    ].join("\n");
+    expect(collectPreservedExtras(body, body)).toEqual({ asana: [], jira: [] });
   });
 });

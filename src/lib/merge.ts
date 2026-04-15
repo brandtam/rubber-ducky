@@ -8,7 +8,7 @@ import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { parseFrontmatter } from "./frontmatter.js";
 import { mergeFrontmatter, type MergeConflict, type MergeResolutions } from "./frontmatter-merge.js";
-import { mergePageBodies } from "./body-merge.js";
+import { mergePageBodies, collectPreservedExtras } from "./body-merge.js";
 import { rewriteWikilinksForStems } from "./vault-rewrite.js";
 import { appendLog } from "./wiki.js";
 import type { TaskPage, Status } from "./backend.js";
@@ -110,6 +110,46 @@ function findExistingJiraPairing(
   return null;
 }
 
+/**
+ * Append a single `## Activity log` entry naming every non-canonical section
+ * that `mergePageBodies` preserved under a `(from …)` suffix. This is the
+ * provenance breadcrumb the reader scans to see what came from where.
+ */
+function appendMergeBreadcrumb(
+  mergedBody: string,
+  asanaRef: string,
+  jiraRef: string,
+  extras: { asana: string[]; jira: string[] }
+): string {
+  const quoted = (names: string[], backend: string) =>
+    names.map((n) => `"${n}" (${backend})`).join(", ");
+  const parts = [
+    extras.asana.length > 0 ? quoted(extras.asana, "Asana") : null,
+    extras.jira.length > 0 ? quoted(extras.jira, "Jira") : null,
+  ].filter((p): p is string => p !== null);
+  const entry = `- ${new Date().toISOString()} — Merged ${asanaRef} + ${jiraRef}. Preserved extras: ${parts.join(", ")}.`;
+
+  const headerIdx = mergedBody.indexOf("## Activity log");
+  if (headerIdx === -1) {
+    // mergePageBodies always emits Activity log, but defend against a future
+    // contract change by appending at the end rather than silently dropping.
+    return `${mergedBody.trimEnd()}\n\n## Activity log\n\n${entry}\n`;
+  }
+
+  // Splice the entry in at the end of the Activity log section's body (before
+  // the next `## ` header, or end of string).
+  const tail = mergedBody.slice(headerIdx);
+  const nextHeaderRel = tail.slice("## Activity log".length).search(/\n## /);
+  const insertionPoint =
+    nextHeaderRel === -1
+      ? mergedBody.length
+      : headerIdx + "## Activity log".length + nextHeaderRel;
+
+  const before = mergedBody.slice(0, insertionPoint).trimEnd();
+  const after = mergedBody.slice(insertionPoint);
+  return `${before}\n${entry}\n${after.startsWith("\n") ? after : `\n${after}`}`;
+}
+
 function generateMergedPageContent(taskPage: TaskPage, body: string): string {
   const fm: Record<string, unknown> = {
     title: taskPage.title,
@@ -186,7 +226,11 @@ export function runMerge(options: MergeOptions): MergeResult {
     };
   }
 
-  const mergedBody = mergePageBodies(asana.body, jira.body);
+  const extras = collectPreservedExtras(asana.body, jira.body);
+  let mergedBody = mergePageBodies(asana.body, jira.body);
+  if (extras.asana.length > 0 || extras.jira.length > 0) {
+    mergedBody = appendMergeBreadcrumb(mergedBody, asanaRef, jiraRef, extras);
+  }
   const mergedFilename = `${asanaRef} (${jiraRef}).md`;
   const mergedPath = path.join(tasksDir, mergedFilename);
   const mergedContent = generateMergedPageContent(fmResult.merged, mergedBody);
@@ -194,8 +238,9 @@ export function runMerge(options: MergeOptions): MergeResult {
   fs.mkdirSync(tasksDir, { recursive: true });
   fs.writeFileSync(mergedPath, mergedContent, "utf-8");
 
-  // Delete originals before the vault-wide wikilink scan so their own
-  // frontmatter ref values don't match themselves.
+  // Unlink originals before the wikilink scan so `collectMdFiles` doesn't pick
+  // them up: rewriting links inside files we're about to delete is wasted work
+  // and leaves a confusing trail if the run is interrupted mid-pass.
   if (asanaPath !== mergedPath && fs.existsSync(asanaPath)) fs.unlinkSync(asanaPath);
   if (fs.existsSync(jiraPath)) fs.unlinkSync(jiraPath);
 

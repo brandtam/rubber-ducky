@@ -619,3 +619,230 @@ describe("runMerge", () => {
     expect(log).toContain("Merged ECOMM-3585 + WEB-297");
   });
 });
+
+describe("runMerge — zero data loss for hand-edited sections", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "runmerge-extras-"));
+    seedWorkspace(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("preserves hand-edited sections from either page and logs a breadcrumb in Activity log", () => {
+    // Seed Asana page with a `## Decision notes` hand-edit; Jira page with a
+    // `## Repro steps` hand-edit. The merge must keep both.
+    const asanaYaml = [
+      "---",
+      'title: "Dark mode"',
+      "type: task",
+      'ref: "ECOMM-3585"',
+      "source: asana",
+      "status: backlog",
+      "priority: null",
+      "assignee: null",
+      "tags: []",
+      'created: "2026-01-01T00:00:00.000Z"',
+      'updated: "2026-01-01T00:00:00.000Z"',
+      "closed: null",
+      "pushed: null",
+      "due: null",
+      "jira_ref: null",
+      'asana_ref: "https://app.asana.com/0/proj/123"',
+      "gh_ref: null",
+      "jira_needed: null",
+      "asana_status_raw: null",
+      "jira_status_raw: null",
+      "comment_count: 0",
+      "---",
+    ].join("\n");
+    const asanaBody = [
+      "## Asana description",
+      "",
+      "Original asana description.",
+      "",
+      "## Decision notes",
+      "",
+      "We picked option B because of latency.",
+      "",
+      "## Asana comments",
+      "",
+      "## Activity log",
+      "",
+      "- 2026-01-01T00:00:00.000Z — Ingested from asana (ECOMM-3585)",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+    fs.writeFileSync(
+      path.join(tmpDir, "wiki", "tasks", "ECOMM-3585.md"),
+      `${asanaYaml}\n${asanaBody}`
+    );
+
+    const jiraYaml = [
+      "---",
+      'title: "Dark mode"',
+      "type: task",
+      'ref: "WEB-297"',
+      "source: jira",
+      "status: backlog",
+      "priority: null",
+      "assignee: null",
+      "tags: []",
+      'created: "2026-01-02T00:00:00.000Z"',
+      'updated: "2026-01-02T00:00:00.000Z"',
+      "closed: null",
+      "pushed: null",
+      "due: null",
+      'jira_ref: "https://jira.example.com/browse/WEB-297"',
+      "asana_ref: null",
+      "gh_ref: null",
+      "jira_needed: null",
+      "asana_status_raw: null",
+      "jira_status_raw: null",
+      "comment_count: 0",
+      "---",
+    ].join("\n");
+    const jiraBody = [
+      "## Jira description",
+      "",
+      "Original jira description.",
+      "",
+      "## Repro steps",
+      "",
+      "1. Click the button",
+      "2. Observe the crash",
+      "",
+      "## Jira comments",
+      "",
+      "## Activity log",
+      "",
+      "- 2026-01-02T00:00:00.000Z — Ingested from jira (WEB-297)",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+    fs.writeFileSync(
+      path.join(tmpDir, "wiki", "tasks", "WEB-297.md"),
+      `${jiraYaml}\n${jiraBody}`
+    );
+
+    const opts: MergeOptions = {
+      asanaRef: "ECOMM-3585",
+      jiraRef: "WEB-297",
+      workspaceRoot: tmpDir,
+    };
+    const result: MergeResult = runMerge(opts);
+
+    expect(result.success).toBe(true);
+
+    const merged = fs.readFileSync(result.mergedPath!, "utf-8");
+
+    expect(merged).toContain("## Decision notes (from Asana)");
+    expect(merged).toContain("We picked option B because of latency.");
+    expect(merged).toContain("## Repro steps (from Jira)");
+    expect(merged).toContain("1. Click the button");
+    expect(merged).toContain("2. Observe the crash");
+
+    // Breadcrumb landed in Activity log, not below it.
+    const activityIdx = merged.indexOf("## Activity log");
+    const seeAlsoIdx = merged.indexOf("## See also");
+    const breadcrumbIdx = merged.indexOf("Preserved extras:");
+    expect(breadcrumbIdx).toBeGreaterThan(activityIdx);
+    expect(breadcrumbIdx).toBeLessThan(seeAlsoIdx);
+    expect(merged).toContain('"Decision notes" (Asana)');
+    expect(merged).toContain('"Repro steps" (Jira)');
+  });
+
+  it("does not add a breadcrumb when both pages are purely canonical", () => {
+    const asanaYaml = [
+      "---",
+      'title: "Dark mode"',
+      "type: task",
+      'ref: "ECOMM-3585"',
+      "source: asana",
+      "status: backlog",
+      "priority: null",
+      "assignee: null",
+      "tags: []",
+      'created: "2026-01-01T00:00:00.000Z"',
+      'updated: "2026-01-01T00:00:00.000Z"',
+      "closed: null",
+      "pushed: null",
+      "due: null",
+      "jira_ref: null",
+      'asana_ref: "https://app.asana.com/0/proj/123"',
+      "gh_ref: null",
+      "jira_needed: null",
+      "asana_status_raw: null",
+      "jira_status_raw: null",
+      "comment_count: 0",
+      "---",
+    ].join("\n");
+    const asanaBody = [
+      "## Asana description",
+      "",
+      "## Asana comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+    fs.writeFileSync(
+      path.join(tmpDir, "wiki", "tasks", "ECOMM-3585.md"),
+      `${asanaYaml}\n${asanaBody}`
+    );
+
+    const jiraYaml = [
+      "---",
+      'title: "Dark mode"',
+      "type: task",
+      'ref: "WEB-297"',
+      "source: jira",
+      "status: backlog",
+      "priority: null",
+      "assignee: null",
+      "tags: []",
+      'created: "2026-01-02T00:00:00.000Z"',
+      'updated: "2026-01-02T00:00:00.000Z"',
+      "closed: null",
+      "pushed: null",
+      "due: null",
+      'jira_ref: "https://jira.example.com/browse/WEB-297"',
+      "asana_ref: null",
+      "gh_ref: null",
+      "jira_needed: null",
+      "asana_status_raw: null",
+      "jira_status_raw: null",
+      "comment_count: 0",
+      "---",
+    ].join("\n");
+    const jiraBody = [
+      "## Jira description",
+      "",
+      "## Jira comments",
+      "",
+      "## Activity log",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+    fs.writeFileSync(
+      path.join(tmpDir, "wiki", "tasks", "WEB-297.md"),
+      `${jiraYaml}\n${jiraBody}`
+    );
+
+    const result = runMerge({
+      asanaRef: "ECOMM-3585",
+      jiraRef: "WEB-297",
+      workspaceRoot: tmpDir,
+    });
+    expect(result.success).toBe(true);
+    const merged = fs.readFileSync(result.mergedPath!, "utf-8");
+    expect(merged).not.toContain("Preserved extras:");
+  });
+});

@@ -17,6 +17,7 @@ import {
   type IngestResult,
   type BulkIngestResult,
   type DedupIndex,
+  BULK_INGEST_CONCURRENCY,
   buildDedupIndex,
   findExistingByRef,
   checkMergedPage,
@@ -201,8 +202,9 @@ export async function ingestJiraProject(
   const dedupIndex = buildDedupIndex(workspaceRoot, "jira_ref");
   const workspaceStatusMapping = loadMapping(workspaceRoot);
 
-  // Process issues with bounded concurrency (5 concurrent API calls)
-  const results = await mapWithConcurrency(searchResult.issues, 5, (issue) =>
+  // Process issues with bounded concurrency — the Bottleneck limiter is the
+  // authoritative throttle, so workers can be generous.
+  const results = await mapWithConcurrency(searchResult.issues, BULK_INGEST_CONCURRENCY, (issue) =>
     ingestJiraIssue({
       client,
       ref: issue.key,
