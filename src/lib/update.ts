@@ -1344,6 +1344,111 @@ A conversational, row-by-row walkthrough. Keep each prompt concise. The goal is 
 `,
       description: "Configure status mapping skill — conversational editor for wiki/status-mapping.md",
     },
+    {
+      relativePath: ".claude/commands/triage.md",
+      content: `# Triage
+
+Walk untriaged Asana intake pages one at a time, suggest Jira link candidates, and let the user decide: accept, override, push, not-needed, or skip.
+
+## When to invoke
+
+Run this skill when the user says "triage", "triage tasks", "link Asana to Jira", or similar. Also triggered by \`/triage\` and \`/triage --all\`.
+
+## Behavior
+
+### Step 1 — Determine scope and collect pages
+
+Check whether the user passed \`--all\`:
+
+- **Default scope** (\`/triage\`): Asana-sourced pages where \`status: backlog\` AND \`jira_ref\` is null AND \`jira_needed\` is null.
+- **Full scope** (\`/triage --all\`): Asana-sourced pages where \`jira_ref\` is null AND \`jira_needed\` is null (any status).
+
+In both cases, already-triaged pages are excluded — any page with \`jira_ref\` set OR \`jira_needed\` set (to \`yes\` or \`no\`) is skipped.
+
+Scan \`wiki/tasks/\` for matching pages. Read each \`.md\` file's frontmatter to check the filter conditions:
+- \`source\` must be \`asana\`
+- \`jira_ref\` must be null (not linked)
+- \`jira_needed\` must be null (not yet triaged)
+- If default scope: \`status\` must be \`backlog\`
+
+Collect the list of matching pages. If none match, report "No untriaged pages found." and stop.
+
+### Step 2 — Walk each page
+
+For each matching page, present:
+
+1. **Page title and ref** — the Asana task title and identifier
+2. **Current status** — the page's wiki status
+3. **Jira candidates** — run \`rubber-ducky triage-candidates <page-path>\` to find Jira keys mentioned in the page body. For each candidate, show:
+   - The Jira key (e.g. \`WEB-297\`)
+   - Where it was found (location: description, comments, or activity log)
+
+If no candidates are found, note "No Jira candidates detected in page body."
+
+### Step 3 — Present user choices
+
+For each page, ask the user to pick one action:
+
+- **(a) Accept candidate** — if candidates were found, accept one of the suggested Jira keys. If multiple candidates exist, ask which one. Proceeds to merge.
+- **(o) Override** — user types a different Jira key manually. Proceeds to merge.
+- **(p) Push** — delegate to the existing \`/push\` skill to create a new Jira ticket from this Asana page. This sets \`jira_needed: yes\` as part of the push flow.
+- **(n) Not-needed** — mark this page as not needing a Jira ticket. Requires the user to provide a reason.
+- **(s) Skip** — leave this page unchanged, no state change. Move to the next page.
+
+Wait for the user's choice before proceeding.
+
+### Step 4 — Execute the chosen action
+
+#### On accept or override:
+
+Run \`rubber-ducky merge <asana-ref> <jira-ref>\` where:
+- \`<asana-ref>\` is the Asana page's filename stem (e.g. \`ECOMM-3585\`)
+- \`<jira-ref>\` is the chosen Jira key (e.g. \`WEB-297\`)
+
+If merge returns **conflicts**, present each conflicted field to the user and ask them to pick the working value. Then re-run merge with resolution flags:
+\`\`\`
+rubber-ducky merge <asana-ref> <jira-ref> --resolve-status <value> --resolve-priority <value> ...
+\`\`\`
+Raw per-backend values are always preserved regardless of the user's resolution choice.
+
+If merge returns a **many-to-one rejection** (the Jira key is already linked to another ECOMM page), surface the error message which names the existing pairing. Let the user pick a different Jira key or skip this page.
+
+If merge succeeds, confirm the merge and present the back-link comment write actions for the user to approve (single confirmation prompt covering both Asana and Jira writes).
+
+#### On not-needed:
+
+1. Ask the user for a reason (required — do not proceed without one).
+2. Set \`jira_needed: no\` in the page's frontmatter.
+3. Append a dated entry to the page's \`## Activity log\` section:
+   \`- YYYY-MM-DD — Triaged: no Jira ticket needed. Reason: <reason>\`
+
+Use today's date (ISO format date portion). Write the changes using the Edit tool.
+
+#### On push:
+
+Delegate to the \`/push\` skill. The push flow handles setting \`jira_needed: yes\` automatically.
+
+#### On skip:
+
+No changes. Move to the next page.
+
+### Step 5 — Continue or finish
+
+After processing a page, move to the next untriaged page. Repeat Steps 2–4 until all pages are processed.
+
+When done, report a summary:
+- How many pages were processed
+- How many were merged (accepted/overridden)
+- How many were marked not-needed
+- How many were pushed
+- How many were skipped
+
+## Output
+
+A conversational, one-page-at-a-time walkthrough. Keep each prompt concise — show the essential info and choices, not a wall of text.
+`,
+      description: "Triage skill — walk untriaged Asana pages, suggest Jira candidates, merge or mark not-needed",
+    },
   ];
 }
 
