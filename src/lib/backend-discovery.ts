@@ -1,8 +1,40 @@
 import * as clack from "@clack/prompts";
 import chalk from "chalk";
-import { createAsanaClient } from "./asana-client.js";
+import { createAsanaClient, type AsanaClient } from "./asana-client.js";
 import { createJiraClient } from "./jira-client.js";
 import { runNamingPrompt } from "./naming-prompt.js";
+
+export interface AsanaIdField {
+  name: string;
+  id_prefix: string;
+}
+
+/**
+ * Query a project's custom field settings and return only fields that are
+ * Asana ID custom fields (non-null, non-empty `id_prefix`).
+ *
+ * Accepts an optional pre-built client for testing; otherwise creates one
+ * from the token.
+ */
+export async function detectAsanaIdFields(opts: {
+  projectGid: string;
+  client?: AsanaClient;
+  token?: string;
+}): Promise<AsanaIdField[]> {
+  const client =
+    opts.client ?? createAsanaClient({ token: opts.token! });
+  const fields = await client.getCustomFieldSettings(opts.projectGid);
+  return fields
+    .filter(
+      (f) =>
+        typeof f.custom_field.id_prefix === "string" &&
+        f.custom_field.id_prefix.length > 0,
+    )
+    .map((f) => ({
+      name: f.custom_field.name,
+      id_prefix: f.custom_field.id_prefix!,
+    }));
+}
 
 export interface JiraDiscoveryResult {
   project_key: string;

@@ -1092,7 +1092,7 @@ describe("ingestAsanaBulk", () => {
   });
 
   describe("scope filtering", () => {
-    it("passes assignee GID for mine scope", async () => {
+    it("passes assignee GID and workspace GID for mine scope", async () => {
       let capturedOpts: unknown;
       const client = {
         getMe: async () => ({ gid: "me-gid", name: "Test User", email: "test@example.com" }),
@@ -1110,9 +1110,34 @@ describe("ingestAsanaBulk", () => {
         ref: "project:proj123",
         workspaceRoot: tmpDir,
         scope: "mine",
+        workspaceGid: "ws-123",
       });
 
-      expect(capturedOpts).toEqual({ assigneeGid: "me-gid" });
+      expect(capturedOpts).toEqual({ assigneeGid: "me-gid", workspaceGid: "ws-123" });
+    });
+
+    it("passes assignee GID and workspace GID for mine scope on section path", async () => {
+      let capturedOpts: unknown;
+      const client = {
+        getMe: async () => ({ gid: "me-gid", name: "Test User", email: "test@example.com" }),
+        getTask: async (gid: string) => makeTask({ gid }),
+        getStories: async () => [],
+        getTasksForProject: async () => [],
+        getTasksForSection: async (_gid: string, opts?: unknown) => {
+          capturedOpts = opts;
+          return [];
+        },
+      } as AsanaClient;
+
+      await ingestAsanaBulk({
+        client,
+        ref: "section:sec456",
+        workspaceRoot: tmpDir,
+        scope: "mine",
+        workspaceGid: "ws-123",
+      });
+
+      expect(capturedOpts).toEqual({ assigneeGid: "me-gid", workspaceGid: "ws-123" });
     });
 
     it("does not pass assignee GID for all scope", async () => {

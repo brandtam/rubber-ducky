@@ -18,7 +18,7 @@
     "claude code",
     "llm wiki"
   ],
-  "version": "0.4.6",
+  "version": "0.5.5",
   "description": "AI-assisted work log & second brain CLI",
   "type": "module",
   "bin": {
@@ -37,8 +37,10 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
+    "bottleneck": "^2.19.5",
     "chalk": "^5.4.1",
     "commander": "^13.1.0",
+    "p-retry": "^8.0.0",
     "yaml": "^2.7.1"
   },
   "devDependencies": {

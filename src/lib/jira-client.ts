@@ -1,9 +1,14 @@
 /**
- * Thin REST API client for Jira Cloud using Node's built-in fetch().
- *
- * Auth: Basic Auth via JIRA_EMAIL + JIRA_API_TOKEN env vars.
- * All HTTP I/O is injectable via the `fetch` option for testing.
+ * Thin REST API client for Jira Cloud.
+ * Auth: Basic via JIRA_EMAIL + JIRA_API_TOKEN. When `limiter` is provided,
+ * requests route through the rate-limited client with X-RateLimit-* hints
+ * driving adaptive pacing; otherwise calls `fetch` directly.
  */
+
+import type Bottleneck from "bottleneck";
+import { createRateLimitedClient, type FetchFn as RLFetchFn, type ThrottleInfo } from "./http/rate-limited-client.js";
+import { withRateLimitHints } from "./http/rate-limit-hints.js";
+import { createJiraLimiter } from "./http/backends.js";
 
 export interface JiraIssue {
   key: string;
@@ -45,7 +50,14 @@ export interface JiraClientOptions {
   serverUrl: string;
   email: string;
   apiToken: string;
+  /** Bottleneck limiter. Defaults to createJiraLimiter() — pass an explicit
+   *  one for tests (zero delays) or when sharing a limiter across clients. */
+  limiter?: Bottleneck;
   fetch?: FetchFn;
+  /** Injectable sleep for testing the rate-limited path. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Called when a request waited longer than 2s in the limiter queue. */
+  onThrottle?: (info: ThrottleInfo) => void;
 }
 
 export interface JiraTransition {
@@ -74,13 +86,25 @@ export interface JiraClient {
 export function createJiraClient(options: JiraClientOptions): JiraClient {
   const { email, apiToken } = options;
   const serverUrl = options.serverUrl.replace(/\/+$/, "");
-  const fetchFn: FetchFn = options.fetch ?? globalThis.fetch;
+  const limiter = options.limiter ?? createJiraLimiter();
 
-  /**
-   * Cached auth headers — computed once on first request, reused thereafter.
-   * Validation is deferred to first use so backend list/capabilities work
-   * without credentials set.
-   */
+  // Hints adapter wraps fetch so it sees every response (including ones the
+  // retry logic retries) and reflects X-RateLimit-* into the reservoir.
+  const hintsFetch = withRateLimitHints(
+    (options.fetch ?? globalThis.fetch) as RLFetchFn,
+    { limiter }
+  );
+  const rlClient = createRateLimitedClient({
+    limiter,
+    fetch: hintsFetch,
+    envVarHint: "JIRA_RATE_LIMIT_RPM",
+    ...(options.sleep ? { sleep: options.sleep } : {}),
+    ...(options.onThrottle ? { onThrottle: options.onThrottle } : {}),
+  });
+  const fetchFn: FetchFn = rlClient.request.bind(rlClient);
+
+  // Validation is deferred to first use so backend list/capabilities calls
+  // work without credentials set.
   let cachedHeaders: Record<string, string> | null = null;
 
   function getAuthHeaders(): Record<string, string> {
@@ -114,12 +138,6 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
     const headers = getAuthHeaders();
     const url = `${serverUrl}${apiPath}`;
     const response = await fetchFn(url, { headers });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Jira API ${response.status}: ${body}`);
-    }
-
     return (await response.json()) as T;
   }
 
@@ -131,28 +149,17 @@ export function createJiraClient(options: JiraClientOptions): JiraClient {
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Jira API ${response.status}: ${text}`);
-    }
-
     return (await response.json()) as T;
   }
 
   async function postNoContent(apiPath: string, body: unknown): Promise<void> {
     const headers = getAuthHeaders();
     const url = `${serverUrl}${apiPath}`;
-    const response = await fetchFn(url, {
+    await fetchFn(url, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Jira API ${response.status}: ${text}`);
-    }
   }
 
   return {

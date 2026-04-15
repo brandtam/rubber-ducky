@@ -9,6 +9,7 @@ import {
 import { formatOutput } from "../lib/output.js";
 import { getBackend, checkConnectivity } from "../lib/backend.js";
 import {
+  detectAsanaIdFields,
   discoverAsanaConfig,
   discoverJiraConfig,
 } from "../lib/backend-discovery.js";
@@ -457,7 +458,37 @@ export function registerBackendCommand(program: Command): void {
         if (validated instanceof Error) fail(validated.message);
         const fields = validated as Record<string, unknown>;
         updateWorkspaceBackend(workspaceRoot!, "asana", fields);
-        const payload = { success: true, backend: "asana", ...fields };
+
+        // When project_gid is being set without a naming_source, detect
+        // custom ID fields so the caller can prompt the user before
+        // defaulting to title-based naming.
+        let idFields: Array<{ name: string; id_prefix: string }> = [];
+        const projectGid = opts.projectGid ?? backendConfig!.project_gid;
+        if (
+          opts.namingSource === undefined &&
+          projectGid !== undefined
+        ) {
+          const token = process.env.ASANA_ACCESS_TOKEN;
+          if (token) {
+            try {
+              idFields = await detectAsanaIdFields({
+                projectGid,
+                token,
+              });
+            } catch {
+              // Detection is best-effort; swallow API errors.
+            }
+          }
+        }
+
+        const payload: Record<string, unknown> = {
+          success: true,
+          backend: "asana",
+          ...fields,
+        };
+        if (idFields.length > 0) {
+          payload.id_fields = idFields;
+        }
         if (machineOutput) {
           console.log(
             formatOutput(payload, {
@@ -467,6 +498,12 @@ export function registerBackendCommand(program: Command): void {
           );
         } else {
           clack.log.success(`Saved ${Object.keys(fields).join(", ")} to workspace.md.`);
+          if (idFields.length > 0) {
+            const names = idFields.map((f) => f.id_prefix).join(", ");
+            clack.log.info(
+              `This project has custom ID fields: ${chalk.cyan(names)}. Run ${chalk.bold("rubber-ducky asana configure-naming")} to use one as the filename.`
+            );
+          }
         }
         return;
       }

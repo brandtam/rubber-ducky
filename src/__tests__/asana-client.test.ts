@@ -1,20 +1,27 @@
 import { describe, it, expect } from "vitest";
+import Bottleneck from "bottleneck";
 import {
   createAsanaClient,
   type AsanaClientOptions,
   type AsanaClient,
 } from "../lib/asana-client.js";
+import { RateLimitError } from "../lib/http/rate-limited-client.js";
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
 function mockFetch(
-  handler: (url: string, init?: RequestInit) => { status: number; body: unknown }
+  handler: (url: string, init?: RequestInit) => {
+    status: number;
+    body: unknown;
+    headers?: Record<string, string>;
+  }
 ): FetchFn {
   return async (url: string, init?: RequestInit) => {
     const result = handler(url, init);
     return {
       ok: result.status >= 200 && result.status < 300,
       status: result.status,
+      headers: new Headers(result.headers ?? {}),
       json: async () => result.body,
       text: async () => JSON.stringify(result.body),
     } as Response;
@@ -295,7 +302,7 @@ describe("AsanaClient", () => {
       expect(capturedUrl).toContain("opt_fields=");
     });
 
-    it("passes assignee.any param for scope filtering", async () => {
+    it("uses workspace search endpoint when assigneeGid is present", async () => {
       let capturedUrl = "";
       const fetch = mockFetch((url) => {
         capturedUrl = url;
@@ -303,9 +310,24 @@ describe("AsanaClient", () => {
       });
 
       const client = createAsanaClient({ token: "test-token", fetch });
-      await client.getTasksForProject("proj123", { assigneeGid: "me123" });
+      await client.getTasksForProject("proj123", {
+        assigneeGid: "me123",
+        workspaceGid: "ws456",
+      });
 
+      expect(capturedUrl).toContain("/workspaces/ws456/tasks/search");
+      expect(capturedUrl).toContain("projects.any=proj123");
       expect(capturedUrl).toContain("assignee.any=me123");
+      expect(capturedUrl).not.toContain("/projects/proj123/tasks");
+    });
+
+    it("throws when assigneeGid is present but workspaceGid is missing", async () => {
+      const fetch = mockFetch(() => ({ status: 200, body: { data: [] } }));
+      const client = createAsanaClient({ token: "test-token", fetch });
+
+      await expect(
+        client.getTasksForProject("proj123", { assigneeGid: "me123" })
+      ).rejects.toThrow(/workspaceGid/i);
     });
 
     it("returns empty array when project has no tasks", async () => {
@@ -354,6 +376,25 @@ describe("AsanaClient", () => {
       expect(tasks[0].name).toBe("Section Task");
       expect(capturedUrl).toContain("/sections/sec456/tasks");
       expect(capturedUrl).toContain("opt_fields=");
+    });
+
+    it("uses workspace search endpoint when assigneeGid is present", async () => {
+      let capturedUrl = "";
+      const fetch = mockFetch((url) => {
+        capturedUrl = url;
+        return { status: 200, body: { data: [] } };
+      });
+
+      const client = createAsanaClient({ token: "test-token", fetch });
+      await client.getTasksForSection("sec456", {
+        assigneeGid: "me123",
+        workspaceGid: "ws789",
+      });
+
+      expect(capturedUrl).toContain("/workspaces/ws789/tasks/search");
+      expect(capturedUrl).toContain("sections.any=sec456");
+      expect(capturedUrl).toContain("assignee.any=me123");
+      expect(capturedUrl).not.toContain("/sections/sec456/tasks");
     });
 
     it("returns empty array when section has no tasks", async () => {
@@ -670,6 +711,140 @@ describe("AsanaClient", () => {
       const client = createAsanaClient({ token: "test-token", fetch });
       const settings = await client.getCustomFieldSettings("p-empty");
       expect(settings).toEqual([]);
+    });
+  });
+
+  describe("rate-limit integration", () => {
+    /** Build a fetch that shifts responses from a queue (returns full Response objects). */
+    function mockFetchSequence(
+      responses: Array<{
+        status: number;
+        headers?: Record<string, string>;
+        body: unknown;
+      }>
+    ): FetchFn {
+      const queue = [...responses];
+      return async (_url: string, _init?: RequestInit) => {
+        const next = queue.shift();
+        if (!next)
+          throw new Error("mockFetchSequence: no more responses queued");
+        const headers = new Headers(next.headers ?? {});
+        return {
+          ok: next.status >= 200 && next.status < 300,
+          status: next.status,
+          headers,
+          json: async () => next.body,
+          text: async () => JSON.stringify(next.body),
+        } as Response;
+      };
+    }
+
+    /** A permissive limiter with zero delays for testing. */
+    function testLimiter(): Bottleneck {
+      return new Bottleneck({ minTime: 0, maxConcurrent: null });
+    }
+
+    it("retries on 429 then succeeds — caller sees data, not an error", async () => {
+      const fetch = mockFetchSequence([
+        // First call: 429
+        { status: 429, headers: { "retry-after": "0" }, body: {} },
+        // Second call: success
+        {
+          status: 200,
+          body: {
+            data: {
+              gid: "me123",
+              name: "Test User",
+              email: "test@example.com",
+            },
+          },
+        },
+      ]);
+
+      const client = createAsanaClient({
+        token: "test-token",
+        fetch,
+        limiter: testLimiter(),
+        sleep: async () => {},
+      });
+      const user = await client.getMe();
+
+      expect(user.gid).toBe("me123");
+      expect(user.name).toBe("Test User");
+    });
+
+    it("throws RateLimitError with ASANA_RATE_LIMIT_RPM hint on sustained 429s", async () => {
+      // Return 429 for every attempt (maxRetries + 1 total)
+      const responses = Array.from({ length: 10 }, () => ({
+        status: 429,
+        headers: { "retry-after": "0" },
+        body: {},
+      }));
+      const fetch = mockFetchSequence(responses);
+
+      const client = createAsanaClient({
+        token: "test-token",
+        fetch,
+        limiter: testLimiter(),
+        sleep: async () => {},
+      });
+
+      await expect(client.getMe()).rejects.toThrow(RateLimitError);
+      await expect(
+        createAsanaClient({
+          token: "test-token",
+          fetch: mockFetchSequence(
+            Array.from({ length: 10 }, () => ({
+              status: 429,
+              headers: { "retry-after": "0" },
+              body: {},
+            }))
+          ),
+          limiter: testLimiter(),
+          sleep: async () => {},
+        }).getMe()
+      ).rejects.toThrow(/ASANA_RATE_LIMIT_RPM/);
+    });
+
+    it("retries on 429 during paginated requests and succeeds", async () => {
+      // requestPaginated goes through the rate-limited client too
+      let callCount = 0;
+      const fetch: FetchFn = async (url: string, _init?: RequestInit) => {
+        callCount++;
+        // First call to the paginated endpoint: 429
+        if (callCount === 1) {
+          return {
+            ok: false,
+            status: 429,
+            headers: new Headers({ "retry-after": "0" }),
+            json: async () => ({}),
+            text: async () => "{}",
+          } as Response;
+        }
+        // Second call: page 1 with no next_page
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          json: async () => ({
+            data: [{ gid: "t1", name: "Task 1" }],
+            next_page: null,
+          }),
+          text: async () => "{}",
+        } as Response;
+      };
+
+      const client = createAsanaClient({
+        token: "test-token",
+        fetch,
+        limiter: testLimiter(),
+        sleep: async () => {},
+      });
+      const tasks = await client.getTasksForProject("proj123");
+
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].gid).toBe("t1");
+      expect(callCount).toBe(2); // 429 + success
     });
   });
 });

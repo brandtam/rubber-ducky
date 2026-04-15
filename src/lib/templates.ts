@@ -512,7 +512,7 @@ function generateGetSetupSkill(backends: BackendConfig[]): string {
         "- **Asana**: the project GID is the long number in a project URL — `https://app.asana.com/0/`**`1234567890`**`/list`. Again, you don't need to copy it — the configure command lists your projects."
       );
       writeChoiceLines.push(
-        "   - Asana: `rubber-ducky backend configure asana --workspace-id <GID> --project-gid <GID> --naming-source title --naming-case lower --json` (if Asana's `workspaces` list has more than one entry, ask which workspace first as its own question; then re-run `--list` with `--workspace-id <chosen>` to get that workspace's projects). **Always set `--naming-source` and `--naming-case`** — without them, the next ingest will crash trying to open an interactive naming prompt. `title` + `lower` is a safe default for most projects; if the user wants identifier-based filenames from an Asana custom field, use `--naming-source identifier --identifier-field \"<field name>\"` instead."
+        "   - Asana: `rubber-ducky backend configure asana --workspace-id <GID> --project-gid <GID> --json` (if Asana's `workspaces` list has more than one entry, ask which workspace first as its own question; then re-run `--list` with `--workspace-id <chosen>` to get that workspace's projects). **Check the JSON response for an `id_fields` array.** If `id_fields` is non-empty, the project has custom ID fields (e.g. `ECOMM-123`) that can be used as filenames. Present the options to the user: each custom ID field name from `id_fields`, plus \"Task title\" as the default. If the user picks a custom ID field, run: `rubber-ducky backend configure asana --naming-source identifier --naming-case lower --identifier-field \"<field name>\" --json`. If the user picks \"Task title\" or `id_fields` is empty, run: `rubber-ducky backend configure asana --naming-source title --naming-case lower --json`. **Always set `--naming-source` and `--naming-case`** — without them, the next ingest will crash trying to open an interactive naming prompt."
       );
     }
   }
@@ -1324,7 +1324,7 @@ export function generateClaudeSettings(backends?: BackendConfig[]): string {
     `INPUT=$(cat); ` +
     `FILE_PATH=$(echo "$INPUT" | grep -o '"file_path":"[^"]*"' | cut -d'"' -f4); ` +
     `COMMAND=$(echo "$INPUT" | grep -o '"command":"[^"]*"' | cut -d'"' -f4); ` +
-    `if echo "$FILE_PATH" | grep -qE '\\.env($|\\.)'; then ` +
+    `if echo "$FILE_PATH" | grep -qE '(^|/)\\.env(rc)?($|[._-])'; then ` +
       `echo "BLOCKED: Reading .env files is not allowed — they contain secrets. Use rubber-ducky backend check to verify connectivity."; exit 2; ` +
     `fi; ` +
     `if echo "$COMMAND" | grep -qE '(cat|head|tail|less|more|bat).*\\.env'; then ` +

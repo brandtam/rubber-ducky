@@ -824,6 +824,34 @@ describe("generateBackendSkills", () => {
     expect(ingest.content).toMatch(/do not ask the user to look it up/i);
   });
 
+  it("get-setup skill instructs Claude to check for custom ID fields before setting naming defaults", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", workspace_id: "12345", project_gid: "67890" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    // The template should reference id_fields so Claude checks the configure response
+    expect(setup.content).toContain("id_fields");
+    // Should instruct to ask the user about custom ID fields when detected
+    expect(setup.content).toMatch(/custom.*ID.*field/i);
+    // Should instruct to use --naming-source identifier when user picks an ID field
+    expect(setup.content).toContain("--naming-source identifier");
+    expect(setup.content).toContain("--identifier-field");
+  });
+
+  it("get-setup skill defaults to title naming silently when no custom ID fields found", () => {
+    const backends: BackendConfig[] = [
+      { type: "asana", workspace_id: "12345", project_gid: "67890" },
+    ];
+    const skills = generateBackendSkills(backends);
+    const setup = skills.find((s) => s.path === ".claude/commands/get-setup.md")!;
+
+    // Should still mention title + lower as the default when no ID fields
+    expect(setup.content).toContain("--naming-source title");
+    expect(setup.content).toContain("--naming-case lower");
+  });
+
   it("get-setup skill skips ingest step when no ingestable backends are configured", () => {
     const backends: BackendConfig[] = [];
     const skills = generateBackendSkills(backends);

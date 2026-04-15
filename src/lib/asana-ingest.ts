@@ -173,12 +173,12 @@ export async function ingestAsanaTask(
     }
   }
 
-  // From here on, stories/attachments use the resolved task's GID
+  // Stories and attachments are fetched serially rather than via Promise.all:
+  // the rate limiter already caps concurrency, so parallelizing here only
+  // lengthens the queue without increasing throughput (PRD #74).
   const taskGid = task.gid;
-  const [stories, attachments] = await Promise.all([
-    client.getStories(taskGid),
-    client.getAttachments(taskGid),
-  ]);
+  const stories = await client.getStories(taskGid);
+  const attachments = await client.getAttachments(taskGid);
 
   // Resolve identifier from custom fields or fall back to GID
   const resolvedIdentifier = resolveIdentifier(task, identifierField);
@@ -335,11 +335,11 @@ export async function ingestAsanaBulk(
     );
   }
 
-  // Resolve scope filtering
+  // Resolve scope filtering — the search endpoint requires workspaceGid
   let listOpts: TaskListOptions | undefined;
   if (scope === "mine") {
     const me = await client.getMe();
-    listOpts = { assigneeGid: me.gid };
+    listOpts = { assigneeGid: me.gid, workspaceGid };
   }
 
   // Fetch task list
@@ -353,8 +353,9 @@ export async function ingestAsanaBulk(
   // Build dedup index once before the loop
   const dedupIndex = buildDedupIndex(workspaceRoot, "asana_ref");
 
-  // Process tasks with bounded concurrency (5 concurrent API calls)
-  const results = await mapWithConcurrency(tasks, 5, (task) =>
+  // Process tasks with bounded concurrency — the Bottleneck limiter is the
+  // authoritative throttle, so workers can be generous.
+  const results = await mapWithConcurrency(tasks, 20, (task) =>
     ingestAsanaTask({
       client,
       ref: task.gid,

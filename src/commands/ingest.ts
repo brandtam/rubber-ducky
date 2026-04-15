@@ -13,6 +13,7 @@ import {
 import { resolveScope } from "../lib/ingest-shared.js";
 import { createJiraClient } from "../lib/jira-client.js";
 import { ingestJiraIssue, ingestJiraProject } from "../lib/jira-ingest.js";
+import { createThrottleNotifier } from "../lib/http/throttle-notifier.js";
 import { runNamingPrompt, persistNamingResult } from "../lib/naming-prompt.js";
 import { inferLegacyScheme } from "../lib/naming.js";
 import type { BackendConfig } from "../lib/templates.js";
@@ -128,7 +129,10 @@ export function registerIngestCommand(program: Command): void {
         }
 
         try {
-          const client = createAsanaClient({ token });
+          const client = createAsanaClient({
+            token,
+            onThrottle: createThrottleNotifier("Asana"),
+          });
           const config = loadWorkspaceConfig(workspaceRoot);
 
           const asanaBackend = config.backends.find(
@@ -290,7 +294,12 @@ export function registerIngestCommand(program: Command): void {
       });
 
       try {
-        const client = createJiraClient({ serverUrl, email, apiToken });
+        const client = createJiraClient({
+          serverUrl,
+          email,
+          apiToken,
+          onThrottle: createThrottleNotifier("Jira"),
+        });
         const issueKey = ref && !ref.startsWith("project:") ? ref : null;
 
         if (issueKey) {

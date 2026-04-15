@@ -1,9 +1,16 @@
 /**
- * Thin REST API client for Asana using Node's built-in fetch().
- *
- * Auth: Bearer token via ASANA_ACCESS_TOKEN env var.
- * All HTTP I/O is injectable via the `fetch` option for testing.
+ * Thin REST API client for Asana.
+ * Auth: Bearer token via ASANA_ACCESS_TOKEN. HTTP I/O goes through the
+ * rate-limited client (429 + backoff + Bottleneck scheduling).
  */
+
+import type Bottleneck from "bottleneck";
+import {
+  createRateLimitedClient,
+  type FetchFn as RateLimitedFetchFn,
+  type ThrottleInfo,
+} from "./http/rate-limited-client.js";
+import { createAsanaLimiter } from "./http/backends.js";
 
 const ASANA_API_BASE = "https://app.asana.com/api/1.0";
 
@@ -80,11 +87,23 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
 export interface AsanaClientOptions {
   token: string;
+  /** Bottleneck limiter. Defaults to createAsanaLimiter() — pass an explicit
+   *  one for tests (zero delays) or when sharing a limiter across clients. */
+  limiter?: Bottleneck;
   fetch?: FetchFn;
+  /** Injectable sleep for testing. Passed through to the rate-limited client. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Called when a request waited longer than 2s in the limiter queue. */
+  onThrottle?: (info: ThrottleInfo) => void;
 }
 
 export interface TaskListOptions {
   assigneeGid?: string;
+  /**
+   * Required when assigneeGid is set — the search endpoint is
+   * workspace-scoped.  Ignored when assigneeGid is absent.
+   */
+  workspaceGid?: string;
 }
 
 export interface AsanaCreateTaskResult {
@@ -147,6 +166,15 @@ export interface AsanaClient {
 export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
   const { token } = options;
   const fetchFn: FetchFn = options.fetch ?? globalThis.fetch;
+  const limiter = options.limiter ?? createAsanaLimiter();
+
+  const httpClient = createRateLimitedClient({
+    limiter,
+    fetch: fetchFn as RateLimitedFetchFn,
+    envVarHint: "ASANA_RATE_LIMIT_RPM",
+    ...(options.sleep ? { sleep: options.sleep } : {}),
+    ...(options.onThrottle ? { onThrottle: options.onThrottle } : {}),
+  });
 
   const authHeaders: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -165,14 +193,7 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
       ? Object.fromEntries(new Headers(init.headers).entries())
       : {};
     const mergedHeaders = { ...authHeaders, ...extraHeaders };
-    const response = await fetchFn(url, { ...init, headers: mergedHeaders });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(
-        `Asana API ${response.status}: ${body}`
-      );
-    }
+    const response = await httpClient.request(url, { ...init, headers: mergedHeaders });
 
     const json = (await response.json()) as { data: T };
     return json.data;
@@ -187,11 +208,7 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
     let nextUrl: string | null = `${ASANA_API_BASE}${initialPath}`;
 
     while (nextUrl) {
-      const response = await fetchFn(nextUrl, { headers: authHeaders });
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`Asana API ${response.status}: ${body}`);
-      }
+      const response = await httpClient.request(nextUrl, { headers: authHeaders });
 
       const json = (await response.json()) as {
         data: T[];
@@ -226,19 +243,45 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
     },
 
     async getTasksForProject(projectGid: string, opts?: TaskListOptions): Promise<AsanaTask[]> {
-      let url = `/projects/${projectGid}/tasks?opt_fields=${TASK_OPT_FIELDS}&limit=100`;
       if (opts?.assigneeGid) {
-        url += `&assignee.any=${opts.assigneeGid}`;
+        if (!opts.workspaceGid) {
+          throw new Error(
+            "workspaceGid is required when filtering by assignee — " +
+            "the Asana project-tasks endpoint silently ignores assignee.any. " +
+            "Pass workspaceGid so the workspace search endpoint can be used instead."
+          );
+        }
+        const url =
+          `/workspaces/${opts.workspaceGid}/tasks/search` +
+          `?projects.any=${projectGid}` +
+          `&assignee.any=${opts.assigneeGid}` +
+          `&opt_fields=${TASK_OPT_FIELDS}`;
+        return requestPaginated<AsanaTask>(url);
       }
-      return requestPaginated<AsanaTask>(url);
+      return requestPaginated<AsanaTask>(
+        `/projects/${projectGid}/tasks?opt_fields=${TASK_OPT_FIELDS}&limit=100`
+      );
     },
 
     async getTasksForSection(sectionGid: string, opts?: TaskListOptions): Promise<AsanaTask[]> {
-      let url = `/sections/${sectionGid}/tasks?opt_fields=${TASK_OPT_FIELDS}&limit=100`;
       if (opts?.assigneeGid) {
-        url += `&assignee.any=${opts.assigneeGid}`;
+        if (!opts.workspaceGid) {
+          throw new Error(
+            "workspaceGid is required when filtering by assignee — " +
+            "the Asana section-tasks endpoint silently ignores assignee.any. " +
+            "Pass workspaceGid so the workspace search endpoint can be used instead."
+          );
+        }
+        const url =
+          `/workspaces/${opts.workspaceGid}/tasks/search` +
+          `?sections.any=${sectionGid}` +
+          `&assignee.any=${opts.assigneeGid}` +
+          `&opt_fields=${TASK_OPT_FIELDS}`;
+        return requestPaginated<AsanaTask>(url);
       }
-      return requestPaginated<AsanaTask>(url);
+      return requestPaginated<AsanaTask>(
+        `/sections/${sectionGid}/tasks?opt_fields=${TASK_OPT_FIELDS}&limit=100`
+      );
     },
 
     async getAttachments(taskGid: string): Promise<AsanaAttachment[]> {
@@ -248,6 +291,10 @@ export function createAsanaClient(options: AsanaClientOptions): AsanaClient {
     },
 
     async downloadFile(url: string): Promise<Buffer> {
+      // Attachment URLs point at Asana's CDN, not the API bucket metered by
+      // the 150 req/min limit — routing them through the rate limiter would
+      // needlessly share budget with API calls and stall task-list fetches
+      // during large ingests. Bypass the rate-limited client deliberately.
       const response = await fetchFn(url, {});
       if (!response.ok) {
         const body = await response.text();
