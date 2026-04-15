@@ -9,15 +9,19 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { JiraClient, JiraIssue } from "./jira-client.js";
-import type { Status } from "./backend.js";
+import { VALID_STATUSES, type Status } from "./backend.js";
 import { jiraIssueToPage } from "./jira-backend.js";
-import { slugify } from "./page.js";
+import { slugifyPreserveCase } from "./page.js";
+import { loadMapping, translateStatus, type StatusMapping } from "./status-mapping.js";
 import {
   type IngestResult,
   type BulkIngestResult,
   type DedupIndex,
+  BULK_INGEST_CONCURRENCY,
   buildDedupIndex,
   findExistingByRef,
+  checkMergedPage,
+  handleMergedReingest,
   generateIngestedTaskPage,
   postIngestProcess,
   finalizeBulkIngest,
@@ -41,6 +45,12 @@ export interface IngestJiraOptions {
   prefetchedIssue?: JiraIssue;
   /** Pre-built dedup index — avoids re-scanning wiki/tasks/ per issue in bulk. */
   dedupIndex?: DedupIndex;
+  /**
+   * Pre-loaded workspace status mapping (from wiki/status-mapping.md).
+   * Bulk callers SHOULD load this once and pass it to every per-issue call.
+   * Single-issue callers may omit; the mapping will be loaded on demand.
+   */
+  workspaceStatusMapping?: StatusMapping;
   /** Skip index rebuild and log append — caller handles these after the loop. */
   skipPostProcess?: boolean;
 }
@@ -78,6 +88,7 @@ export async function ingestJiraIssue(
     statusMapping,
     prefetchedIssue,
     dedupIndex,
+    workspaceStatusMapping,
     skipPostProcess,
   } = options;
 
@@ -90,6 +101,19 @@ export async function ingestJiraIssue(
   // Convert to TaskPage (uses real Jira timestamps, not ingest time)
   const taskPage = jiraIssueToPage(issue, comments, serverUrl, statusMapping);
 
+  // Translate status via workspace status-mapping config if available.
+  // Bulk callers pass `workspaceStatusMapping` to amortize the disk read;
+  // single-issue callers fall through to loading on demand.
+  let canonicalStatus: string | undefined;
+  if (taskPage.jira_status_raw) {
+    const mapping = workspaceStatusMapping ?? loadMapping(workspaceRoot);
+    const translated = translateStatus(mapping, "jira", taskPage.jira_status_raw);
+    if (translated && VALID_STATUSES.includes(translated as Status)) {
+      canonicalStatus = translated;
+      taskPage.status = translated as Status;
+    }
+  }
+
   // Dedup check
   if (!taskPage.jira_ref) {
     throw new Error(`Internal error: jira_ref is null after conversion for issue ${ref}`);
@@ -101,6 +125,19 @@ export async function ingestJiraIssue(
     dedupIndex
   );
   if (existingFile) {
+    const mergedInfo = checkMergedPage(workspaceRoot, existingFile);
+    if (mergedInfo.isMerged) {
+      return handleMergedReingest({
+        workspaceRoot,
+        existingRelativePath: existingFile,
+        backendName: "Jira",
+        taskPage,
+        canonicalStatus,
+        logMessage: `Re-ingested Jira issue on merged page: ${taskPage.title} (${ref})`,
+        skipPostProcess,
+      });
+    }
+
     return {
       success: true,
       skipped: true,
@@ -109,13 +146,13 @@ export async function ingestJiraIssue(
     };
   }
 
-  // Write task page — use issue key as filename (e.g., ecomm-4643.md)
-  const filename = `${slugify(issue.key) || issue.key}.md`;
+  // Write task page — use issue key as filename, preserving case (e.g., ECOMM-4643.md)
+  const filename = `${slugifyPreserveCase(issue.key) || issue.key}.md`;
   const relativePath = path.join("wiki", "tasks", filename);
   const fullPath = path.join(workspaceRoot, relativePath);
 
   fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-  const content = generateIngestedTaskPage(taskPage, { source: "Jira" });
+  const content = generateIngestedTaskPage(taskPage, { source: "Jira", backendName: "Jira" });
   fs.writeFileSync(fullPath, content, "utf-8");
 
   // Post-processing (skipped in bulk mode — caller handles it)
@@ -161,11 +198,13 @@ export async function ingestJiraProject(
   // Search for issues
   const searchResult = await client.searchIssues(jql);
 
-  // Build dedup index once before the loop
+  // Build dedup index + load workspace status mapping once before the loop.
   const dedupIndex = buildDedupIndex(workspaceRoot, "jira_ref");
+  const workspaceStatusMapping = loadMapping(workspaceRoot);
 
-  // Process issues with bounded concurrency (5 concurrent API calls)
-  const results = await mapWithConcurrency(searchResult.issues, 5, (issue) =>
+  // Process issues with bounded concurrency — the Bottleneck limiter is the
+  // authoritative throttle, so workers can be generous.
+  const results = await mapWithConcurrency(searchResult.issues, BULK_INGEST_CONCURRENCY, (issue) =>
     ingestJiraIssue({
       client,
       ref: issue.key,
@@ -174,6 +213,7 @@ export async function ingestJiraProject(
       statusMapping,
       prefetchedIssue: issue,
       dedupIndex,
+      workspaceStatusMapping,
       skipPostProcess: true,
     })
   );

@@ -380,6 +380,7 @@ async function runInteractive(directory: string | undefined): Promise<void> {
       notes.push(
         `  3. Copy ${chalk.cyan(".env.example")} to ${chalk.cyan(".env.local")} and add your API tokens`,
         `  4. Run ${chalk.cyan("claude")} and type ${chalk.cyan("/get-setup")} to connect your backends`,
+        `  5. Type ${chalk.cyan("/configure-status-mapping")} to customize how backend statuses map to wiki vocabulary`,
       );
     } else {
       notes.push(

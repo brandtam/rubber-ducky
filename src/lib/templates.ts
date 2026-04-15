@@ -10,7 +10,7 @@ export interface BackendConfig {
   project_gid?: string;
   identifier_field?: string;
   naming_source?: "identifier" | "title" | "gid";
-  naming_case?: "preserve" | "lower";
+  naming_case?: "preserve" | "lower" | "upper";
 }
 
 export interface VocabularyOptions {
@@ -826,6 +826,7 @@ due: null                       # Due date (YYYY-MM-DD string), or null
 jira_ref: null                  # Jira ticket URL, or null
 asana_ref: null                 # Asana task URL, or null
 gh_ref: null                    # GitHub issue/PR URL, or null
+jira_needed: null               # Triage state: yes (Jira ticket exists), no (not needed), null (untriaged). Asana-sourced pages only.
 comment_count: 0                # Number of comments synced from backend
 ---
 \`\`\`
@@ -1398,6 +1399,80 @@ should use these terms consistently.
 Add workspace-specific terms below.
 
 <!-- Add your terms here -->
+`);
+
+  return sections.join("\n");
+}
+
+/**
+ * Generate the default wiki/status-mapping.md seeded during init.
+ * Maps backend-native status values to the canonical wiki vocabulary.
+ * Only includes sections for backends that are actually configured.
+ */
+export function generateStatusMappingMd(backends?: BackendConfig[]): string {
+  const backendTypes = (backends ?? []).map((b) => b.type);
+
+  const sections: string[] = [];
+
+  sections.push(`---
+type: config
+---
+
+# Status Mapping
+
+Maps backend-native status values to the canonical wiki vocabulary.
+See [[UBIQUITOUS_LANGUAGE]] for the full vocabulary reference.`);
+
+  if (backendTypes.includes("jira")) {
+    sections.push(`
+## Jira → wiki
+
+- \`Backlog\` → \`backlog\`
+- \`To Do\` → \`to-do\`
+- \`Open\` → \`to-do\`
+- \`In Progress\` → \`in-progress\`
+- \`In Review\` → \`in-review\`
+- \`Review\` → \`in-review\`
+- \`Waiting\` → \`pending\`
+- \`Pending\` → \`pending\`
+- \`On Hold\` → \`pending\`
+- \`Blocked\` → \`blocked\`
+- \`Done\` → \`done\`
+- \`Closed\` → \`done\`
+- \`Resolved\` → \`done\`
+- \`Deferred\` → \`deferred\`
+- \`Won't Do\` → \`deferred\``);
+  }
+
+  if (backendTypes.includes("asana")) {
+    sections.push(`
+## Asana → wiki
+
+- \`Backlog\` → \`backlog\`
+- \`To Do\` → \`to-do\`
+- \`In Progress\` → \`in-progress\`
+- \`In Review\` → \`in-review\`
+- \`Waiting\` → \`pending\`
+- \`Blocked\` → \`blocked\`
+- \`Done\` → \`done\`
+- \`Deferred\` → \`deferred\``);
+  }
+
+  sections.push(`
+## Wiki vocabulary
+
+| Term | Meaning |
+|------|---------|
+| backlog | Not yet scheduled |
+| to-do | Scheduled, not started |
+| in-progress | Actively being worked on |
+| in-review | Awaiting review |
+| pending | Waiting on external input |
+| blocked | Cannot proceed |
+| done | Completed |
+| deferred | Postponed indefinitely |
+
+See [[UBIQUITOUS_LANGUAGE]] for the full vocabulary reference.
 `);
 
   return sections.join("\n");

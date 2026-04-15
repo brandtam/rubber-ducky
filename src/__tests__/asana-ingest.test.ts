@@ -158,6 +158,8 @@ describe("ingestAsanaTask", () => {
       expect(fm.asana_ref).toBe("https://app.asana.com/0/project/1234567890");
       expect(fm.tags).toEqual(["bug", "urgent"]);
       expect(fm.comment_count).toBe(1);
+      expect(fm.asana_status_raw).toBe("In Progress");
+      expect(fm.jira_needed).toBeNull();
     });
 
     it("creates a task page with full body sections", async () => {
@@ -175,12 +177,12 @@ describe("ingestAsanaTask", () => {
       const parsed = parseFrontmatter(content);
       const body = parsed!.body;
 
-      // Description section with verbatim notes
-      expect(body).toContain("## Description");
+      // Description section with verbatim notes (backend-scoped)
+      expect(body).toContain("## Asana description");
       expect(body).toContain("The login form crashes on submit");
 
-      // Comments section with attribution
-      expect(body).toContain("## Comments");
+      // Comments section with attribution (backend-scoped)
+      expect(body).toContain("## Asana comments");
       expect(body).toContain("**Bob**");
       expect(body).toContain("2024-01-15T10:00:00.000Z");
       expect(body).toContain("I can reproduce this");
@@ -297,6 +299,42 @@ describe("ingestAsanaTask", () => {
 
       expect(parsed!.data.status).toBe("done");
       expect(parsed!.data.closed).toBe("2024-01-20T15:30:00.000Z");
+    });
+
+    it("translates status via workspace status-mapping config", async () => {
+      // Seed a status-mapping.md that maps Asana "In Progress" → "in-review"
+      fs.mkdirSync(path.join(tmpDir, "wiki"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "wiki", "status-mapping.md"),
+        [
+          "---",
+          "type: config",
+          "---",
+          "",
+          "## Asana → wiki",
+          "",
+          "- `In Progress` → `in-review`",
+        ].join("\n")
+      );
+
+      const client = makeMockClient();
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+      });
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, result.filePath!),
+        "utf-8"
+      );
+      const parsed = parseFrontmatter(content);
+      const fm = parsed!.data;
+
+      // Canonical status overridden by status-mapping config
+      expect(fm.status).toBe("in-review");
+      // Raw status preserved
+      expect(fm.asana_status_raw).toBe("In Progress");
     });
 
     it("formats multiple comments with attribution", async () => {
@@ -518,8 +556,8 @@ describe("ingestAsanaTask", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.taskPage!.ref).toBe("ecomm-4643");
-      expect(result.filePath).toContain("ecomm-4643.md");
+      expect(result.taskPage!.ref).toBe("ECOMM-4643");
+      expect(result.filePath).toContain("ECOMM-4643.md");
     });
 
     it("matches identifier_field case-insensitively", async () => {
@@ -538,8 +576,8 @@ describe("ingestAsanaTask", () => {
         identifierField: "ecomm number",
       });
 
-      expect(result.taskPage!.ref).toBe("ecomm-100");
-      expect(result.filePath).toContain("ecomm-100.md");
+      expect(result.taskPage!.ref).toBe("ECOMM-100");
+      expect(result.filePath).toContain("ECOMM-100.md");
     });
 
     it("falls back to GID when custom field is not present", async () => {
@@ -744,7 +782,7 @@ describe("ingestAsanaTask", () => {
         tmpDir,
         "raw",
         "assets",
-        "ecomm-4643",
+        "ECOMM-4643",
         "mockup.jpg"
       );
       expect(fs.existsSync(assetPath)).toBe(true);
@@ -753,7 +791,7 @@ describe("ingestAsanaTask", () => {
         path.join(tmpDir, result.filePath!),
         "utf-8"
       );
-      expect(content).toContain("raw/assets/ecomm-4643/mockup.jpg");
+      expect(content).toContain("raw/assets/ECOMM-4643/mockup.jpg");
     });
 
     it("includes attachment count in result", async () => {
@@ -1162,5 +1200,314 @@ describe("ingestAsanaBulk", () => {
 
       expect(capturedOpts).toBeUndefined();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Merged-page in-place re-ingest (issue #89)
+// ---------------------------------------------------------------------------
+
+describe("Asana ingest on merged pages", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rubber-ducky-asana-merged-test-"));
+    setupWorkspace(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  /** Seed a merged page at wiki/tasks/ECOMM-4643 (WEB-297).md */
+  function seedMergedPage(): string {
+    const content = [
+      "---",
+      "title: Fix checkout flow",
+      "type: task",
+      "ref: ECOMM-4643",
+      "source: asana",
+      "status: in-progress",
+      "priority: High",
+      "assignee: Alice Smith",
+      "tags:",
+      "  - bug",
+      "created: 2024-01-15T10:00:00.000Z",
+      "updated: 2024-01-16T12:00:00.000Z",
+      "closed: null",
+      "pushed: null",
+      "due: null",
+      "jira_ref: https://myorg.atlassian.net/browse/WEB-297",
+      "asana_ref: https://app.asana.com/0/project/1234567890",
+      "gh_ref: null",
+      "jira_needed: yes",
+      "comment_count: 3",
+      "asana_status_raw: In Progress",
+      "jira_status_raw: To Do",
+      "---",
+      "## Asana description",
+      "",
+      "Old Asana description content",
+      "",
+      "## Jira description",
+      "",
+      "Original Jira description content",
+      "",
+      "## Asana comments",
+      "",
+      "**OldAsanaUser** (2024-01-10T10:00:00.000Z)",
+      "",
+      "Old Asana comment",
+      "",
+      "## Jira comments",
+      "",
+      "**JiraUser** (2024-01-12T10:00:00.000Z)",
+      "",
+      "Jira comment text",
+      "",
+      "## Activity log",
+      "",
+      "- 2024-01-15T10:00:00.000Z — Ingested from Asana (ECOMM-4643)",
+      "- 2024-01-16T10:00:00.000Z — Merged ECOMM-4643 + WEB-297",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+
+    const filename = "ECOMM-4643 (WEB-297).md";
+    fs.writeFileSync(
+      path.join(tmpDir, "wiki", "tasks", filename),
+      content
+    );
+    return filename;
+  }
+
+  function makeMergedAsanaClient(): AsanaClient {
+    const task = makeTask({
+      gid: "1234567890",
+      name: "Fix checkout flow",
+      notes: "Updated Asana description from re-ingest",
+      memberships: [{ section: { name: "Done", gid: "s1" } }],
+      permalink_url: "https://app.asana.com/0/project/1234567890",
+      custom_fields: [
+        { name: "Ticket ID", display_value: "ECOMM-4643" },
+      ],
+    });
+
+    const stories = [
+      {
+        gid: "s2",
+        type: "comment",
+        text: "New Asana comment from re-ingest",
+        created_by: { name: "NewAsanaUser", gid: "333" },
+        created_at: "2024-01-20T10:00:00.000Z",
+      },
+    ];
+
+    return {
+      getMe: async () => ({ gid: "me-gid", name: "Test User", email: "test@example.com" }),
+      getTask: async () => task,
+      getTaskByCustomId: async () => task,
+      getStories: async () => stories,
+      getAttachments: async () => [],
+      downloadFile: async () => Buffer.from(""),
+      getTasksForProject: async () => [task],
+      getTasksForSection: async () => [],
+    } as AsanaClient;
+  }
+
+  it("updates Asana sections in place on a merged page", async () => {
+    seedMergedPage();
+
+    const client = makeMergedAsanaClient();
+    const result = await ingestAsanaTask({
+      client,
+      ref: "1234567890",
+      workspaceRoot: tmpDir,
+      identifierField: "Ticket ID",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.skipped).toBe(false);
+    expect(result.filePath).toContain("ECOMM-4643 (WEB-297).md");
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+    const parsed = parseFrontmatter(content);
+    const body = parsed!.body;
+
+    // Asana sections updated
+    expect(body).toContain("## Asana description");
+    expect(body).toContain("Updated Asana description from re-ingest");
+    expect(body).not.toContain("Old Asana description content");
+
+    expect(body).toContain("## Asana comments");
+    expect(body).toContain("**NewAsanaUser**");
+    expect(body).toContain("New Asana comment from re-ingest");
+    expect(body).not.toContain("Old Asana comment");
+  });
+
+  it("preserves Jira sections untouched", async () => {
+    seedMergedPage();
+
+    const client = makeMergedAsanaClient();
+    const result = await ingestAsanaTask({
+      client,
+      ref: "1234567890",
+      workspaceRoot: tmpDir,
+      identifierField: "Ticket ID",
+    });
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+    const parsed = parseFrontmatter(content);
+    const body = parsed!.body;
+
+    // Jira sections untouched
+    expect(body).toContain("## Jira description");
+    expect(body).toContain("Original Jira description content");
+    expect(body).toContain("## Jira comments");
+    expect(body).toContain("**JiraUser**");
+    expect(body).toContain("Jira comment text");
+  });
+
+  it("updates asana_status_raw in frontmatter", async () => {
+    seedMergedPage();
+
+    const client = makeMergedAsanaClient();
+    const result = await ingestAsanaTask({
+      client,
+      ref: "1234567890",
+      workspaceRoot: tmpDir,
+      identifierField: "Ticket ID",
+    });
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+    const parsed = parseFrontmatter(content);
+
+    expect(parsed!.data.asana_status_raw).toBe("Done");
+  });
+
+  it("preserves Jira frontmatter fields", async () => {
+    seedMergedPage();
+
+    const client = makeMergedAsanaClient();
+    const result = await ingestAsanaTask({
+      client,
+      ref: "1234567890",
+      workspaceRoot: tmpDir,
+      identifierField: "Ticket ID",
+    });
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+    const parsed = parseFrontmatter(content);
+    const fm = parsed!.data;
+
+    // Jira-side frontmatter preserved
+    expect(fm.jira_ref).toBe("https://myorg.atlassian.net/browse/WEB-297");
+    expect(fm.jira_status_raw).toBe("To Do");
+    expect(fm.jira_needed).toBe("yes");
+    expect(fm.source).toBe("asana");
+    expect(fm.ref).toBe("ECOMM-4643");
+  });
+
+  it("never creates a standalone ECOMM-4643.md file", async () => {
+    seedMergedPage();
+
+    const client = makeMergedAsanaClient();
+    await ingestAsanaTask({
+      client,
+      ref: "1234567890",
+      workspaceRoot: tmpDir,
+      identifierField: "Ticket ID",
+    });
+
+    const standaloneExists = fs.existsSync(
+      path.join(tmpDir, "wiki", "tasks", "ECOMM-4643.md")
+    );
+    expect(standaloneExists).toBe(false);
+  });
+
+  it("appends re-ingest entry to activity log", async () => {
+    seedMergedPage();
+
+    const client = makeMergedAsanaClient();
+    const result = await ingestAsanaTask({
+      client,
+      ref: "1234567890",
+      workspaceRoot: tmpDir,
+      identifierField: "Ticket ID",
+    });
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+
+    // Original activity log preserved
+    expect(content).toContain("Ingested from Asana (ECOMM-4643)");
+    expect(content).toContain("Merged ECOMM-4643 + WEB-297");
+    // New re-ingest entry appended
+    expect(content).toContain("Re-ingested Asana side (ECOMM-4643)");
+  });
+
+  it("bulk ingest updates merged pages in place", async () => {
+    seedMergedPage();
+
+    const task = makeTask({
+      gid: "1234567890",
+      name: "Fix checkout flow",
+      notes: "Bulk-updated Asana description",
+      memberships: [{ section: { name: "Done", gid: "s1" } }],
+      permalink_url: "https://app.asana.com/0/project/1234567890",
+      custom_fields: [
+        { name: "Ticket ID", display_value: "ECOMM-4643" },
+      ],
+    });
+
+    const client = {
+      getMe: async () => ({ gid: "me-gid", name: "Test User", email: "test@example.com" }),
+      getTask: async () => task,
+      getTaskByCustomId: async () => task,
+      getStories: async () => [],
+      getAttachments: async () => [],
+      downloadFile: async () => Buffer.from(""),
+      getTasksForProject: async () => [task],
+      getTasksForSection: async () => [],
+    } as AsanaClient;
+
+    const results = await ingestAsanaBulk({
+      client,
+      ref: "project:proj123",
+      workspaceRoot: tmpDir,
+      identifierField: "Ticket ID",
+    });
+
+    expect(results.ingested).toBe(1);
+    expect(results.skipped).toBe(0);
+    expect(results.results[0].success).toBe(true);
+    expect(results.results[0].skipped).toBe(false);
+    expect(results.results[0].filePath).toContain("ECOMM-4643 (WEB-297).md");
+
+    // Verify the merged page was updated
+    const content = fs.readFileSync(
+      path.join(tmpDir, "wiki", "tasks", "ECOMM-4643 (WEB-297).md"),
+      "utf-8"
+    );
+    expect(content).toContain("Bulk-updated Asana description");
+    // No orphan
+    expect(
+      fs.existsSync(path.join(tmpDir, "wiki", "tasks", "ECOMM-4643.md"))
+    ).toBe(false);
   });
 });

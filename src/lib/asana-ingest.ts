@@ -14,15 +14,19 @@ import type {
   AsanaAttachment,
   TaskListOptions,
 } from "./asana-client.js";
-import type { Status } from "./backend.js";
+import { VALID_STATUSES, type Status } from "./backend.js";
 import { asanaTaskToPage, extractTaskGid, mapAsanaToStatus, parseTaskRef } from "./asana-backend.js";
 import { applyNamingScheme, type NamingScheme, type NamingInput } from "./naming.js";
+import { loadMapping, translateStatus, type StatusMapping } from "./status-mapping.js";
 import {
   type IngestResult,
   type BulkIngestResult,
   type DedupIndex,
+  BULK_INGEST_CONCURRENCY,
   buildDedupIndex,
   findExistingByRef,
+  checkMergedPage,
+  handleMergedReingest,
   isImageFilename,
   generateIngestedTaskPage,
   postIngestProcess,
@@ -45,7 +49,7 @@ export interface IngestAsanaOptions {
   statusMapping?: Record<string, Status>;
   identifierField?: string;
   namingSource?: "identifier" | "title" | "gid";
-  namingCase?: "preserve" | "lower";
+  namingCase?: "preserve" | "lower" | "upper";
   /**
    * Asana workspace GID — required to resolve custom ID refs
    * (e.g. "TIK-4647") via the workspace-scoped lookup endpoint.
@@ -55,6 +59,12 @@ export interface IngestAsanaOptions {
   prefetchedTask?: AsanaTask;
   /** Pre-built dedup index — avoids re-scanning wiki/tasks/ per task in bulk. */
   dedupIndex?: DedupIndex;
+  /**
+   * Pre-loaded workspace status mapping (from wiki/status-mapping.md).
+   * Bulk callers SHOULD load this once and pass it to every per-task call.
+   * Single-task callers may omit; the mapping will be loaded on demand.
+   */
+  workspaceStatusMapping?: StatusMapping;
   /** Skip index rebuild and log append — caller handles these after the loop. */
   skipPostProcess?: boolean;
 }
@@ -66,7 +76,7 @@ export interface BulkIngestOptions {
   statusMapping?: Record<string, Status>;
   identifierField?: string;
   namingSource?: "identifier" | "title" | "gid";
-  namingCase?: "preserve" | "lower";
+  namingCase?: "preserve" | "lower" | "upper";
   /** Asana workspace GID — required to resolve custom ID single-task refs. */
   workspaceGid?: string;
   defaultProjectGid?: string;
@@ -151,6 +161,7 @@ export async function ingestAsanaTask(
     workspaceGid,
     prefetchedTask,
     dedupIndex,
+    workspaceStatusMapping,
     skipPostProcess,
   } = options;
 
@@ -191,6 +202,19 @@ export async function ingestAsanaTask(
     resolvedIdentifier
   );
 
+  // Translate status via workspace status-mapping config if available.
+  // Bulk callers pass `workspaceStatusMapping` to amortize the disk read;
+  // single-task callers fall through to loading on demand.
+  let canonicalStatus: string | undefined;
+  if (taskPage.asana_status_raw) {
+    const mapping = workspaceStatusMapping ?? loadMapping(workspaceRoot);
+    const translated = translateStatus(mapping, "asana", taskPage.asana_status_raw);
+    if (translated && VALID_STATUSES.includes(translated as Status)) {
+      canonicalStatus = translated;
+      taskPage.status = translated as Status;
+    }
+  }
+
   // Dedup check
   if (!taskPage.asana_ref) {
     throw new Error(`Internal error: asana_ref is null after conversion for task ${taskGid}`);
@@ -202,6 +226,30 @@ export async function ingestAsanaTask(
     dedupIndex
   );
   if (existingFile) {
+    const mergedInfo = checkMergedPage(workspaceRoot, existingFile);
+    if (mergedInfo.isMerged) {
+      // Resolve taskPage.ref to the naming scheme so log messages show the
+      // canonical identifier rather than the raw GID.
+      if (resolvedIdentifier) {
+        taskPage.ref = applyNamingScheme(
+          { gid: task.gid, title: taskPage.title, identifier: resolvedIdentifier },
+          {
+            source: namingSource ?? (identifierField ? "identifier" : "title"),
+            case: namingCase ?? (identifierField ? "upper" : "lower"),
+          }
+        );
+      }
+      return handleMergedReingest({
+        workspaceRoot,
+        existingRelativePath: existingFile,
+        backendName: "Asana",
+        taskPage,
+        canonicalStatus,
+        logMessage: `Re-ingested Asana task on merged page: ${taskPage.title} (${taskPage.ref})`,
+        skipPostProcess,
+      });
+    }
+
     return {
       success: true,
       skipped: true,
@@ -210,10 +258,10 @@ export async function ingestAsanaTask(
     };
   }
 
-  // Resolve naming scheme — defaults preserve backwards compatibility
+  // Resolve naming scheme — identifier defaults to uppercase per PRD #82
   const scheme: NamingScheme = {
     source: namingSource ?? (identifierField ? "identifier" : "title"),
-    case: namingCase ?? "lower",
+    case: namingCase ?? (identifierField ? "upper" : "lower"),
   };
   const namingInput: NamingInput = {
     gid: task.gid,
@@ -257,6 +305,7 @@ export async function ingestAsanaTask(
     attachments: attachmentRefs,
     assetRef,
     source: "Asana",
+    backendName: "Asana",
   });
   fs.writeFileSync(fullPath, content, "utf-8");
 
@@ -350,12 +399,13 @@ export async function ingestAsanaBulk(
     tasks = await client.getTasksForSection(parsedRef.gid, listOpts);
   }
 
-  // Build dedup index once before the loop
+  // Build dedup index + load workspace status mapping once before the loop.
   const dedupIndex = buildDedupIndex(workspaceRoot, "asana_ref");
+  const workspaceStatusMapping = loadMapping(workspaceRoot);
 
   // Process tasks with bounded concurrency — the Bottleneck limiter is the
   // authoritative throttle, so workers can be generous.
-  const results = await mapWithConcurrency(tasks, 20, (task) =>
+  const results = await mapWithConcurrency(tasks, BULK_INGEST_CONCURRENCY, (task) =>
     ingestAsanaTask({
       client,
       ref: task.gid,
@@ -366,6 +416,7 @@ export async function ingestAsanaBulk(
       namingCase,
       prefetchedTask: task,
       dedupIndex,
+      workspaceStatusMapping,
       skipPostProcess: true,
     })
   );

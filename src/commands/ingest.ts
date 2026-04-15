@@ -45,7 +45,7 @@ export interface EnsureNamingConfigOptions {
 
 export interface NamingConfig {
   namingSource: "identifier" | "title" | "gid";
-  namingCase: "preserve" | "lower";
+  namingCase: "preserve" | "lower" | "upper";
   identifierField: string | undefined;
 }
 
@@ -150,7 +150,7 @@ export function registerIngestCommand(program: Command): void {
           // Ensure naming config is set before any file creation
           const projectGid = defaultProjectGid ?? (ref ? parseAsanaRef(ref)?.gid : undefined);
           let namingSource: "identifier" | "title" | "gid" | undefined = asanaBackend?.naming_source;
-          let namingCase: "preserve" | "lower" | undefined = asanaBackend?.naming_case;
+          let namingCase: "preserve" | "lower" | "upper" | undefined = asanaBackend?.naming_case;
           let identifierField: string | undefined = asanaBackend?.identifier_field;
 
           if (!namingSource && asanaBackend && projectGid) {

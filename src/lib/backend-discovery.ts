@@ -44,7 +44,7 @@ export interface AsanaDiscoveryResult {
   workspace_id: string;
   project_gid: string;
   naming_source: "identifier" | "title" | "gid";
-  naming_case: "preserve" | "lower";
+  naming_case: "preserve" | "lower" | "upper";
   identifier_field?: string;
 }
 

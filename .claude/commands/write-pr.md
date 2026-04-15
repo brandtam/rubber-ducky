@@ -15,9 +15,31 @@ Fill in the template from `.github/pull_request_template.md` with these rules:
 
 ### Summary
 
-- 2-5 bullet points covering what the PR does and why
-- Always use `Closes #N` to reference GitHub issues that should auto-close on merge. Only `Closes`, `Fixes`, and `Resolves` are GitHub closing keywords — words like "Implements", "Addresses", or "Related to" will NOT auto-close the issue. If a PR fully addresses an issue, use `Closes`. If it only partially addresses it, don't use a closing keyword at all — just reference it as `#N` inline
-- Lead with the user-facing or system-level impact, not implementation details
+- Lead with 2–5 bullets covering the user-facing or system-level impact of the PR, not implementation details
+- **Then list every issue this PR closes as its own flat bullet at the bottom of the Summary section.** Each issue gets its own line. Never bury issue references in prose ("Delivers the 8 child issues of #82") and never group them in a nested "Referenced issues" subsection.
+- Use a closing keyword: `- Closes #N` (or `Fixes` / `Resolves`). These are the only GitHub closing keywords — `Implements`, `Addresses`, `Related to` do NOT auto-close.
+- A Summary bullet may optionally combine the closing keyword with a short hook when the headline role of the issue is worth calling out: `- Closes #82 — PRD: cross-backend task page linking`. Default to naked `- Closes #N` for ordinary child issues.
+- Example Summary shape:
+  ```
+  - <impact bullet 1>
+  - <impact bullet 2>
+  - Closes #82 — PRD: cross-backend task page linking
+  - Closes #83
+  - Closes #84
+  ```
+
+### Follow-ups
+
+Use a dedicated `## Follow-ups` section (between `## Summary` and `## What changed`) for issues the PR does NOT close — partial addresses, or explicit follow-up work that stays open. One bullet per issue, no closing keyword, short hook after an em dash:
+
+```
+## Follow-ups
+
+- #92 — wire `rubber-ducky merge` back-link writes through to `backend.comment()`
+- #93 — make `rubber-ducky merge` resumable with a sentinel file
+```
+
+Omit the section entirely when there are no follow-ups. Never mix follow-up bullets into Summary, and never bury them in prose.
 
 ### What changed
 
@@ -26,6 +48,7 @@ Fill in the template from `.github/pull_request_template.md` with these rules:
 - For refactors or code review fixes, use a **table** with columns: Problem | Fix
 - Include brief code snippets or SQL only when they clarify a non-obvious approach
 - Describe the architecture/pattern, not every line changed
+- **Do not add a "Referenced issues" subsection here.** All issue references live as Summary bullets.
 
 ### Migration notes
 
@@ -44,12 +67,23 @@ Fill in the template from `.github/pull_request_template.md` with these rules:
 - Describe the **result**, not the journey. No "During code review we found..." or "After investigating..."
 - Write for a reviewer who hasn't seen the conversation — they should understand the PR from the description alone
 - Keep it concise but complete. A senior engineer should be able to review the PR using only the description and the diff
-- **Never use comma-separated lists for GitHub issues or groups of related items.** Always use bullet points. For example, write:
+- **Each GitHub issue reference gets its own bullet.** This applies everywhere in the PR body — Summary, What changed, Referenced issues, test plan, any bulleted list. Never cram multiple issues into a single bullet, whether via comma-separated lists, inline prose ("follow-ups remain open — #92 and #93"), or parenthetical lists. One issue per line, always.
+
+  Write:
   ```
   - Closes #148
   - Closes #149
-  - Closes #150
+  - #92 — wire merge back-link writes
+  - #93 — make merge resumable
   ```
-  Not: "Closes #148, #149, #150"
+
+  Not:
+  ```
+  - Closes #148, #149
+  - Two follow-ups remain open — #92 and #93
+  - Closes #148 (and also see #149)
+  ```
+
+  In the Summary section, if a bullet would otherwise need to mention multiple issues, split it into multiple bullets with shared context instead of packing them together.
 - If updating an existing PR, use `gh pr edit <number> --body "..."` with a HEREDOC
 - NEVER create a PR. Only write or update the description.

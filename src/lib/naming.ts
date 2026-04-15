@@ -6,7 +6,7 @@
  * for "what does this task's filename look like under this scheme?"
  */
 
-import { slugify } from "./page.js";
+import { slugify, slugifyPreserveCase } from "./page.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,21 +20,7 @@ export interface NamingInput {
 
 export interface NamingScheme {
   source: "identifier" | "title" | "gid";
-  case: "preserve" | "lower";
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Slugify that preserves original casing.
- * Replaces non-alphanumeric runs with hyphens, strips leading/trailing hyphens.
- */
-function slugifyPreserveCase(text: string): string {
-  return text
-    .replace(/[^a-zA-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  case: "preserve" | "lower" | "upper";
 }
 
 // ---------------------------------------------------------------------------
@@ -65,10 +51,14 @@ export function applyNamingScheme(
 
     case "identifier": {
       if (!input.identifier) return input.gid;
-      const result =
-        scheme.case === "preserve"
-          ? slugifyPreserveCase(input.identifier)
-          : slugify(input.identifier);
+      let result: string;
+      if (scheme.case === "preserve") {
+        result = slugifyPreserveCase(input.identifier);
+      } else if (scheme.case === "upper") {
+        result = slugifyPreserveCase(input.identifier).toUpperCase();
+      } else {
+        result = slugify(input.identifier);
+      }
       return result || input.gid;
     }
   }

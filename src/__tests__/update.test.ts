@@ -474,6 +474,18 @@ describe("push skill template", () => {
     const t = getTemplate();
     expect(t.content).toMatch(/log/i);
   });
+
+  it("instructs setting jira_needed: yes when pushing to Jira", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/jira_needed/);
+    expect(t.content).toMatch(/jira_needed.*yes/i);
+  });
+
+  it("instructs overriding prior jira_needed value on push", () => {
+    const t = getTemplate();
+    // Push must force jira_needed to yes regardless of prior value
+    expect(t.content).toMatch(/regardless|override|force/i);
+  });
 });
 
 describe("comment skill template", () => {
@@ -866,5 +878,165 @@ describe("link skill template", () => {
   it("requires audit logging", () => {
     const t = getTemplate();
     expect(t.content).toMatch(/log/i);
+  });
+});
+
+describe("configure-status-mapping skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/configure-status-mapping.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("has a description", () => {
+    const t = getTemplate();
+    expect(t.description).toBeDefined();
+    expect(t.description.length).toBeGreaterThan(0);
+  });
+
+  it("reads wiki/status-mapping.md", () => {
+    const t = getTemplate();
+    expect(t.content).toContain("wiki/status-mapping.md");
+  });
+
+  it("presents each row for confirmation", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/confirm|accept|keep/i);
+    expect(t.content).toMatch(/row|mapping|entry/i);
+  });
+
+  it("explains canonical wiki status meanings", () => {
+    const t = getTemplate();
+    // Must explain all canonical statuses
+    expect(t.content).toMatch(/backlog/);
+    expect(t.content).toMatch(/to-do/);
+    expect(t.content).toMatch(/in-progress/);
+    expect(t.content).toMatch(/in-review/);
+    expect(t.content).toMatch(/pending/);
+    expect(t.content).toMatch(/blocked/);
+    expect(t.content).toContain("done");
+    expect(t.content).toMatch(/deferred/);
+  });
+
+  it("allows users to change, add, or remove rows", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/change|edit|modify/i);
+    expect(t.content).toMatch(/add|new/i);
+    expect(t.content).toMatch(/remove|delete/i);
+  });
+
+  it("writes the updated file at the end", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/write|save|update.*file/i);
+  });
+
+  it("is safe to re-run on an already-edited file", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/re-run|existing|already|idempotent|safe/i);
+  });
+
+  it("references UBIQUITOUS_LANGUAGE or explains wiki vocabulary inline", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/UBIQUITOUS_LANGUAGE|wiki vocabulary|canonical/i);
+  });
+
+  it("walks the user through each backend", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/each backend/i);
+  });
+});
+
+describe("triage skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/triage.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("has a description", () => {
+    const t = getTemplate();
+    expect(t.description).toBeDefined();
+    expect(t.description.length).toBeGreaterThan(0);
+  });
+
+  it("default scope filters by status: backlog AND jira_ref null AND jira_needed null", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/backlog/);
+    expect(t.content).toMatch(/jira_ref/);
+    expect(t.content).toMatch(/jira_needed/);
+  });
+
+  it("supports --all flag to widen scope beyond backlog", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/--all/);
+  });
+
+  it("excludes already-triaged pages from the walk", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/exclud|skip|filter.*triaged|already.*triaged/i);
+  });
+
+  it("scans for Jira candidates using triage-candidates module", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/rubber-ducky triage-candidates|findJiraCandidates|triage.candidates|candidate/i);
+  });
+
+  it("presents candidates with the source of the mention", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/description|comments|activity log/i);
+    expect(t.content).toMatch(/location|source.*mention|where.*found/i);
+  });
+
+  it("implements accept action — invokes rubber-ducky merge", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/accept/i);
+    expect(t.content).toMatch(/rubber-ducky merge/);
+  });
+
+  it("implements override action — user types a Jira key", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/override|type.*key|different.*key/i);
+  });
+
+  it("implements push action — delegates to existing push flow", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/push/i);
+  });
+
+  it("implements not-needed action — sets jira_needed: no with reason", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/not.needed/i);
+    expect(t.content).toMatch(/jira_needed.*no|jira_needed: no/i);
+    expect(t.content).toMatch(/reason/i);
+  });
+
+  it("implements skip action — no state change", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/skip/i);
+  });
+
+  it("not-needed writes dated entry to activity log", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/activity log/i);
+    expect(t.content).toMatch(/Triaged.*no Jira|date.*activity/i);
+  });
+
+  it("handles merge conflicts by prompting user for resolution", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/conflict/i);
+    expect(t.content).toMatch(/resolution|resolve|pick.*value/i);
+  });
+
+  it("handles many-to-one rejection from merge gracefully", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/already linked|many.to.one|one Jira/i);
   });
 });
