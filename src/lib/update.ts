@@ -1236,6 +1236,114 @@ Structure your response as:
 `,
       description: "Research partner agent — web research with source citations",
     },
+    {
+      relativePath: ".claude/commands/configure-status-mapping.md",
+      content: `# Configure Status Mapping
+
+Conversational editor for \`wiki/status-mapping.md\`. Walks the user through each backend's status mapping row by row, explains the canonical wiki vocabulary, and writes the updated file.
+
+## When to invoke
+
+Run this skill when the user asks to configure, edit, or review status mappings — e.g. "configure status mapping", "edit my status mapping", "set up status mapping", or after \`rubber-ducky init\` when prompted to customize mappings.
+
+This skill is safe to re-run on an already-edited file. It reads the current state of \`wiki/status-mapping.md\` each time, so it always reflects the latest mappings.
+
+## Behavior
+
+### Step 1 — Read the current mapping file
+
+Read \`wiki/status-mapping.md\` from the workspace root. If the file does not exist, inform the user and offer to create a default one first by running:
+
+\`\`\`
+rubber-ducky init
+\`\`\`
+
+Parse the file to identify:
+- Which backends have mapping sections (e.g. Jira, Asana)
+- The current raw → canonical mappings for each backend
+- Any custom entries the user has already added
+
+Also read \`workspace.md\` frontmatter to identify configured backends — if a configured backend is missing from the mapping file, note it so you can offer to add a section.
+
+### Step 2 — Explain the canonical wiki vocabulary
+
+Before walking through mappings, present the canonical wiki status vocabulary so the user understands what they're mapping to:
+
+| Status | Meaning |
+|--------|---------|
+| backlog | Not yet scheduled |
+| to-do | Scheduled, not started |
+| in-progress | Actively being worked on |
+| in-review | Awaiting review |
+| pending | Waiting on external input |
+| blocked | Cannot proceed |
+| done | Completed |
+| deferred | Postponed indefinitely |
+
+Reference \`UBIQUITOUS_LANGUAGE.md\` for the full vocabulary. Explain that all backend statuses get translated to one of these canonical values during ingest, so downstream features (daily briefs, linting, drift detection) work consistently.
+
+### Step 3 — Walk through each backend
+
+Process each backend section one at a time. For each backend:
+
+1. **Show the current mappings** as a numbered list:
+   \`\`\`
+   Jira → wiki mappings:
+   1. Backlog → backlog
+   2. To Do → to-do
+   3. In Progress → in-progress
+   ...
+   \`\`\`
+
+2. **For each mapping row**, ask the user:
+   - **(k) Keep** — accept this row as-is
+   - **(c) Change** — change the canonical wiki value this raw status maps to
+   - **(r) Remove** — delete this mapping row
+   - **(s) Skip to end** — accept all remaining rows for this backend as-is
+
+   Wait for the user's choice before proceeding to the next row.
+
+3. **After reviewing all existing rows**, ask:
+   - "Do you want to **add** any new mapping rows for this backend?"
+   - If yes, collect the raw backend value and the canonical wiki value for each new entry.
+   - Validate that the canonical value is one of the eight wiki statuses listed above.
+
+4. **After all backends are reviewed**, check if any configured backends from \`workspace.md\` are missing a mapping section. Offer to add a default section for each missing backend.
+
+### Step 4 — Show a summary of changes
+
+Before writing, present a summary of all changes made:
+
+\`\`\`
+Changes to wiki/status-mapping.md:
+
+Jira → wiki:
+  - Changed: "Custom Status" → was "to-do", now "in-progress"
+  - Removed: "Old Status" → "backlog"
+  - Added: "New Status" → "in-review"
+
+Asana → wiki:
+  (no changes)
+\`\`\`
+
+If no changes were made, report "No changes — your status mapping is up to date." and stop.
+
+### Step 5 — Write the updated file
+
+After the user confirms the changes, write the updated \`wiki/status-mapping.md\`. Preserve the file format:
+- \`type: config\` frontmatter
+- \`# Status Mapping\` title
+- One \`## <Backend> → wiki\` section per backend with bullet lines: \`- \\\`<raw>\\\` → \\\`<canonical>\\\`\`
+- \`## Wiki vocabulary\` reference table at the end
+
+Write the file directly using the Edit tool or Write tool.
+
+## Output
+
+A conversational, row-by-row walkthrough. Keep each prompt concise. The goal is a quick review, not a wall of text.
+`,
+      description: "Configure status mapping skill — conversational editor for wiki/status-mapping.md",
+    },
   ];
 }
 

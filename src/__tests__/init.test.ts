@@ -304,4 +304,26 @@ describe("init — workspace creation with discovery fields", () => {
     expect(jira.server_url).toBe("https://myorg.atlassian.net");
     expect(jira.project_key).toBe("WEB");
   });
+
+  it("installs configure-status-mapping skill when workspace is created with backends", async () => {
+    const targetDir = path.join(tmpDir, "ws-skill");
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://x.atlassian.net" },
+    ];
+
+    const result = await createWorkspace({
+      name: "test",
+      purpose: "testing",
+      targetDir,
+      backends,
+    });
+
+    const skillPath = path.join(targetDir, ".claude", "commands", "configure-status-mapping.md");
+    expect(fs.existsSync(skillPath)).toBe(true);
+
+    const content = fs.readFileSync(skillPath, "utf-8");
+    expect(content).toContain("Configure Status Mapping");
+    expect(content).toContain("wiki/status-mapping.md");
+    expect(result.filesCreated).toContain(".claude/commands/configure-status-mapping.md");
+  });
 });
