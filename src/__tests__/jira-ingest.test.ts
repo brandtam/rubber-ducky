@@ -584,3 +584,358 @@ describe("ingestJiraProject", () => {
     expect(results.results[0].reason).toContain("already ingested");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Merged-page in-place re-ingest (issue #89)
+// ---------------------------------------------------------------------------
+
+describe("Jira ingest on merged pages", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rubber-ducky-jira-merged-test-"));
+    setupWorkspace(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  /** Seed a merged page at wiki/tasks/ECOMM-4643 (WEB-297).md */
+  function seedMergedPage(): string {
+    const content = [
+      "---",
+      "title: Fix checkout flow",
+      "type: task",
+      "ref: ECOMM-4643",
+      "source: asana",
+      "status: in-progress",
+      "priority: High",
+      "assignee: Alice Smith",
+      "tags:",
+      "  - bug",
+      "created: 2024-01-15T10:00:00.000Z",
+      "updated: 2024-01-16T12:00:00.000Z",
+      "closed: null",
+      "pushed: null",
+      "due: null",
+      "jira_ref: https://myorg.atlassian.net/browse/WEB-297",
+      "asana_ref: https://app.asana.com/0/1/1234567890",
+      "gh_ref: null",
+      "jira_needed: yes",
+      "comment_count: 3",
+      "asana_status_raw: In Progress",
+      "jira_status_raw: To Do",
+      "---",
+      "## Asana description",
+      "",
+      "Original Asana description content",
+      "",
+      "## Jira description",
+      "",
+      "Old Jira description content",
+      "",
+      "## Asana comments",
+      "",
+      "**AsanaUser** (2024-01-10T10:00:00.000Z)",
+      "",
+      "Asana comment text",
+      "",
+      "## Jira comments",
+      "",
+      "**OldJiraUser** (2024-01-10T10:00:00.000Z)",
+      "",
+      "Old Jira comment",
+      "",
+      "## Activity log",
+      "",
+      "- 2024-01-15T10:00:00.000Z — Ingested from Asana (ECOMM-4643)",
+      "- 2024-01-16T10:00:00.000Z — Merged ECOMM-4643 + WEB-297",
+      "",
+      "## See also",
+      "",
+    ].join("\n");
+
+    const filename = "ECOMM-4643 (WEB-297).md";
+    fs.writeFileSync(
+      path.join(tmpDir, "wiki", "tasks", filename),
+      content
+    );
+    return filename;
+  }
+
+  function makeWEB297Client(overrides?: {
+    comments?: JiraComment[];
+  }): JiraClient {
+    const issue = makeMockIssue({
+      key: "WEB-297",
+      fields: {
+        ...makeMockIssue().fields,
+        summary: "Fix checkout flow",
+        description: "Updated Jira description from re-ingest",
+        status: { name: "In Review" },
+      },
+    });
+    const comments = overrides?.comments ?? [
+      {
+        id: "20001",
+        body: "New Jira comment from re-ingest",
+        author: { displayName: "NewJiraUser" },
+        created: "2024-01-20T10:00:00.000+0000",
+      },
+    ];
+
+    return {
+      getMyself: async () => ({ displayName: "Test User", emailAddress: "test@example.com" }),
+      getIssue: async () => issue,
+      getComments: async () => comments,
+      searchIssues: async () => ({ issues: [issue] }),
+    } as JiraClient;
+  }
+
+  it("updates Jira sections in place on a merged page", async () => {
+    seedMergedPage();
+
+    const client = makeWEB297Client();
+    const result = await ingestJiraIssue({
+      client,
+      ref: "WEB-297",
+      workspaceRoot: tmpDir,
+      serverUrl: "https://myorg.atlassian.net",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.skipped).toBe(false);
+    expect(result.filePath).toContain("ECOMM-4643 (WEB-297).md");
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+    const parsed = parseFrontmatter(content);
+    const body = parsed!.body;
+
+    // Jira sections updated
+    expect(body).toContain("## Jira description");
+    expect(body).toContain("Updated Jira description from re-ingest");
+    expect(body).not.toContain("Old Jira description content");
+
+    expect(body).toContain("## Jira comments");
+    expect(body).toContain("**NewJiraUser**");
+    expect(body).toContain("New Jira comment from re-ingest");
+    expect(body).not.toContain("Old Jira comment");
+  });
+
+  it("preserves Asana sections untouched", async () => {
+    seedMergedPage();
+
+    const client = makeWEB297Client();
+    const result = await ingestJiraIssue({
+      client,
+      ref: "WEB-297",
+      workspaceRoot: tmpDir,
+      serverUrl: "https://myorg.atlassian.net",
+    });
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+    const parsed = parseFrontmatter(content);
+    const body = parsed!.body;
+
+    // Asana sections untouched
+    expect(body).toContain("## Asana description");
+    expect(body).toContain("Original Asana description content");
+    expect(body).toContain("## Asana comments");
+    expect(body).toContain("**AsanaUser**");
+    expect(body).toContain("Asana comment text");
+  });
+
+  it("updates jira_status_raw in frontmatter", async () => {
+    seedMergedPage();
+
+    const client = makeWEB297Client();
+    const result = await ingestJiraIssue({
+      client,
+      ref: "WEB-297",
+      workspaceRoot: tmpDir,
+      serverUrl: "https://myorg.atlassian.net",
+    });
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+    const parsed = parseFrontmatter(content);
+    const fm = parsed!.data;
+
+    expect(fm.jira_status_raw).toBe("In Review");
+  });
+
+  it("preserves Asana frontmatter fields", async () => {
+    seedMergedPage();
+
+    const client = makeWEB297Client();
+    const result = await ingestJiraIssue({
+      client,
+      ref: "WEB-297",
+      workspaceRoot: tmpDir,
+      serverUrl: "https://myorg.atlassian.net",
+    });
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+    const parsed = parseFrontmatter(content);
+    const fm = parsed!.data;
+
+    // Asana-side frontmatter preserved
+    expect(fm.source).toBe("asana");
+    expect(fm.ref).toBe("ECOMM-4643");
+    expect(fm.asana_ref).toBe("https://app.asana.com/0/1/1234567890");
+    expect(fm.asana_status_raw).toBe("In Progress");
+    expect(fm.jira_needed).toBe("yes");
+  });
+
+  it("never creates a standalone WEB-297.md file", async () => {
+    seedMergedPage();
+
+    const client = makeWEB297Client();
+    await ingestJiraIssue({
+      client,
+      ref: "WEB-297",
+      workspaceRoot: tmpDir,
+      serverUrl: "https://myorg.atlassian.net",
+    });
+
+    const standaloneExists = fs.existsSync(
+      path.join(tmpDir, "wiki", "tasks", "WEB-297.md")
+    );
+    expect(standaloneExists).toBe(false);
+  });
+
+  it("updates canonical status when status-mapping changes output", async () => {
+    seedMergedPage();
+
+    // Seed status mapping: "In Review" → "in-review"
+    fs.writeFileSync(
+      path.join(tmpDir, "wiki", "status-mapping.md"),
+      [
+        "---",
+        "type: config",
+        "---",
+        "",
+        "## Jira → wiki",
+        "",
+        "- `In Review` → `in-review`",
+      ].join("\n")
+    );
+
+    const client = makeWEB297Client();
+    const result = await ingestJiraIssue({
+      client,
+      ref: "WEB-297",
+      workspaceRoot: tmpDir,
+      serverUrl: "https://myorg.atlassian.net",
+    });
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+    const parsed = parseFrontmatter(content);
+
+    expect(parsed!.data.status).toBe("in-review");
+    expect(parsed!.data.jira_status_raw).toBe("In Review");
+  });
+
+  it("appends re-ingest entry to activity log", async () => {
+    seedMergedPage();
+
+    const client = makeWEB297Client();
+    const result = await ingestJiraIssue({
+      client,
+      ref: "WEB-297",
+      workspaceRoot: tmpDir,
+      serverUrl: "https://myorg.atlassian.net",
+    });
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+
+    // Original activity log entries preserved
+    expect(content).toContain("Ingested from Asana (ECOMM-4643)");
+    expect(content).toContain("Merged ECOMM-4643 + WEB-297");
+    // New re-ingest entry appended
+    expect(content).toContain("Re-ingested Jira side (WEB-297)");
+  });
+
+  it("preserves see-also and attachments sections", async () => {
+    seedMergedPage();
+
+    const client = makeWEB297Client();
+    const result = await ingestJiraIssue({
+      client,
+      ref: "WEB-297",
+      workspaceRoot: tmpDir,
+      serverUrl: "https://myorg.atlassian.net",
+    });
+
+    const content = fs.readFileSync(
+      path.join(tmpDir, result.filePath!),
+      "utf-8"
+    );
+
+    expect(content).toContain("## Activity log");
+    expect(content).toContain("## See also");
+  });
+
+  it("bulk ingest updates merged pages in place", async () => {
+    seedMergedPage();
+
+    const issue = makeMockIssue({
+      key: "WEB-297",
+      fields: {
+        ...makeMockIssue().fields,
+        summary: "Fix checkout flow",
+        description: "Bulk-updated Jira description",
+        status: { name: "Done" },
+      },
+    });
+
+    const client: JiraClient = {
+      getMyself: async () => ({ displayName: "Test User", emailAddress: "test@example.com" }),
+      getIssue: async () => issue,
+      getComments: async () => [],
+      searchIssues: async () => ({ issues: [issue] }),
+    } as JiraClient;
+
+    const results = await ingestJiraProject({
+      client,
+      projectKey: "WEB",
+      workspaceRoot: tmpDir,
+      serverUrl: "https://myorg.atlassian.net",
+    });
+
+    expect(results.ingested).toBe(1);
+    expect(results.skipped).toBe(0);
+    expect(results.results[0].success).toBe(true);
+    expect(results.results[0].skipped).toBe(false);
+    expect(results.results[0].filePath).toContain("ECOMM-4643 (WEB-297).md");
+
+    // Verify the merged page was updated
+    const content = fs.readFileSync(
+      path.join(tmpDir, "wiki", "tasks", "ECOMM-4643 (WEB-297).md"),
+      "utf-8"
+    );
+    expect(content).toContain("Bulk-updated Jira description");
+    // No orphan created
+    expect(
+      fs.existsSync(path.join(tmpDir, "wiki", "tasks", "WEB-297.md"))
+    ).toBe(false);
+  });
+});

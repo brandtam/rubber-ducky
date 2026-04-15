@@ -156,6 +156,188 @@ export function findExistingByRef(
 }
 
 // ---------------------------------------------------------------------------
+// Merged-page detection and in-place update (issue #89)
+// ---------------------------------------------------------------------------
+
+export interface MergedPageInfo {
+  isMerged: boolean;
+  filePath: string;
+  frontmatter?: Record<string, unknown>;
+}
+
+/**
+ * Check whether an existing task file is a merged page (both asana_ref and
+ * jira_ref populated). Returns the merge status and parsed frontmatter.
+ */
+export function checkMergedPage(
+  workspaceRoot: string,
+  relativePath: string
+): MergedPageInfo {
+  const fullPath = path.join(workspaceRoot, relativePath);
+  if (!fs.existsSync(fullPath)) {
+    return { isMerged: false, filePath: relativePath };
+  }
+
+  const content = fs.readFileSync(fullPath, "utf-8");
+  const parsed = parseFrontmatter(content);
+  if (!parsed) {
+    return { isMerged: false, filePath: relativePath };
+  }
+
+  const hasAsanaRef =
+    typeof parsed.data.asana_ref === "string" && parsed.data.asana_ref.length > 0;
+  const hasJiraRef =
+    typeof parsed.data.jira_ref === "string" && parsed.data.jira_ref.length > 0;
+
+  return {
+    isMerged: hasAsanaRef && hasJiraRef,
+    filePath: relativePath,
+    frontmatter: parsed.data,
+  };
+}
+
+/**
+ * Section header regex: matches `## Section name`
+ */
+const SECTION_HEADER_RE = /^## (.+)$/;
+
+/**
+ * Update only one backend's sections on a merged page in place.
+ *
+ * For `backendName: "Jira"`, updates `## Jira description` and
+ * `## Jira comments` sections, and updates `jira_status_raw` (and
+ * optionally `status`) in frontmatter. All other sections and
+ * frontmatter fields are preserved.
+ *
+ * Appends a re-ingest entry to the Activity log.
+ */
+export function updateMergedPageSections(options: {
+  workspaceRoot: string;
+  existingRelativePath: string;
+  backendName: "Asana" | "Jira";
+  taskPage: TaskPage;
+  /** Canonical status from status-mapping translation (if changed). */
+  canonicalStatus?: string;
+}): void {
+  const { workspaceRoot, existingRelativePath, backendName, taskPage, canonicalStatus } = options;
+  const fullPath = path.join(workspaceRoot, existingRelativePath);
+  const content = fs.readFileSync(fullPath, "utf-8");
+  const parsed = parseFrontmatter(content);
+  if (!parsed) throw new Error(`Failed to parse frontmatter from ${fullPath}`);
+
+  // ---- Update frontmatter ----
+  const fm = { ...parsed.data };
+
+  if (backendName === "Jira") {
+    if (taskPage.jira_status_raw != null) {
+      fm.jira_status_raw = taskPage.jira_status_raw;
+    }
+    fm.comment_count = taskPage.comment_count;
+  } else {
+    if (taskPage.asana_status_raw != null) {
+      fm.asana_status_raw = taskPage.asana_status_raw;
+    }
+    fm.comment_count = taskPage.comment_count;
+  }
+
+  if (canonicalStatus) {
+    fm.status = canonicalStatus;
+  }
+
+  // Update the `updated` timestamp to now
+  fm.updated = new Date().toISOString();
+
+  // ---- Update body sections ----
+  const descSection = `${backendName} description`;
+  const commentsSection = `${backendName} comments`;
+
+  // Build fresh section content
+  const freshDescription = taskPage.description ?? "";
+  const freshComments = taskPage.comments.length > 0
+    ? taskPage.comments.map((c) => `${c}\n`).join("\n")
+    : "";
+
+  // Parse existing body into sections (ordered)
+  const bodyLines = parsed.body.split("\n");
+  const sections: Array<{ header: string; lines: string[] }> = [];
+  let currentSection: { header: string; lines: string[] } | null = null;
+  const preambleLines: string[] = [];
+
+  for (const line of bodyLines) {
+    const match = line.match(SECTION_HEADER_RE);
+    if (match) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = { header: match[1], lines: [] };
+    } else if (currentSection) {
+      currentSection.lines.push(line);
+    } else {
+      preambleLines.push(line);
+    }
+  }
+  if (currentSection) sections.push(currentSection);
+
+  // Replace backend-scoped sections; preserve everything else
+  const rebuiltSections: string[] = [];
+  if (preambleLines.length > 0) {
+    rebuiltSections.push(preambleLines.join("\n"));
+  }
+
+  let addedReIngestLog = false;
+
+  for (const section of sections) {
+    rebuiltSections.push(`## ${section.header}`);
+
+    if (section.header === descSection) {
+      // Replace with fresh description
+      rebuiltSections.push("");
+      if (freshDescription) {
+        rebuiltSections.push(freshDescription);
+      }
+      rebuiltSections.push("");
+    } else if (section.header === commentsSection) {
+      // Replace with fresh comments
+      rebuiltSections.push("");
+      if (freshComments) {
+        rebuiltSections.push(freshComments.trimEnd());
+        rebuiltSections.push("");
+      }
+    } else if (section.header === "Activity log") {
+      // Preserve existing entries + append re-ingest
+      const existingContent = section.lines.join("\n").trim();
+      rebuiltSections.push("");
+      if (existingContent) {
+        rebuiltSections.push(existingContent);
+      }
+      rebuiltSections.push(
+        `- ${new Date().toISOString()} — Re-ingested ${backendName} side (${taskPage.ref})`
+      );
+      rebuiltSections.push("");
+      addedReIngestLog = true;
+    } else {
+      // Preserve as-is
+      rebuiltSections.push(section.lines.join("\n"));
+    }
+  }
+
+  // If no activity log section existed, add one
+  if (!addedReIngestLog) {
+    rebuiltSections.push("## Activity log");
+    rebuiltSections.push("");
+    rebuiltSections.push(
+      `- ${new Date().toISOString()} — Re-ingested ${backendName} side (${taskPage.ref})`
+    );
+    rebuiltSections.push("");
+  }
+
+  // Reassemble the file
+  const yaml = yamlStringify(fm).trimEnd();
+  const newBody = rebuiltSections.join("\n");
+  const newContent = `---\n${yaml}\n---\n${newBody}`;
+
+  fs.writeFileSync(fullPath, newContent, "utf-8");
+}
+
+// ---------------------------------------------------------------------------
 // Image detection
 // ---------------------------------------------------------------------------
 

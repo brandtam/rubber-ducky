@@ -24,6 +24,8 @@ import {
   type DedupIndex,
   buildDedupIndex,
   findExistingByRef,
+  checkMergedPage,
+  updateMergedPageSections,
   isImageFilename,
   generateIngestedTaskPage,
   postIngestProcess,
@@ -212,6 +214,55 @@ export async function ingestAsanaTask(
     dedupIndex
   );
   if (existingFile) {
+    // Check if the existing file is a merged page (both asana_ref + jira_ref)
+    const mergedInfo = checkMergedPage(workspaceRoot, existingFile);
+    if (mergedInfo.isMerged) {
+      // Resolve identifier for the ref field used in log messages
+      const resolvedId = resolveIdentifier(task, identifierField);
+      if (resolvedId) {
+        taskPage.ref = applyNamingScheme(
+          { gid: task.gid, title: taskPage.title, identifier: resolvedId },
+          {
+            source: namingSource ?? (identifierField ? "identifier" : "title"),
+            case: namingCase ?? (identifierField ? "upper" : "lower"),
+          }
+        );
+      }
+
+      // Determine canonical status for the merged page update
+      let canonicalStatus: string | undefined;
+      if (taskPage.asana_status_raw) {
+        const mapping = loadMapping(workspaceRoot);
+        const translated = translateStatus(mapping, "asana", taskPage.asana_status_raw);
+        if (translated && VALID_STATUSES.includes(translated as Status)) {
+          canonicalStatus = translated;
+        }
+      }
+
+      // Update only Asana-side sections in place
+      updateMergedPageSections({
+        workspaceRoot,
+        existingRelativePath: existingFile,
+        backendName: "Asana",
+        taskPage,
+        canonicalStatus,
+      });
+
+      if (!skipPostProcess) {
+        postIngestProcess(
+          workspaceRoot,
+          `Re-ingested Asana task on merged page: ${taskPage.title} (${taskPage.ref})`
+        );
+      }
+
+      return {
+        success: true,
+        skipped: false,
+        filePath: existingFile,
+        taskPage,
+      };
+    }
+
     return {
       success: true,
       skipped: true,
