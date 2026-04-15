@@ -10,7 +10,7 @@ export interface BackendConfig {
   project_gid?: string;
   identifier_field?: string;
   naming_source?: "identifier" | "title" | "gid";
-  naming_case?: "preserve" | "lower";
+  naming_case?: "preserve" | "lower" | "upper";
 }
 
 export interface VocabularyOptions {

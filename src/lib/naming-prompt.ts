@@ -25,7 +25,7 @@ const SOURCE_SEPARATOR = "__sep__";
 
 export interface NamingPromptResult {
   naming_source: "identifier" | "title" | "gid";
-  naming_case: "preserve" | "lower";
+  naming_case: "preserve" | "lower" | "upper";
   identifier_field: string | undefined;
 }
 
@@ -39,7 +39,7 @@ export interface NamingPromptOptions {
    * existing choice is the default.
    */
   preselectedSource?: string;
-  preselectedCase?: "preserve" | "lower";
+  preselectedCase?: "preserve" | "lower" | "upper";
 }
 
 /**

@@ -99,6 +99,8 @@ export function jiraIssueToPage(
     jira_ref: `${normalizedUrl}/browse/${issue.key}`,
     asana_ref: null,
     gh_ref: null,
+    asana_status_raw: null,
+    jira_status_raw: issue.fields.status.name,
     comment_count: comments.length,
     description: issue.fields.description ?? "",
     comments: formattedComments,

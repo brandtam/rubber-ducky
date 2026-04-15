@@ -115,6 +115,7 @@ describe("ingestJiraIssue", () => {
       expect(fm.jira_ref).toBe("https://myorg.atlassian.net/browse/ECOMM-4643");
       expect(fm.tags).toEqual(["bug", "checkout"]);
       expect(fm.comment_count).toBe(1);
+      expect(fm.jira_status_raw).toBe("In Progress");
     });
 
     it("creates a task page with full body sections", async () => {
@@ -133,12 +134,12 @@ describe("ingestJiraIssue", () => {
       const parsed = parseFrontmatter(content);
       const body = parsed!.body;
 
-      // Description section
-      expect(body).toContain("## Description");
+      // Description section (backend-scoped)
+      expect(body).toContain("## Jira description");
       expect(body).toContain("The checkout crashes on submit");
 
-      // Comments section with attribution
-      expect(body).toContain("## Comments");
+      // Comments section with attribution (backend-scoped)
+      expect(body).toContain("## Jira comments");
       expect(body).toContain("**Bob Jones**");
       expect(body).toContain("2024-01-15T11:00:00.000+0000");
       expect(body).toContain("I can reproduce this");
@@ -281,7 +282,44 @@ describe("ingestJiraIssue", () => {
         serverUrl: "https://myorg.atlassian.net",
       });
 
-      expect(result.filePath).toContain("ecomm-4643.md");
+      expect(result.filePath).toContain("ECOMM-4643.md");
+    });
+
+    it("translates status via workspace status-mapping config", async () => {
+      // Seed a status-mapping.md that maps Jira "In Progress" → "in-review"
+      fs.mkdirSync(path.join(tmpDir, "wiki"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "wiki", "status-mapping.md"),
+        [
+          "---",
+          "type: config",
+          "---",
+          "",
+          "## Jira → wiki",
+          "",
+          "- `In Progress` → `in-review`",
+        ].join("\n")
+      );
+
+      const client = makeMockClient();
+      const result = await ingestJiraIssue({
+        client,
+        ref: "ECOMM-4643",
+        workspaceRoot: tmpDir,
+        serverUrl: "https://myorg.atlassian.net",
+      });
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, result.filePath!),
+        "utf-8"
+      );
+      const parsed = parseFrontmatter(content);
+      const fm = parsed!.data;
+
+      // Canonical status overridden by status-mapping config
+      expect(fm.status).toBe("in-review");
+      // Raw status preserved
+      expect(fm.jira_status_raw).toBe("In Progress");
     });
   });
 

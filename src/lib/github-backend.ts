@@ -112,6 +112,8 @@ export function createGitHubBackend(options?: {
         jira_ref: null,
         asana_ref: null,
         gh_ref: data.url,
+        asana_status_raw: null,
+        jira_status_raw: null,
         comment_count: data.comments.length,
         description: data.body ?? "",
         comments: data.comments.map(

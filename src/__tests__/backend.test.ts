@@ -29,6 +29,8 @@ function makeTaskPage(overrides?: Partial<TaskPage>): TaskPage {
     jira_ref: null,
     asana_ref: null,
     gh_ref: "https://github.com/owner/repo/issues/1",
+    asana_status_raw: null,
+    jira_status_raw: null,
     comment_count: 0,
     description: "",
     comments: [],

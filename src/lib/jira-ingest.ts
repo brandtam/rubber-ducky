@@ -9,9 +9,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { JiraClient, JiraIssue } from "./jira-client.js";
-import type { Status } from "./backend.js";
+import { VALID_STATUSES, type Status } from "./backend.js";
 import { jiraIssueToPage } from "./jira-backend.js";
-import { slugify } from "./page.js";
+import { slugifyPreserveCase } from "./page.js";
+import { loadMapping, translateStatus } from "./status-mapping.js";
 import {
   type IngestResult,
   type BulkIngestResult,
@@ -90,6 +91,15 @@ export async function ingestJiraIssue(
   // Convert to TaskPage (uses real Jira timestamps, not ingest time)
   const taskPage = jiraIssueToPage(issue, comments, serverUrl, statusMapping);
 
+  // Translate status via workspace status-mapping config if available
+  if (taskPage.jira_status_raw) {
+    const mapping = loadMapping(workspaceRoot);
+    const canonical = translateStatus(mapping, "jira", taskPage.jira_status_raw);
+    if (canonical && VALID_STATUSES.includes(canonical as Status)) {
+      taskPage.status = canonical as Status;
+    }
+  }
+
   // Dedup check
   if (!taskPage.jira_ref) {
     throw new Error(`Internal error: jira_ref is null after conversion for issue ${ref}`);
@@ -109,13 +119,13 @@ export async function ingestJiraIssue(
     };
   }
 
-  // Write task page — use issue key as filename (e.g., ecomm-4643.md)
-  const filename = `${slugify(issue.key) || issue.key}.md`;
+  // Write task page — use issue key as filename, preserving case (e.g., ECOMM-4643.md)
+  const filename = `${slugifyPreserveCase(issue.key) || issue.key}.md`;
   const relativePath = path.join("wiki", "tasks", filename);
   const fullPath = path.join(workspaceRoot, relativePath);
 
   fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-  const content = generateIngestedTaskPage(taskPage, { source: "Jira" });
+  const content = generateIngestedTaskPage(taskPage, { source: "Jira", backendName: "Jira" });
   fs.writeFileSync(fullPath, content, "utf-8");
 
   // Post-processing (skipped in bulk mode — caller handles it)

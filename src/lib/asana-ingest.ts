@@ -14,9 +14,10 @@ import type {
   AsanaAttachment,
   TaskListOptions,
 } from "./asana-client.js";
-import type { Status } from "./backend.js";
+import { VALID_STATUSES, type Status } from "./backend.js";
 import { asanaTaskToPage, extractTaskGid, mapAsanaToStatus, parseTaskRef } from "./asana-backend.js";
 import { applyNamingScheme, type NamingScheme, type NamingInput } from "./naming.js";
+import { loadMapping, translateStatus } from "./status-mapping.js";
 import {
   type IngestResult,
   type BulkIngestResult,
@@ -45,7 +46,7 @@ export interface IngestAsanaOptions {
   statusMapping?: Record<string, Status>;
   identifierField?: string;
   namingSource?: "identifier" | "title" | "gid";
-  namingCase?: "preserve" | "lower";
+  namingCase?: "preserve" | "lower" | "upper";
   /**
    * Asana workspace GID — required to resolve custom ID refs
    * (e.g. "TIK-4647") via the workspace-scoped lookup endpoint.
@@ -66,7 +67,7 @@ export interface BulkIngestOptions {
   statusMapping?: Record<string, Status>;
   identifierField?: string;
   namingSource?: "identifier" | "title" | "gid";
-  namingCase?: "preserve" | "lower";
+  namingCase?: "preserve" | "lower" | "upper";
   /** Asana workspace GID — required to resolve custom ID single-task refs. */
   workspaceGid?: string;
   defaultProjectGid?: string;
@@ -191,6 +192,15 @@ export async function ingestAsanaTask(
     resolvedIdentifier
   );
 
+  // Translate status via workspace status-mapping config if available
+  if (taskPage.asana_status_raw) {
+    const mapping = loadMapping(workspaceRoot);
+    const canonical = translateStatus(mapping, "asana", taskPage.asana_status_raw);
+    if (canonical && VALID_STATUSES.includes(canonical as Status)) {
+      taskPage.status = canonical as Status;
+    }
+  }
+
   // Dedup check
   if (!taskPage.asana_ref) {
     throw new Error(`Internal error: asana_ref is null after conversion for task ${taskGid}`);
@@ -210,10 +220,10 @@ export async function ingestAsanaTask(
     };
   }
 
-  // Resolve naming scheme — defaults preserve backwards compatibility
+  // Resolve naming scheme — identifier defaults to uppercase per PRD #82
   const scheme: NamingScheme = {
     source: namingSource ?? (identifierField ? "identifier" : "title"),
-    case: namingCase ?? "lower",
+    case: namingCase ?? (identifierField ? "upper" : "lower"),
   };
   const namingInput: NamingInput = {
     gid: task.gid,
@@ -257,6 +267,7 @@ export async function ingestAsanaTask(
     attachments: attachmentRefs,
     assetRef,
     source: "Asana",
+    backendName: "Asana",
   });
   fs.writeFileSync(fullPath, content, "utf-8");
 

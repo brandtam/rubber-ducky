@@ -140,6 +140,8 @@ export function asanaTaskToPage(
     jira_ref: null,
     asana_ref: task.permalink_url,
     gh_ref: null,
+    asana_status_raw: sectionName ?? (task.completed ? "completed" : null),
+    jira_status_raw: null,
     comment_count: comments.length,
     description: task.notes ?? "",
     comments,

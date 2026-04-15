@@ -33,6 +33,16 @@ export function slugify(text: string): string {
 }
 
 /**
+ * Slugify that preserves original casing.
+ * Replaces non-alphanumeric runs with hyphens, strips leading/trailing hyphens.
+ */
+export function slugifyPreserveCase(text: string): string {
+  return text
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
  * Generate a daily page with correct frontmatter and body sections.
  */
 export function generateDailyPage(date?: string): PageGeneratorResult {

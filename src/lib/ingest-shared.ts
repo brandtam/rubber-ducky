@@ -185,9 +185,11 @@ export function generateIngestedTaskPage(
     attachments?: AttachmentRef[];
     assetRef?: string;
     source?: string;
+    /** Backend name for section scoping (e.g. "Asana", "Jira"). */
+    backendName?: string;
   }
 ): string {
-  const frontmatter = {
+  const frontmatter: Record<string, unknown> = {
     title: taskPage.title,
     type: "task",
     ref: taskPage.ref,
@@ -207,19 +209,30 @@ export function generateIngestedTaskPage(
     comment_count: taskPage.comment_count,
   };
 
+  // Write raw status fields when present
+  if (taskPage.asana_status_raw != null) {
+    frontmatter.asana_status_raw = taskPage.asana_status_raw;
+  }
+  if (taskPage.jira_status_raw != null) {
+    frontmatter.jira_status_raw = taskPage.jira_status_raw;
+  }
+
   const yaml = yamlStringify(frontmatter).trimEnd();
   const sections: string[] = [];
 
-  // ## Description
-  sections.push("## Description");
+  // Section prefix: "Asana " or "Jira " when backend is specified
+  const prefix = options?.backendName ? `${options.backendName} ` : "";
+
+  // ## <Backend> description
+  sections.push(`## ${prefix}description`);
   sections.push("");
   if (taskPage.description) {
     sections.push(taskPage.description);
   }
   sections.push("");
 
-  // ## Comments
-  sections.push("## Comments");
+  // ## <Backend> comments
+  sections.push(`## ${prefix}comments`);
   sections.push("");
   if (taskPage.comments.length > 0) {
     for (const comment of taskPage.comments) {

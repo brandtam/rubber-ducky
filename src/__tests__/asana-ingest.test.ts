@@ -158,6 +158,7 @@ describe("ingestAsanaTask", () => {
       expect(fm.asana_ref).toBe("https://app.asana.com/0/project/1234567890");
       expect(fm.tags).toEqual(["bug", "urgent"]);
       expect(fm.comment_count).toBe(1);
+      expect(fm.asana_status_raw).toBe("In Progress");
     });
 
     it("creates a task page with full body sections", async () => {
@@ -175,12 +176,12 @@ describe("ingestAsanaTask", () => {
       const parsed = parseFrontmatter(content);
       const body = parsed!.body;
 
-      // Description section with verbatim notes
-      expect(body).toContain("## Description");
+      // Description section with verbatim notes (backend-scoped)
+      expect(body).toContain("## Asana description");
       expect(body).toContain("The login form crashes on submit");
 
-      // Comments section with attribution
-      expect(body).toContain("## Comments");
+      // Comments section with attribution (backend-scoped)
+      expect(body).toContain("## Asana comments");
       expect(body).toContain("**Bob**");
       expect(body).toContain("2024-01-15T10:00:00.000Z");
       expect(body).toContain("I can reproduce this");
@@ -297,6 +298,42 @@ describe("ingestAsanaTask", () => {
 
       expect(parsed!.data.status).toBe("done");
       expect(parsed!.data.closed).toBe("2024-01-20T15:30:00.000Z");
+    });
+
+    it("translates status via workspace status-mapping config", async () => {
+      // Seed a status-mapping.md that maps Asana "In Progress" → "in-review"
+      fs.mkdirSync(path.join(tmpDir, "wiki"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, "wiki", "status-mapping.md"),
+        [
+          "---",
+          "type: config",
+          "---",
+          "",
+          "## Asana → wiki",
+          "",
+          "- `In Progress` → `in-review`",
+        ].join("\n")
+      );
+
+      const client = makeMockClient();
+      const result = await ingestAsanaTask({
+        client,
+        ref: "1234567890",
+        workspaceRoot: tmpDir,
+      });
+
+      const content = fs.readFileSync(
+        path.join(tmpDir, result.filePath!),
+        "utf-8"
+      );
+      const parsed = parseFrontmatter(content);
+      const fm = parsed!.data;
+
+      // Canonical status overridden by status-mapping config
+      expect(fm.status).toBe("in-review");
+      // Raw status preserved
+      expect(fm.asana_status_raw).toBe("In Progress");
     });
 
     it("formats multiple comments with attribution", async () => {
@@ -518,8 +555,8 @@ describe("ingestAsanaTask", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.taskPage!.ref).toBe("ecomm-4643");
-      expect(result.filePath).toContain("ecomm-4643.md");
+      expect(result.taskPage!.ref).toBe("ECOMM-4643");
+      expect(result.filePath).toContain("ECOMM-4643.md");
     });
 
     it("matches identifier_field case-insensitively", async () => {
@@ -538,8 +575,8 @@ describe("ingestAsanaTask", () => {
         identifierField: "ecomm number",
       });
 
-      expect(result.taskPage!.ref).toBe("ecomm-100");
-      expect(result.filePath).toContain("ecomm-100.md");
+      expect(result.taskPage!.ref).toBe("ECOMM-100");
+      expect(result.filePath).toContain("ECOMM-100.md");
     });
 
     it("falls back to GID when custom field is not present", async () => {
@@ -744,7 +781,7 @@ describe("ingestAsanaTask", () => {
         tmpDir,
         "raw",
         "assets",
-        "ecomm-4643",
+        "ECOMM-4643",
         "mockup.jpg"
       );
       expect(fs.existsSync(assetPath)).toBe(true);
@@ -753,7 +790,7 @@ describe("ingestAsanaTask", () => {
         path.join(tmpDir, result.filePath!),
         "utf-8"
       );
-      expect(content).toContain("raw/assets/ecomm-4643/mockup.jpg");
+      expect(content).toContain("raw/assets/ECOMM-4643/mockup.jpg");
     });
 
     it("includes attachment count in result", async () => {
