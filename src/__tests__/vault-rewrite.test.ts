@@ -4,6 +4,18 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { renameAndRewrite } from "../lib/vault-rewrite.js";
 
+// Check whether a file exists on disk with the exact casing of `filePath`.
+// `fs.existsSync` is unreliable on case-insensitive filesystems (macOS APFS,
+// Windows NTFS) because lowercase and uppercase paths resolve to the same
+// inode — so asserting that a renamed-for-case-only file "no longer exists"
+// must compare against the directory listing's actual entry names.
+function fileExistsWithCase(filePath: string): boolean {
+  const dir = path.dirname(filePath);
+  const name = path.basename(filePath);
+  if (!fs.existsSync(dir)) return false;
+  return fs.readdirSync(dir).includes(name);
+}
+
 describe("vault-rewrite", () => {
   let tmpDir: string;
 
@@ -27,8 +39,8 @@ describe("vault-rewrite", () => {
 
       renameAndRewrite(oldPath, newPath, tmpDir);
 
-      expect(fs.existsSync(newPath)).toBe(true);
-      expect(fs.existsSync(oldPath)).toBe(false);
+      expect(fileExistsWithCase(newPath)).toBe(true);
+      expect(fileExistsWithCase(oldPath)).toBe(false);
     });
 
     it("rewrites [[wikilinks]] in other vault files to the new filename", () => {

@@ -4,6 +4,16 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
+// See vault-rewrite.test.ts — `fs.existsSync` is unreliable for case-only
+// rename assertions on case-insensitive filesystems. Compare against the
+// directory listing instead.
+function fileExistsWithCase(filePath: string): boolean {
+  const dir = path.dirname(filePath);
+  const name = path.basename(filePath);
+  if (!fs.existsSync(dir)) return false;
+  return fs.readdirSync(dir).includes(name);
+}
+
 const CLI_PATH = path.resolve(__dirname, "..", "cli.ts");
 const TSX_PATH = path.resolve(
   __dirname,
@@ -124,8 +134,8 @@ describe("rubber-ducky migrate CLI", () => {
     ]);
 
     // Verify file was actually renamed
-    expect(fs.existsSync(path.join(tmpDir, "wiki", "tasks", "ECOMM-42.md"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, "wiki", "tasks", "ecomm-42.md"))).toBe(false);
+    expect(fileExistsWithCase(path.join(tmpDir, "wiki", "tasks", "ECOMM-42.md"))).toBe(true);
+    expect(fileExistsWithCase(path.join(tmpDir, "wiki", "tasks", "ecomm-42.md"))).toBe(false);
   });
 
   it("fails gracefully outside a workspace", () => {

@@ -4,6 +4,16 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { runMigrate, type MigrateResult } from "../lib/migrate.js";
 
+// See vault-rewrite.test.ts — `fs.existsSync` is unreliable for case-only
+// rename assertions on case-insensitive filesystems. Compare against the
+// directory listing instead.
+function fileExistsWithCase(filePath: string): boolean {
+  const dir = path.dirname(filePath);
+  const name = path.basename(filePath);
+  if (!fs.existsSync(dir)) return false;
+  return fs.readdirSync(dir).includes(name);
+}
+
 /**
  * Helper: seed a minimal workspace structure with workspace.md containing
  * backend config, plus task pages in old format.
@@ -123,8 +133,8 @@ describe("runMigrate", () => {
 
     const result = runMigrate(tmpDir);
 
-    expect(fs.existsSync(path.join(tmpDir, "wiki", "tasks", "ECOMM-123.md"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, "wiki", "tasks", "ecomm-123.md"))).toBe(false);
+    expect(fileExistsWithCase(path.join(tmpDir, "wiki", "tasks", "ECOMM-123.md"))).toBe(true);
+    expect(fileExistsWithCase(path.join(tmpDir, "wiki", "tasks", "ecomm-123.md"))).toBe(false);
     expect(result.filesRenamed).toBe(1);
   });
 
@@ -138,8 +148,8 @@ describe("runMigrate", () => {
 
     const result = runMigrate(tmpDir);
 
-    expect(fs.existsSync(path.join(tmpDir, "wiki", "tasks", "WEB-297.md"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, "wiki", "tasks", "web-297.md"))).toBe(false);
+    expect(fileExistsWithCase(path.join(tmpDir, "wiki", "tasks", "WEB-297.md"))).toBe(true);
+    expect(fileExistsWithCase(path.join(tmpDir, "wiki", "tasks", "web-297.md"))).toBe(false);
     expect(result.filesRenamed).toBe(1);
   });
 
@@ -404,10 +414,10 @@ describe("runMigrate", () => {
 
     // Assertions: files renamed
     expect(result.filesRenamed).toBe(2);
-    expect(fs.existsSync(path.join(tmpDir, "wiki", "tasks", "ECOMM-3585.md"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, "wiki", "tasks", "WEB-297.md"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, "wiki", "tasks", "ecomm-3585.md"))).toBe(false);
-    expect(fs.existsSync(path.join(tmpDir, "wiki", "tasks", "web-297.md"))).toBe(false);
+    expect(fileExistsWithCase(path.join(tmpDir, "wiki", "tasks", "ECOMM-3585.md"))).toBe(true);
+    expect(fileExistsWithCase(path.join(tmpDir, "wiki", "tasks", "WEB-297.md"))).toBe(true);
+    expect(fileExistsWithCase(path.join(tmpDir, "wiki", "tasks", "ecomm-3585.md"))).toBe(false);
+    expect(fileExistsWithCase(path.join(tmpDir, "wiki", "tasks", "web-297.md"))).toBe(false);
 
     // Assertions: headers rewritten
     const asanaContent = fs.readFileSync(

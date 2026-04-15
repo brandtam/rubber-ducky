@@ -54,7 +54,20 @@ export function renameAndRewrite(
   // Rename the file
   if (oldPath !== newPath && fs.existsSync(oldPath)) {
     fs.mkdirSync(path.dirname(newPath), { recursive: true });
-    fs.renameSync(oldPath, newPath);
+    // Case-only renames are a silent no-op on case-insensitive filesystems
+    // (macOS APFS default, Windows NTFS). Route through a temp name so the
+    // filesystem actually updates the stored casing.
+    if (
+      path.dirname(oldPath) === path.dirname(newPath) &&
+      oldPath !== newPath &&
+      oldPath.toLowerCase() === newPath.toLowerCase()
+    ) {
+      const temp = `${newPath}.__case_tmp_${process.pid}_${Date.now()}`;
+      fs.renameSync(oldPath, temp);
+      fs.renameSync(temp, newPath);
+    } else {
+      fs.renameSync(oldPath, newPath);
+    }
   }
 
   // Build a regex that matches [[oldStem]] or [[oldStem|display text]]
