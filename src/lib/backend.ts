@@ -74,6 +74,7 @@ export interface TaskPage {
   jira_ref: string | null;
   asana_ref: string | null;
   gh_ref: string | null;
+  jira_needed: "yes" | "no" | null;
   asana_status_raw: string | null;
   jira_status_raw: string | null;
   comment_count: number;

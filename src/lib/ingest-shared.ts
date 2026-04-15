@@ -209,6 +209,11 @@ export function generateIngestedTaskPage(
     comment_count: taskPage.comment_count,
   };
 
+  // Write jira_needed for Asana-sourced pages (triage state tracking)
+  if (taskPage.source === "asana") {
+    frontmatter.jira_needed = taskPage.jira_needed;
+  }
+
   // Write raw status fields when present
   if (taskPage.asana_status_raw != null) {
     frontmatter.asana_status_raw = taskPage.asana_status_raw;
