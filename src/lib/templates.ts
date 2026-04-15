@@ -1404,6 +1404,80 @@ Add workspace-specific terms below.
 }
 
 /**
+ * Generate the default wiki/status-mapping.md seeded during init.
+ * Maps backend-native status values to the canonical wiki vocabulary.
+ * Only includes sections for backends that are actually configured.
+ */
+export function generateStatusMappingMd(backends?: BackendConfig[]): string {
+  const backendTypes = (backends ?? []).map((b) => b.type);
+
+  const sections: string[] = [];
+
+  sections.push(`---
+type: config
+---
+
+# Status Mapping
+
+Maps backend-native status values to the canonical wiki vocabulary.
+See [[UBIQUITOUS_LANGUAGE]] for the full vocabulary reference.`);
+
+  if (backendTypes.includes("jira")) {
+    sections.push(`
+## Jira → wiki
+
+- \`Backlog\` → \`backlog\`
+- \`To Do\` → \`to-do\`
+- \`Open\` → \`to-do\`
+- \`In Progress\` → \`in-progress\`
+- \`In Review\` → \`in-review\`
+- \`Review\` → \`in-review\`
+- \`Waiting\` → \`pending\`
+- \`Pending\` → \`pending\`
+- \`On Hold\` → \`pending\`
+- \`Blocked\` → \`blocked\`
+- \`Done\` → \`done\`
+- \`Closed\` → \`done\`
+- \`Resolved\` → \`done\`
+- \`Deferred\` → \`deferred\`
+- \`Won't Do\` → \`deferred\``);
+  }
+
+  if (backendTypes.includes("asana")) {
+    sections.push(`
+## Asana → wiki
+
+- \`Backlog\` → \`backlog\`
+- \`To Do\` → \`to-do\`
+- \`In Progress\` → \`in-progress\`
+- \`In Review\` → \`in-review\`
+- \`Waiting\` → \`pending\`
+- \`Blocked\` → \`blocked\`
+- \`Done\` → \`done\`
+- \`Deferred\` → \`deferred\``);
+  }
+
+  sections.push(`
+## Wiki vocabulary
+
+| Term | Meaning |
+|------|---------|
+| backlog | Not yet scheduled |
+| to-do | Scheduled, not started |
+| in-progress | Actively being worked on |
+| in-review | Awaiting review |
+| pending | Waiting on external input |
+| blocked | Cannot proceed |
+| done | Completed |
+| deferred | Postponed indefinitely |
+
+See [[UBIQUITOUS_LANGUAGE]] for the full vocabulary reference.
+`);
+
+  return sections.join("\n");
+}
+
+/**
  * Generate a .env.example tailored to the configured backends.
  * Shows exactly which env vars the user needs to set — no more, no less.
  */

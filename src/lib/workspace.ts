@@ -6,6 +6,7 @@ import {
   generateClaudeMd,
   generateClaudeSettings,
   generateUbiquitousLanguageMd,
+  generateStatusMappingMd,
   generateGitignore,
   generateEnvExample,
   generateBackendSkills,
@@ -145,6 +146,7 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
     { name: "workspace.md", content: generateWorkspaceMd(templateOpts) },
     { name: "CLAUDE.md", content: generateClaudeMd(templateOpts) },
     { name: "UBIQUITOUS_LANGUAGE.md", content: generateUbiquitousLanguageMd(opts.vocabulary) },
+    { name: "wiki/status-mapping.md", content: generateStatusMappingMd(opts.backends) },
     { name: ".gitignore", content: generateGitignore() },
     { name: ".env.example", content: generateEnvExample(opts.backends) },
   ];
@@ -209,6 +211,14 @@ export async function migrateWorkspace(opts: WorkspaceOptions): Promise<Workspac
   if (!fs.existsSync(envExamplePath)) {
     fs.writeFileSync(envExamplePath, generateEnvExample(opts.backends), "utf-8");
     result.filesCreated.push(".env.example");
+  }
+
+  // Write wiki/status-mapping.md if missing
+  const statusMappingPath = path.join(targetDir, "wiki", "status-mapping.md");
+  if (!fs.existsSync(statusMappingPath)) {
+    fs.mkdirSync(path.dirname(statusMappingPath), { recursive: true });
+    fs.writeFileSync(statusMappingPath, generateStatusMappingMd(opts.backends), "utf-8");
+    result.filesCreated.push("wiki/status-mapping.md");
   }
 
   // Install bundled skills, backend skills, references, and settings

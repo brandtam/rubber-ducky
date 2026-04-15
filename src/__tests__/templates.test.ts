@@ -4,11 +4,13 @@ import {
   generateWorkspaceMd,
   generateClaudeMd,
   generateUbiquitousLanguageMd,
+  generateStatusMappingMd,
   generateBackendSkills,
   generateReferenceFiles,
   type BackendConfig,
   type VocabularyOptions,
 } from "../lib/templates.js";
+import { parseStatusMapping } from "../lib/status-mapping.js";
 
 describe("generateWorkspaceMd", () => {
   it("produces valid YAML frontmatter", () => {
@@ -1058,5 +1060,66 @@ describe("generateReferenceFiles", () => {
     const paths = refs.map((r) => r.path);
 
     expect(paths).not.toContain("references/backend-setup.md");
+  });
+});
+
+describe("generateStatusMappingMd", () => {
+  it("includes type: config frontmatter", () => {
+    const content = generateStatusMappingMd();
+    const match = content.match(/^---\n([\s\S]*?)\n---/);
+    expect(match).not.toBeNull();
+    const frontmatter = parseYaml(match![1]);
+    expect(frontmatter.type).toBe("config");
+  });
+
+  it("includes Jira section when Jira backend is configured", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://x.atlassian.net" },
+    ];
+    const content = generateStatusMappingMd(backends);
+    expect(content).toContain("## Jira → wiki");
+    expect(content).toContain("`In Progress` → `in-progress`");
+    expect(content).not.toContain("## Asana → wiki");
+  });
+
+  it("includes Asana section when Asana backend is configured", () => {
+    const backends: BackendConfig[] = [{ type: "asana" }];
+    const content = generateStatusMappingMd(backends);
+    expect(content).toContain("## Asana → wiki");
+    expect(content).toContain("`In Progress` → `in-progress`");
+    expect(content).not.toContain("## Jira → wiki");
+  });
+
+  it("includes both sections when both backends are configured", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://x.atlassian.net" },
+      { type: "asana" },
+    ];
+    const content = generateStatusMappingMd(backends);
+    expect(content).toContain("## Jira → wiki");
+    expect(content).toContain("## Asana → wiki");
+  });
+
+  it("includes no backend sections when no backends are configured", () => {
+    const content = generateStatusMappingMd();
+    expect(content).not.toContain("## Jira → wiki");
+    expect(content).not.toContain("## Asana → wiki");
+  });
+
+  it("always includes Wiki vocabulary section", () => {
+    const content = generateStatusMappingMd();
+    expect(content).toContain("## Wiki vocabulary");
+    expect(content).toContain("UBIQUITOUS_LANGUAGE");
+  });
+
+  it("is parseable by the status-mapping parser", () => {
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://x.atlassian.net" },
+      { type: "asana" },
+    ];
+    const content = generateStatusMappingMd(backends);
+    const mapping = parseStatusMapping(content);
+    expect(mapping.jira["in progress"]).toBe("in-progress");
+    expect(mapping.asana["done"]).toBe("done");
   });
 });

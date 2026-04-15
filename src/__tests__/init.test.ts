@@ -221,6 +221,51 @@ describe("init — workspace creation with discovery fields", () => {
     expect(asana.identifier_field).toBe("TIK");
   });
 
+  it("seeds wiki/status-mapping.md with Jira and Asana mappings", async () => {
+    const targetDir = path.join(tmpDir, "ws-status-map");
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://myorg.atlassian.net", project_key: "WEB" },
+      { type: "asana", workspace_id: "ws-123", project_gid: "proj-456" },
+    ];
+
+    const result = await createWorkspace({
+      name: "test",
+      purpose: "testing",
+      targetDir,
+      backends,
+    });
+
+    const mappingPath = path.join(targetDir, "wiki", "status-mapping.md");
+    expect(fs.existsSync(mappingPath)).toBe(true);
+
+    const content = fs.readFileSync(mappingPath, "utf-8");
+    expect(content).toContain("## Jira → wiki");
+    expect(content).toContain("## Asana → wiki");
+    expect(content).toContain("## Wiki vocabulary");
+    expect(result.filesCreated).toContain("wiki/status-mapping.md");
+  });
+
+  it("seeds wiki/status-mapping.md with only configured backends", async () => {
+    const targetDir = path.join(tmpDir, "ws-status-jira-only");
+    const backends: BackendConfig[] = [
+      { type: "jira", server_url: "https://myorg.atlassian.net" },
+    ];
+
+    await createWorkspace({
+      name: "test",
+      purpose: "testing",
+      targetDir,
+      backends,
+    });
+
+    const content = fs.readFileSync(
+      path.join(targetDir, "wiki", "status-mapping.md"),
+      "utf-8",
+    );
+    expect(content).toContain("## Jira → wiki");
+    expect(content).not.toContain("## Asana → wiki");
+  });
+
   it("creates workspace with all discovery fields populated end-to-end", async () => {
     const targetDir = path.join(tmpDir, "ws-full");
     const backends: BackendConfig[] = [
