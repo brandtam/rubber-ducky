@@ -22,6 +22,7 @@ import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerIngestCommand } from "./commands/ingest.js";
 import { registerAsanaCommand } from "./commands/asana.js";
 import { registerMigrateCommand } from "./commands/migrate.js";
+import { registerMergeCommand } from "./commands/merge.js";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -54,6 +55,7 @@ export function createProgram(): Command {
   registerIngestCommand(program);
   registerAsanaCommand(program);
   registerMigrateCommand(program);
+  registerMergeCommand(program);
 
   return program;
 }
