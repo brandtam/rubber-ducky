@@ -207,7 +207,7 @@ describe("rubber-ducky merge CLI", () => {
     expect(parsed.conflicts.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("resolves conflict with --status flag", () => {
+  it("resolves conflict with --resolve-status flag", () => {
     createWorkspace(tmpDir);
     writeAsanaPage(tmpDir, "ECOMM-3585.md");
     const jiraPath = path.join(tmpDir, "wiki", "tasks", "WEB-297.md");
@@ -217,7 +217,7 @@ describe("rubber-ducky merge CLI", () => {
     fs.writeFileSync(jiraPath, content);
 
     const output = runCli(
-      ["--json", "merge", "ECOMM-3585", "WEB-297", "--status", "done"],
+      ["--json", "merge", "ECOMM-3585", "WEB-297", "--resolve-status", "done"],
       tmpDir
     );
     const parsed = JSON.parse(output);

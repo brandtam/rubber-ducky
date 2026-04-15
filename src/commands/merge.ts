@@ -16,19 +16,19 @@ export function registerMergeCommand(program: Command): void {
     )
     .argument("<asana-ref>", "Asana page filename stem (e.g. ECOMM-3585)")
     .argument("<jira-ref>", "Jira page filename stem (e.g. WEB-297)")
-    .option("--status <status>", "Resolve status conflict with this value")
-    .option("--priority <priority>", "Resolve priority conflict with this value")
-    .option("--assignee <assignee>", "Resolve assignee conflict with this value")
-    .option("--due <due>", "Resolve due date conflict with this value")
+    .option("--resolve-status <status>", "Resolve status conflict with this value")
+    .option("--resolve-priority <priority>", "Resolve priority conflict with this value")
+    .option("--resolve-assignee <assignee>", "Resolve assignee conflict with this value")
+    .option("--resolve-due <due>", "Resolve due date conflict with this value")
     .action(
       async (
         asanaRef: string,
         jiraRef: string,
         opts: {
-          status?: string;
-          priority?: string;
-          assignee?: string;
-          due?: string;
+          resolveStatus?: string;
+          resolvePriority?: string;
+          resolveAssignee?: string;
+          resolveDue?: string;
         },
         cmd: Command
       ) => {
@@ -54,10 +54,10 @@ export function registerMergeCommand(program: Command): void {
 
         // Build resolutions from CLI flags
         const resolutions: MergeResolutions = {};
-        if (opts.status) resolutions.status = opts.status as Status;
-        if (opts.priority) resolutions.priority = opts.priority;
-        if (opts.assignee) resolutions.assignee = opts.assignee;
-        if (opts.due) resolutions.due = opts.due;
+        if (opts.resolveStatus) resolutions.status = opts.resolveStatus as Status;
+        if (opts.resolvePriority) resolutions.priority = opts.resolvePriority;
+        if (opts.resolveAssignee) resolutions.assignee = opts.resolveAssignee;
+        if (opts.resolveDue) resolutions.due = opts.resolveDue;
 
         const hasResolutions = Object.keys(resolutions).length > 0;
 
@@ -92,7 +92,7 @@ export function registerMergeCommand(program: Command): void {
                 clack.log.info(
                   "\nResolve with flags: " +
                     result.conflicts
-                      .map((c) => `--${c.field} <value>`)
+                      .map((c) => `--resolve-${c.field} <value>`)
                       .join(" ")
                 );
               } else {

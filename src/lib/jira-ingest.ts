@@ -12,7 +12,7 @@ import type { JiraClient, JiraIssue } from "./jira-client.js";
 import { VALID_STATUSES, type Status } from "./backend.js";
 import { jiraIssueToPage } from "./jira-backend.js";
 import { slugifyPreserveCase } from "./page.js";
-import { loadMapping, translateStatus } from "./status-mapping.js";
+import { loadMapping, translateStatus, type StatusMapping } from "./status-mapping.js";
 import {
   type IngestResult,
   type BulkIngestResult,
@@ -44,6 +44,12 @@ export interface IngestJiraOptions {
   prefetchedIssue?: JiraIssue;
   /** Pre-built dedup index — avoids re-scanning wiki/tasks/ per issue in bulk. */
   dedupIndex?: DedupIndex;
+  /**
+   * Pre-loaded workspace status mapping (from wiki/status-mapping.md).
+   * Bulk callers SHOULD load this once and pass it to every per-issue call.
+   * Single-issue callers may omit; the mapping will be loaded on demand.
+   */
+  workspaceStatusMapping?: StatusMapping;
   /** Skip index rebuild and log append — caller handles these after the loop. */
   skipPostProcess?: boolean;
 }
@@ -81,6 +87,7 @@ export async function ingestJiraIssue(
     statusMapping,
     prefetchedIssue,
     dedupIndex,
+    workspaceStatusMapping,
     skipPostProcess,
   } = options;
 
@@ -93,10 +100,12 @@ export async function ingestJiraIssue(
   // Convert to TaskPage (uses real Jira timestamps, not ingest time)
   const taskPage = jiraIssueToPage(issue, comments, serverUrl, statusMapping);
 
-  // Translate status via workspace status-mapping config if available
+  // Translate status via workspace status-mapping config if available.
+  // Bulk callers pass `workspaceStatusMapping` to amortize the disk read;
+  // single-issue callers fall through to loading on demand.
   let canonicalStatus: string | undefined;
   if (taskPage.jira_status_raw) {
-    const mapping = loadMapping(workspaceRoot);
+    const mapping = workspaceStatusMapping ?? loadMapping(workspaceRoot);
     const translated = translateStatus(mapping, "jira", taskPage.jira_status_raw);
     if (translated && VALID_STATUSES.includes(translated as Status)) {
       canonicalStatus = translated;
@@ -188,8 +197,9 @@ export async function ingestJiraProject(
   // Search for issues
   const searchResult = await client.searchIssues(jql);
 
-  // Build dedup index once before the loop
+  // Build dedup index + load workspace status mapping once before the loop.
   const dedupIndex = buildDedupIndex(workspaceRoot, "jira_ref");
+  const workspaceStatusMapping = loadMapping(workspaceRoot);
 
   // Process issues with bounded concurrency (5 concurrent API calls)
   const results = await mapWithConcurrency(searchResult.issues, 5, (issue) =>
@@ -201,6 +211,7 @@ export async function ingestJiraProject(
       statusMapping,
       prefetchedIssue: issue,
       dedupIndex,
+      workspaceStatusMapping,
       skipPostProcess: true,
     })
   );

@@ -17,7 +17,7 @@ import type {
 import { VALID_STATUSES, type Status } from "./backend.js";
 import { asanaTaskToPage, extractTaskGid, mapAsanaToStatus, parseTaskRef } from "./asana-backend.js";
 import { applyNamingScheme, type NamingScheme, type NamingInput } from "./naming.js";
-import { loadMapping, translateStatus } from "./status-mapping.js";
+import { loadMapping, translateStatus, type StatusMapping } from "./status-mapping.js";
 import {
   type IngestResult,
   type BulkIngestResult,
@@ -58,6 +58,12 @@ export interface IngestAsanaOptions {
   prefetchedTask?: AsanaTask;
   /** Pre-built dedup index — avoids re-scanning wiki/tasks/ per task in bulk. */
   dedupIndex?: DedupIndex;
+  /**
+   * Pre-loaded workspace status mapping (from wiki/status-mapping.md).
+   * Bulk callers SHOULD load this once and pass it to every per-task call.
+   * Single-task callers may omit; the mapping will be loaded on demand.
+   */
+  workspaceStatusMapping?: StatusMapping;
   /** Skip index rebuild and log append — caller handles these after the loop. */
   skipPostProcess?: boolean;
 }
@@ -154,6 +160,7 @@ export async function ingestAsanaTask(
     workspaceGid,
     prefetchedTask,
     dedupIndex,
+    workspaceStatusMapping,
     skipPostProcess,
   } = options;
 
@@ -194,10 +201,12 @@ export async function ingestAsanaTask(
     resolvedIdentifier
   );
 
-  // Translate status via workspace status-mapping config if available
+  // Translate status via workspace status-mapping config if available.
+  // Bulk callers pass `workspaceStatusMapping` to amortize the disk read;
+  // single-task callers fall through to loading on demand.
   let canonicalStatus: string | undefined;
   if (taskPage.asana_status_raw) {
-    const mapping = loadMapping(workspaceRoot);
+    const mapping = workspaceStatusMapping ?? loadMapping(workspaceRoot);
     const translated = translateStatus(mapping, "asana", taskPage.asana_status_raw);
     if (translated && VALID_STATUSES.includes(translated as Status)) {
       canonicalStatus = translated;
@@ -389,8 +398,9 @@ export async function ingestAsanaBulk(
     tasks = await client.getTasksForSection(parsedRef.gid, listOpts);
   }
 
-  // Build dedup index once before the loop
+  // Build dedup index + load workspace status mapping once before the loop.
   const dedupIndex = buildDedupIndex(workspaceRoot, "asana_ref");
+  const workspaceStatusMapping = loadMapping(workspaceRoot);
 
   // Process tasks with bounded concurrency — the Bottleneck limiter is the
   // authoritative throttle, so workers can be generous.
@@ -405,6 +415,7 @@ export async function ingestAsanaBulk(
       namingCase,
       prefetchedTask: task,
       dedupIndex,
+      workspaceStatusMapping,
       skipPostProcess: true,
     })
   );
