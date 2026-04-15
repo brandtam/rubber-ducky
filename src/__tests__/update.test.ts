@@ -474,6 +474,18 @@ describe("push skill template", () => {
     const t = getTemplate();
     expect(t.content).toMatch(/log/i);
   });
+
+  it("instructs setting jira_needed: yes when pushing to Jira", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/jira_needed/);
+    expect(t.content).toMatch(/jira_needed.*yes/i);
+  });
+
+  it("instructs overriding prior jira_needed value on push", () => {
+    const t = getTemplate();
+    // Push must force jira_needed to yes regardless of prior value
+    expect(t.content).toMatch(/regardless|override|force/i);
+  });
 });
 
 describe("comment skill template", () => {

@@ -31,6 +31,7 @@ function makeTaskPage(overrides?: Partial<TaskPage>): TaskPage {
     jira_ref: null,
     asana_ref: "https://app.asana.com/0/project/1234567890",
     gh_ref: null,
+    jira_needed: null,
     asana_status_raw: null,
     jira_status_raw: null,
     comment_count: 0,

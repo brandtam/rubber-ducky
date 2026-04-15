@@ -159,6 +159,7 @@ describe("ingestAsanaTask", () => {
       expect(fm.tags).toEqual(["bug", "urgent"]);
       expect(fm.comment_count).toBe(1);
       expect(fm.asana_status_raw).toBe("In Progress");
+      expect(fm.jira_needed).toBeNull();
     });
 
     it("creates a task page with full body sections", async () => {

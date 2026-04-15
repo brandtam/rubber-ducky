@@ -29,6 +29,7 @@ function makeTaskPage(overrides?: Partial<TaskPage>): TaskPage {
     jira_ref: "https://myorg.atlassian.net/browse/PROJ-123",
     asana_ref: null,
     gh_ref: null,
+    jira_needed: null,
     asana_status_raw: null,
     jira_status_raw: null,
     comment_count: 0,

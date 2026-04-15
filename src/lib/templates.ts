@@ -826,6 +826,7 @@ due: null                       # Due date (YYYY-MM-DD string), or null
 jira_ref: null                  # Jira ticket URL, or null
 asana_ref: null                 # Asana task URL, or null
 gh_ref: null                    # GitHub issue/PR URL, or null
+jira_needed: null               # Triage state: yes (Jira ticket exists), no (not needed), null (untriaged). Asana-sourced pages only.
 comment_count: 0                # Number of comments synced from backend
 ---
 \`\`\`

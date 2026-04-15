@@ -107,6 +107,7 @@ export function generateTaskPage(
     jira_ref: null,
     asana_ref: null,
     gh_ref: null,
+    jira_needed: null,
     comment_count: 0,
   };
 

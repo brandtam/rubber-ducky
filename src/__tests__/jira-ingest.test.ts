@@ -116,6 +116,7 @@ describe("ingestJiraIssue", () => {
       expect(fm.tags).toEqual(["bug", "checkout"]);
       expect(fm.comment_count).toBe(1);
       expect(fm.jira_status_raw).toBe("In Progress");
+      expect(fm.jira_needed).toBeUndefined();
     });
 
     it("creates a task page with full body sections", async () => {

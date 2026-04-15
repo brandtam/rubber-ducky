@@ -467,7 +467,7 @@ Only after confirmation, use the backend's push capability to create the ticket.
 
 ### Step 6 — Update wiki and log
 
-1. Update the task page frontmatter with the new backend reference (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`) and set \`pushed\` to the current ISO timestamp
+1. Update the task page frontmatter with the new backend reference (\`gh_ref\`, \`jira_ref\`, or \`asana_ref\`) and set \`pushed\` to the current ISO timestamp. **When pushing to Jira**, also set \`jira_needed: yes\` — this must override any prior value (including \`no\`) regardless of the page's current \`jira_needed\` state
 2. Append an audit entry to \`wiki/log.md\`:
    \`\`\`
    rubber-ducky log append "[write-back] push → <backend> (<ref>)"
