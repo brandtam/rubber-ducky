@@ -13,7 +13,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseFrontmatter } from "./frontmatter.js";
-import { renameAndRewrite } from "./vault-rewrite.js";
+import { rewriteWikilinksForStems, safeRename } from "./vault-rewrite.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,7 +124,7 @@ export function runMigrate(workspaceRoot: string): MigrateResult {
   }
 
   const pendingRenames: PendingRename[] = [];
-  const headerRewrites: Array<{ filename: string; backendName: string }> = [];
+  const headerRewrites: Array<{ currentFilename: string; backendName: string }> = [];
 
   for (const filename of files) {
     const stem = filename.replace(/\.md$/, "");
@@ -133,37 +133,22 @@ export function runMigrate(workspaceRoot: string): MigrateResult {
     const parsed = parseFrontmatter(content);
     const source = (parsed?.data?.source as string) ?? null;
 
-    // Determine if this is an identifier-based filename that needs uppercasing
     if (IDENTIFIER_FILENAME_RE.test(stem) && !isUpperCase(stem)) {
-      const newStem = stem.toUpperCase();
       pendingRenames.push({
         oldFilename: filename,
-        newFilename: `${newStem}.md`,
+        newFilename: `${stem.toUpperCase()}.md`,
         source,
       });
     }
 
-    // Determine if section headers need rewriting
     const backendName = backendNameFromSource(source);
     if (backendName) {
-      // Check if generic headers exist
-      if (/^## Description$/m.test(content) || /^## Comments$/m.test(content)) {
-        // Use the new filename if it's being renamed, else current
-        const targetFilename = pendingRenames.find((r) => r.oldFilename === filename)
-          ? pendingRenames.find((r) => r.oldFilename === filename)!.newFilename
-          : filename;
-        headerRewrites.push({ filename: targetFilename, backendName });
-      }
+      headerRewrites.push({ currentFilename: filename, backendName });
     }
   }
 
-  // Execute header rewrites first (before renaming, since we read by old name)
   for (const rewrite of headerRewrites) {
-    // Find the current filename on disk (before any renames)
-    const pendingRename = pendingRenames.find((r) => r.newFilename === rewrite.filename);
-    const currentFilename = pendingRename ? pendingRename.oldFilename : rewrite.filename;
-    const filePath = path.join(tasksDir, currentFilename);
-
+    const filePath = path.join(tasksDir, rewrite.currentFilename);
     const content = fs.readFileSync(filePath, "utf-8");
     const updated = rewriteSectionHeaders(content, rewrite.backendName);
     if (updated) {
@@ -172,18 +157,20 @@ export function runMigrate(workspaceRoot: string): MigrateResult {
     }
   }
 
-  // Execute renames + wikilink rewrites
   for (const rename of pendingRenames) {
     const oldPath = path.join(tasksDir, rename.oldFilename);
     const newPath = path.join(tasksDir, rename.newFilename);
-
-    renameAndRewrite(oldPath, newPath, workspaceRoot);
+    safeRename(oldPath, newPath);
     result.filesRenamed++;
     result.renames.push({ from: rename.oldFilename, to: rename.newFilename });
   }
 
-  // Count wikilink rewrites (approximate — renameAndRewrite handles it)
-  result.wikilinksRewritten = result.filesRenamed; // at least one rewrite per rename
+  // Single vault-wide wikilink pass for every rename.
+  const stemPairs = pendingRenames.map((r) => ({
+    oldStem: r.oldFilename.replace(/\.md$/, ""),
+    newStem: r.newFilename.replace(/\.md$/, ""),
+  }));
+  result.wikilinksRewritten = rewriteWikilinksForStems(workspaceRoot, stemPairs);
 
   if (result.filesRenamed === 0 && result.headersRewritten === 0) {
     result.alreadyMigrated = true;

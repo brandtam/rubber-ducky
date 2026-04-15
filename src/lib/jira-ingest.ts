@@ -20,7 +20,7 @@ import {
   buildDedupIndex,
   findExistingByRef,
   checkMergedPage,
-  updateMergedPageSections,
+  handleMergedReingest,
   generateIngestedTaskPage,
   postIngestProcess,
   finalizeBulkIngest,
@@ -94,11 +94,13 @@ export async function ingestJiraIssue(
   const taskPage = jiraIssueToPage(issue, comments, serverUrl, statusMapping);
 
   // Translate status via workspace status-mapping config if available
+  let canonicalStatus: string | undefined;
   if (taskPage.jira_status_raw) {
     const mapping = loadMapping(workspaceRoot);
-    const canonical = translateStatus(mapping, "jira", taskPage.jira_status_raw);
-    if (canonical && VALID_STATUSES.includes(canonical as Status)) {
-      taskPage.status = canonical as Status;
+    const translated = translateStatus(mapping, "jira", taskPage.jira_status_raw);
+    if (translated && VALID_STATUSES.includes(translated as Status)) {
+      canonicalStatus = translated;
+      taskPage.status = translated as Status;
     }
   }
 
@@ -113,41 +115,17 @@ export async function ingestJiraIssue(
     dedupIndex
   );
   if (existingFile) {
-    // Check if the existing file is a merged page (both asana_ref + jira_ref)
     const mergedInfo = checkMergedPage(workspaceRoot, existingFile);
     if (mergedInfo.isMerged) {
-      // Determine canonical status for the merged page update
-      let canonicalStatus: string | undefined;
-      if (taskPage.jira_status_raw) {
-        const mapping = loadMapping(workspaceRoot);
-        const translated = translateStatus(mapping, "jira", taskPage.jira_status_raw);
-        if (translated && VALID_STATUSES.includes(translated as Status)) {
-          canonicalStatus = translated;
-        }
-      }
-
-      // Update only Jira-side sections in place
-      updateMergedPageSections({
+      return handleMergedReingest({
         workspaceRoot,
         existingRelativePath: existingFile,
         backendName: "Jira",
         taskPage,
         canonicalStatus,
+        logMessage: `Re-ingested Jira issue on merged page: ${taskPage.title} (${ref})`,
+        skipPostProcess,
       });
-
-      if (!skipPostProcess) {
-        postIngestProcess(
-          workspaceRoot,
-          `Re-ingested Jira issue on merged page: ${taskPage.title} (${ref})`
-        );
-      }
-
-      return {
-        success: true,
-        skipped: false,
-        filePath: existingFile,
-        taskPage,
-      };
     }
 
     return {

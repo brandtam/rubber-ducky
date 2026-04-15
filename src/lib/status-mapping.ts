@@ -39,28 +39,26 @@ export function parseStatusMapping(content: string): StatusMapping {
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
 
-    // Check for section header
     const sectionMatch = trimmed.match(SECTION_RE);
     if (sectionMatch) {
       currentBackend = sectionMatch[1].toLowerCase();
-      if (!mapping[currentBackend]) {
-        mapping[currentBackend] = {};
-      }
+      if (!mapping[currentBackend]) mapping[currentBackend] = {};
       continue;
     }
 
-    // If we're inside a backend section, try to parse bullet lines
+    // A non-backend `## heading` closes the current backend section
+    // (e.g. "## Wiki vocabulary").
+    if (/^##\s/.test(trimmed)) {
+      currentBackend = null;
+      continue;
+    }
+
     if (currentBackend) {
       const bulletMatch = trimmed.match(BULLET_RE);
       if (bulletMatch) {
         const rawValue = bulletMatch[1].trim().toLowerCase();
         const canonicalValue = bulletMatch[2].trim().toLowerCase();
         mapping[currentBackend][rawValue] = canonicalValue;
-      }
-
-      // A new ## heading that isn't a backend section ends the current section
-      if (/^##\s/.test(trimmed) && !sectionMatch) {
-        currentBackend = null;
       }
     }
   }

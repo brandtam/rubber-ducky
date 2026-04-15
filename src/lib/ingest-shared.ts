@@ -225,27 +225,21 @@ export function updateMergedPageSections(options: {
   const parsed = parseFrontmatter(content);
   if (!parsed) throw new Error(`Failed to parse frontmatter from ${fullPath}`);
 
-  // ---- Update frontmatter ----
+  const now = new Date().toISOString();
   const fm = { ...parsed.data };
 
   if (backendName === "Jira") {
     if (taskPage.jira_status_raw != null) {
       fm.jira_status_raw = taskPage.jira_status_raw;
     }
-    fm.comment_count = taskPage.comment_count;
   } else {
     if (taskPage.asana_status_raw != null) {
       fm.asana_status_raw = taskPage.asana_status_raw;
     }
-    fm.comment_count = taskPage.comment_count;
   }
-
-  if (canonicalStatus) {
-    fm.status = canonicalStatus;
-  }
-
-  // Update the `updated` timestamp to now
-  fm.updated = new Date().toISOString();
+  fm.comment_count = taskPage.comment_count;
+  if (canonicalStatus) fm.status = canonicalStatus;
+  fm.updated = now;
 
   // ---- Update body sections ----
   const descSection = `${backendName} description`;
@@ -309,7 +303,7 @@ export function updateMergedPageSections(options: {
         rebuiltSections.push(existingContent);
       }
       rebuiltSections.push(
-        `- ${new Date().toISOString()} — Re-ingested ${backendName} side (${taskPage.ref})`
+        `- ${now} — Re-ingested ${backendName} side (${taskPage.ref})`
       );
       rebuiltSections.push("");
       addedReIngestLog = true;
@@ -335,6 +329,40 @@ export function updateMergedPageSections(options: {
   const newContent = `---\n${yaml}\n---\n${newBody}`;
 
   fs.writeFileSync(fullPath, newContent, "utf-8");
+}
+
+/**
+ * Common re-ingest path for a task whose dedup lookup landed on a merged
+ * page. Updates the backend-scoped sections in place and, unless
+ * `skipPostProcess` is set, rebuilds the index + appends a log entry.
+ */
+export function handleMergedReingest(options: {
+  workspaceRoot: string;
+  existingRelativePath: string;
+  backendName: "Asana" | "Jira";
+  taskPage: TaskPage;
+  canonicalStatus?: string;
+  logMessage: string;
+  skipPostProcess?: boolean;
+}): IngestResult {
+  updateMergedPageSections({
+    workspaceRoot: options.workspaceRoot,
+    existingRelativePath: options.existingRelativePath,
+    backendName: options.backendName,
+    taskPage: options.taskPage,
+    canonicalStatus: options.canonicalStatus,
+  });
+
+  if (!options.skipPostProcess) {
+    postIngestProcess(options.workspaceRoot, options.logMessage);
+  }
+
+  return {
+    success: true,
+    skipped: false,
+    filePath: options.existingRelativePath,
+    taskPage: options.taskPage,
+  };
 }
 
 // ---------------------------------------------------------------------------

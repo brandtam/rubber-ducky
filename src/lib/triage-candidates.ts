@@ -25,11 +25,8 @@ export interface JiraCandidate {
 // Internals
 // ---------------------------------------------------------------------------
 
-/**
- * Jira key pattern: one or more uppercase letters, a dash, then one or
- * more digits. Case-insensitive matching — we uppercase the result.
- */
-const JIRA_KEY_REGEX = /\b([A-Z][A-Z0-9]+-\d+)\b/gi;
+const JIRA_KEY_REGEX = /\b[A-Za-z][A-Za-z0-9]+-\d+\b/g;
+const SECTION_HEADER_REGEX = /^## (.+)$/gm;
 
 /** Location priority order for deduplication (lower index = higher priority). */
 const LOCATION_PRIORITY: JiraCandidate["location"][] = [
@@ -38,25 +35,44 @@ const LOCATION_PRIORITY: JiraCandidate["location"][] = [
   "activity log",
 ];
 
+interface SectionBoundary {
+  offset: number;
+  location: JiraCandidate["location"];
+}
+
 /**
- * Determine which section of the page body a given offset falls into
- * by scanning for `## <section>` headers.
+ * Compute section boundaries once, so per-match classification is an O(log n)
+ * binary search instead of re-scanning headers from the start of the body.
  */
-function classifyLocation(
-  body: string,
+function computeSectionBoundaries(body: string): SectionBoundary[] {
+  const boundaries: SectionBoundary[] = [];
+  for (const match of body.matchAll(SECTION_HEADER_REGEX)) {
+    const header = match[1].toLowerCase();
+    let location: JiraCandidate["location"] = "description";
+    if (header.includes("comment")) location = "comments";
+    else if (header.includes("activity")) location = "activity log";
+    boundaries.push({ offset: match.index!, location });
+  }
+  return boundaries;
+}
+
+function locateMatch(
+  boundaries: SectionBoundary[],
   matchIndex: number
 ): JiraCandidate["location"] {
-  // Walk backward from matchIndex to find the most recent ## header
-  const before = body.slice(0, matchIndex);
-  const headers = [...before.matchAll(/^## (.+)$/gm)];
-  if (headers.length === 0) return "description";
-
-  const lastHeader = headers[headers.length - 1][1].toLowerCase();
-  if (lastHeader.includes("comment")) return "comments";
-  if (lastHeader.includes("activity")) return "activity log";
-  if (lastHeader.includes("description")) return "description";
-  // Default: if we're in an unknown section, treat as description
-  return "description";
+  let lo = 0;
+  let hi = boundaries.length - 1;
+  let result: JiraCandidate["location"] = "description";
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    if (boundaries[mid].offset <= matchIndex) {
+      result = boundaries[mid].location;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return result;
 }
 
 /**
@@ -102,31 +118,19 @@ export function findJiraCandidates(
   const vaultJiraKeys = collectJiraStemsInVault(vaultRoot);
   if (vaultJiraKeys.size === 0) return [];
 
-  // Collect all mentions with their locations
+  const boundaries = computeSectionBoundaries(body);
   const mentionMap = new Map<string, JiraCandidate["location"]>();
 
   for (const match of body.matchAll(JIRA_KEY_REGEX)) {
     const key = match[0].toUpperCase();
     if (!vaultJiraKeys.has(key)) continue;
 
-    const location = classifyLocation(body, match.index!);
-
-    // Keep the highest-priority location
+    const location = locateMatch(boundaries, match.index!);
     const existing = mentionMap.get(key);
-    if (
-      existing == null ||
-      LOCATION_PRIORITY.indexOf(location) <
-        LOCATION_PRIORITY.indexOf(existing)
-    ) {
+    if (existing == null || LOCATION_PRIORITY.indexOf(location) < LOCATION_PRIORITY.indexOf(existing)) {
       mentionMap.set(key, location);
     }
   }
 
-  // Convert to array
-  const candidates: JiraCandidate[] = [];
-  for (const [jiraKey, location] of mentionMap) {
-    candidates.push({ jiraKey, location });
-  }
-
-  return candidates;
+  return [...mentionMap].map(([jiraKey, location]) => ({ jiraKey, location }));
 }

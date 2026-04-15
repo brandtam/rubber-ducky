@@ -1,20 +1,20 @@
 /**
- * Vault-wide file rename + wikilink rewrite.
+ * Vault-wide file rename + wikilink rewrite primitives.
  *
- * Exposes `renameAndRewrite(oldPath, newPath, vaultRoot)` which:
- * 1. Renames a file from oldPath to newPath
- * 2. Rewrites all [[wikilinks]] across wiki/**\/*.md that reference the
- *    old filename stem to the new filename stem
- *
- * Used by `rubber-ducky migrate` and the future merge primitive.
+ * Three public helpers:
+ *   - `safeRename(oldPath, newPath)` — rename a single file, with a temp-name
+ *     dance for case-only renames so case-insensitive filesystems (macOS APFS,
+ *     Windows NTFS) actually update the stored casing.
+ *   - `rewriteWikilinksForStems(vaultRoot, pairs)` — walk `wiki/**\/*.md` once
+ *     and apply every `(oldStem → newStem)` substitution per file. Returns the
+ *     number of files modified.
+ *   - `renameAndRewrite(oldPath, newPath, vaultRoot)` — convenience that does
+ *     both for a single pair.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-/**
- * Collect all .md files under a directory (recursive).
- */
 function collectMdFiles(dir: string): string[] {
   const results: string[] = [];
   if (!fs.existsSync(dir)) return results;
@@ -31,14 +31,73 @@ function collectMdFiles(dir: string): string[] {
   return results;
 }
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
- * Rename a file and rewrite all [[wikilinks]] across `wiki/**\/*.md`
- * that reference the old filename to the new filename.
- *
- * Wikilink matching is case-insensitive to handle vaults where links
- * were written with inconsistent casing.
- *
- * No-op if oldPath === newPath.
+ * Rename a file, handling case-only renames safely. Case-only renames are a
+ * silent no-op on case-insensitive filesystems (macOS APFS default, Windows
+ * NTFS) — route through a temp name so the filesystem actually updates the
+ * stored casing.
+ */
+export function safeRename(oldPath: string, newPath: string): void {
+  if (oldPath === newPath) return;
+  fs.mkdirSync(path.dirname(newPath), { recursive: true });
+
+  if (
+    path.dirname(oldPath) === path.dirname(newPath) &&
+    oldPath.toLowerCase() === newPath.toLowerCase()
+  ) {
+    const temp = `${newPath}.__case_tmp_${process.pid}_${Date.now()}`;
+    fs.renameSync(oldPath, temp);
+    fs.renameSync(temp, newPath);
+  } else {
+    fs.renameSync(oldPath, newPath);
+  }
+}
+
+/**
+ * Rewrite `[[oldStem]]` and `[[oldStem|display]]` wikilinks across every
+ * markdown file under `wiki/` to the corresponding `newStem`. Matching is
+ * case-insensitive. Applies every `(oldStem → newStem)` pair in a single
+ * pass per file. Returns the count of files modified.
+ */
+export function rewriteWikilinksForStems(
+  vaultRoot: string,
+  pairs: Array<{ oldStem: string; newStem: string }>
+): number {
+  const effective = pairs.filter((p) => p.oldStem !== p.newStem);
+  if (effective.length === 0) return 0;
+
+  const compiled = effective.map(({ oldStem, newStem }) => ({
+    regex: new RegExp(`\\[\\[(${escapeRegex(oldStem)})(\\|[^\\]]*)?\\]\\]`, "gi"),
+    newStem,
+  }));
+
+  const mdFiles = collectMdFiles(path.join(vaultRoot, "wiki"));
+  let modifiedCount = 0;
+
+  for (const filePath of mdFiles) {
+    const original = fs.readFileSync(filePath, "utf-8");
+    let updated = original;
+    for (const { regex, newStem } of compiled) {
+      regex.lastIndex = 0;
+      updated = updated.replace(regex, (_m, _stem, pipe) => `[[${newStem}${pipe ?? ""}]]`);
+    }
+    if (updated !== original) {
+      fs.writeFileSync(filePath, updated, "utf-8");
+      modifiedCount++;
+    }
+  }
+
+  return modifiedCount;
+}
+
+/**
+ * Rename a file and rewrite its wikilinks across the vault in one step.
+ * Thin wrapper over `safeRename` + `rewriteWikilinksForStems` for the
+ * single-pair case. No-op if the old and new stems are identical.
  */
 export function renameAndRewrite(
   oldPath: string,
@@ -47,53 +106,10 @@ export function renameAndRewrite(
 ): void {
   const oldStem = path.basename(oldPath, ".md");
   const newStem = path.basename(newPath, ".md");
-
-  // No-op when names are identical
   if (oldStem === newStem) return;
 
-  // Rename the file
-  if (oldPath !== newPath && fs.existsSync(oldPath)) {
-    fs.mkdirSync(path.dirname(newPath), { recursive: true });
-    // Case-only renames are a silent no-op on case-insensitive filesystems
-    // (macOS APFS default, Windows NTFS). Route through a temp name so the
-    // filesystem actually updates the stored casing.
-    if (
-      path.dirname(oldPath) === path.dirname(newPath) &&
-      oldPath !== newPath &&
-      oldPath.toLowerCase() === newPath.toLowerCase()
-    ) {
-      const temp = `${newPath}.__case_tmp_${process.pid}_${Date.now()}`;
-      fs.renameSync(oldPath, temp);
-      fs.renameSync(temp, newPath);
-    } else {
-      fs.renameSync(oldPath, newPath);
-    }
+  if (fs.existsSync(oldPath)) {
+    safeRename(oldPath, newPath);
   }
-
-  // Build a regex that matches [[oldStem]] or [[oldStem|display text]]
-  // Case-insensitive so [[Ecomm-123]] and [[ecomm-123]] both match
-  const escaped = oldStem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const wikilinkRegex = new RegExp(
-    `\\[\\[(${escaped})(\\|[^\\]]*)?\\]\\]`,
-    "gi"
-  );
-
-  // Rewrite wikilinks across all .md files under wiki/
-  const wikiDir = path.join(vaultRoot, "wiki");
-  const mdFiles = collectMdFiles(wikiDir);
-
-  for (const filePath of mdFiles) {
-    const content = fs.readFileSync(filePath, "utf-8");
-    if (!wikilinkRegex.test(content)) continue;
-
-    // Reset lastIndex after test()
-    wikilinkRegex.lastIndex = 0;
-    const updated = content.replace(wikilinkRegex, (_match, _stem, pipe) => {
-      return `[[${newStem}${pipe ?? ""}]]`;
-    });
-
-    if (updated !== content) {
-      fs.writeFileSync(filePath, updated, "utf-8");
-    }
-  }
+  rewriteWikilinksForStems(vaultRoot, [{ oldStem, newStem }]);
 }

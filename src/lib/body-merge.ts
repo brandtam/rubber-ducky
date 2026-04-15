@@ -1,43 +1,23 @@
 /**
  * Pure body merge for Asana + Jira task pages.
  *
- * `mergePageBodies(asanaBody, jiraBody)` takes the markdown body (post-
- * frontmatter) of each page and produces a merged body with:
- *
- * 1. Backend-scoped sections: Asana description, Jira description,
- *    Asana comments, Jira comments (in that order)
- * 2. Attachments: union of all attachment lines from both pages
- * 3. Activity log: union of entries, sorted chronologically
- * 4. See also: union, deduped
+ * `mergePageBodies(asanaBody, jiraBody)` produces a merged body with:
+ * backend-scoped description/comment sections, a unioned attachments
+ * list, a deduped chronological activity log, and a deduped see-also.
  */
-
-// ---------------------------------------------------------------------------
-// Section parsing
-// ---------------------------------------------------------------------------
-
-interface ParsedSections {
-  asanaDescription: string;
-  jiraDescription: string;
-  asanaComments: string;
-  jiraComments: string;
-  attachments: string[];
-  activityLog: string[];
-  seeAlso: string[];
-}
 
 const SECTION_RE = /^## (.+)$/;
 
 /**
- * Parse a page body into named sections. Each section captures all lines
- * between its header and the next `## ` header (or end of string).
+ * Parse a page body into named sections. Each section captures the trimmed
+ * content between its header and the next `## ` header (or end of string).
  */
 function parseSections(body: string): Map<string, string> {
   const sections = new Map<string, string>();
-  const lines = body.split("\n");
   let currentSection: string | null = null;
   let currentLines: string[] = [];
 
-  for (const line of lines) {
+  for (const line of body.split("\n")) {
     const match = line.match(SECTION_RE);
     if (match) {
       if (currentSection !== null) {
@@ -49,26 +29,43 @@ function parseSections(body: string): Map<string, string> {
       currentLines.push(line);
     }
   }
-
   if (currentSection !== null) {
     sections.set(currentSection, currentLines.join("\n").trim());
   }
-
   return sections;
 }
 
-/**
- * Extract bullet-list items from a section's content.
- */
-function extractListItems(content: string): string[] {
-  return content
-    .split("\n")
-    .filter((line) => line.trim().length > 0);
+function nonEmptyLines(content: string): string[] {
+  return content.split("\n").filter((line) => line.trim().length > 0);
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+function pushSection(
+  out: string[],
+  header: string,
+  content: string,
+  options?: { alwaysEmit?: boolean }
+): void {
+  if (!content && !options?.alwaysEmit) return;
+  out.push(`## ${header}`);
+  out.push("");
+  if (content) {
+    out.push(content);
+    out.push("");
+  }
+}
+
+function pushList(
+  out: string[],
+  header: string,
+  items: string[],
+  options?: { alwaysEmit?: boolean }
+): void {
+  if (items.length === 0 && !options?.alwaysEmit) return;
+  out.push(`## ${header}`);
+  out.push("");
+  for (const item of items) out.push(item);
+  if (items.length > 0) out.push("");
+}
 
 /**
  * Merge two page bodies into one canonical merged body.
@@ -83,105 +80,39 @@ function extractListItems(content: string): string[] {
  * 7. ## See also (union, deduped)
  */
 export function mergePageBodies(asanaBody: string, jiraBody: string): string {
-  const asanaSections = parseSections(asanaBody);
-  const jiraSections = parseSections(jiraBody);
+  const asana = parseSections(asanaBody);
+  const jira = parseSections(jiraBody);
 
-  const sections: string[] = [];
+  const out: string[] = [];
 
-  // 1. Asana description
-  sections.push("## Asana description");
-  sections.push("");
-  const asanaDesc = asanaSections.get("Asana description") ?? "";
-  if (asanaDesc) {
-    sections.push(asanaDesc);
-    sections.push("");
-  }
+  pushSection(out, "Asana description", asana.get("Asana description") ?? "", { alwaysEmit: true });
+  pushSection(out, "Jira description", jira.get("Jira description") ?? "", { alwaysEmit: true });
+  pushSection(out, "Asana comments", asana.get("Asana comments") ?? "", { alwaysEmit: true });
+  pushSection(out, "Jira comments", jira.get("Jira comments") ?? "", { alwaysEmit: true });
 
-  // 2. Jira description
-  sections.push("## Jira description");
-  sections.push("");
-  const jiraDesc = jiraSections.get("Jira description") ?? "";
-  if (jiraDesc) {
-    sections.push(jiraDesc);
-    sections.push("");
-  }
-
-  // 3. Asana comments
-  sections.push("## Asana comments");
-  sections.push("");
-  const asanaComments = asanaSections.get("Asana comments") ?? "";
-  if (asanaComments) {
-    sections.push(asanaComments);
-    sections.push("");
-  }
-
-  // 4. Jira comments
-  sections.push("## Jira comments");
-  sections.push("");
-  const jiraComments = jiraSections.get("Jira comments") ?? "";
-  if (jiraComments) {
-    sections.push(jiraComments);
-    sections.push("");
-  }
-
-  // 5. Attachments — union of all lines from both pages
-  const asanaAttachments = asanaSections.get("Attachments") ?? "";
-  const jiraAttachments = jiraSections.get("Attachments") ?? "";
-  const allAttachmentLines = [
-    ...extractListItems(asanaAttachments),
-    ...extractListItems(jiraAttachments),
+  const attachments = [
+    ...new Set([
+      ...nonEmptyLines(asana.get("Attachments") ?? ""),
+      ...nonEmptyLines(jira.get("Attachments") ?? ""),
+    ]),
   ];
+  pushList(out, "Attachments", attachments);
 
-  // Dedup by full line (different paths = different lines)
-  const uniqueAttachments = [...new Set(allAttachmentLines)];
+  const activityLog = [
+    ...new Set([
+      ...nonEmptyLines(asana.get("Activity log") ?? ""),
+      ...nonEmptyLines(jira.get("Activity log") ?? ""),
+    ]),
+  ].sort();
+  pushList(out, "Activity log", activityLog, { alwaysEmit: true });
 
-  if (uniqueAttachments.length > 0) {
-    sections.push("## Attachments");
-    sections.push("");
-    for (const line of uniqueAttachments) {
-      sections.push(line);
-    }
-    sections.push("");
-  }
-
-  // 6. Activity log — union, sorted chronologically
-  const asanaLog = asanaSections.get("Activity log") ?? "";
-  const jiraLog = jiraSections.get("Activity log") ?? "";
-  const allLogEntries = [
-    ...extractListItems(asanaLog),
-    ...extractListItems(jiraLog),
+  const seeAlso = [
+    ...new Set([
+      ...nonEmptyLines(asana.get("See also") ?? ""),
+      ...nonEmptyLines(jira.get("See also") ?? ""),
+    ]),
   ];
+  pushList(out, "See also", seeAlso, { alwaysEmit: true });
 
-  // Dedup and sort chronologically (entries start with `- <ISO timestamp>`)
-  const uniqueLogEntries = [...new Set(allLogEntries)];
-  uniqueLogEntries.sort();
-
-  sections.push("## Activity log");
-  sections.push("");
-  if (uniqueLogEntries.length > 0) {
-    for (const entry of uniqueLogEntries) {
-      sections.push(entry);
-    }
-    sections.push("");
-  }
-
-  // 7. See also — union, deduped
-  const asanaSeeAlso = asanaSections.get("See also") ?? "";
-  const jiraSeeAlso = jiraSections.get("See also") ?? "";
-  const allSeeAlso = [
-    ...extractListItems(asanaSeeAlso),
-    ...extractListItems(jiraSeeAlso),
-  ];
-  const uniqueSeeAlso = [...new Set(allSeeAlso)];
-
-  sections.push("## See also");
-  sections.push("");
-  if (uniqueSeeAlso.length > 0) {
-    for (const entry of uniqueSeeAlso) {
-      sections.push(entry);
-    }
-    sections.push("");
-  }
-
-  return sections.join("\n");
+  return out.join("\n");
 }
