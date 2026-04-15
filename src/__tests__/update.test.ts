@@ -868,3 +868,72 @@ describe("link skill template", () => {
     expect(t.content).toMatch(/log/i);
   });
 });
+
+describe("configure-status-mapping skill template", () => {
+  function getTemplate() {
+    return getBundledTemplates().find(
+      (t) => t.relativePath === ".claude/commands/configure-status-mapping.md"
+    )!;
+  }
+
+  it("exists as a bundled template", () => {
+    expect(getTemplate()).toBeDefined();
+  });
+
+  it("has a description", () => {
+    const t = getTemplate();
+    expect(t.description).toBeDefined();
+    expect(t.description.length).toBeGreaterThan(0);
+  });
+
+  it("reads wiki/status-mapping.md", () => {
+    const t = getTemplate();
+    expect(t.content).toContain("wiki/status-mapping.md");
+  });
+
+  it("presents each row for confirmation", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/confirm|accept|keep/i);
+    expect(t.content).toMatch(/row|mapping|entry/i);
+  });
+
+  it("explains canonical wiki status meanings", () => {
+    const t = getTemplate();
+    // Must explain all canonical statuses
+    expect(t.content).toMatch(/backlog/);
+    expect(t.content).toMatch(/to-do/);
+    expect(t.content).toMatch(/in-progress/);
+    expect(t.content).toMatch(/in-review/);
+    expect(t.content).toMatch(/pending/);
+    expect(t.content).toMatch(/blocked/);
+    expect(t.content).toContain("done");
+    expect(t.content).toMatch(/deferred/);
+  });
+
+  it("allows users to change, add, or remove rows", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/change|edit|modify/i);
+    expect(t.content).toMatch(/add|new/i);
+    expect(t.content).toMatch(/remove|delete/i);
+  });
+
+  it("writes the updated file at the end", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/write|save|update.*file/i);
+  });
+
+  it("is safe to re-run on an already-edited file", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/re-run|existing|already|idempotent|safe/i);
+  });
+
+  it("references UBIQUITOUS_LANGUAGE or explains wiki vocabulary inline", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/UBIQUITOUS_LANGUAGE|wiki vocabulary|canonical/i);
+  });
+
+  it("walks the user through each backend", () => {
+    const t = getTemplate();
+    expect(t.content).toMatch(/each backend/i);
+  });
+});
