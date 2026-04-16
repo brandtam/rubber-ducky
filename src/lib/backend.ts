@@ -98,6 +98,11 @@ export interface CommentResult {
   commentUrl: string;
 }
 
+export interface FindCommentResult {
+  found: boolean;
+  commentUrl?: string;
+}
+
 export interface TransitionResult {
   success: boolean;
   previousStatus: Status;
@@ -135,6 +140,16 @@ export interface Backend {
 
   /** Add a comment to the external item referenced by the task page */
   comment(taskPage: TaskPage, text: string): Promise<CommentResult>;
+
+  /**
+   * Search for an existing comment containing the given marker string.
+   * Used for idempotent resume: if the marker is found, the comment was
+   * already posted and should not be duplicated.
+   */
+  findCommentByMarker(
+    taskPage: TaskPage,
+    marker: string,
+  ): Promise<FindCommentResult>;
 
   /** Transition the external item's status */
   transition(taskPage: TaskPage, status: Status): Promise<TransitionResult>;

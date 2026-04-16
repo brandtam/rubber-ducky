@@ -1565,5 +1565,8 @@ dist/
 .sandcastle/worktrees/
 .sandcastle/logs/
 .sandcastle/.env
+
+# Rubber-Ducky local state (transaction sentinels, history)
+.rubber-ducky/
 `;
 }

@@ -18,6 +18,11 @@ import { createThrottleNotifier } from "../lib/http/throttle-notifier.js";
 import { runNamingPrompt, persistNamingResult } from "../lib/naming-prompt.js";
 import { inferLegacyScheme } from "../lib/naming.js";
 import type { BackendConfig } from "../lib/templates.js";
+import {
+  assertNoOrphanSentinel,
+  OrphanSentinelError,
+  EXIT_CODE_ORPHAN_TRANSACTION,
+} from "../lib/merge-sentinel.js";
 
 function exitWithError(msg: string, jsonMode: boolean): never {
   if (jsonMode) {
@@ -31,6 +36,35 @@ function exitWithError(msg: string, jsonMode: boolean): never {
     clack.log.error(msg);
   }
   process.exit(1);
+}
+
+function guardOrphanSentinel(workspaceRoot: string, jsonMode: boolean): void {
+  try {
+    assertNoOrphanSentinel(workspaceRoot);
+  } catch (error) {
+    if (error instanceof OrphanSentinelError) {
+      const { orphan } = error;
+      if (jsonMode) {
+        console.log(
+          formatOutput(
+            {
+              success: false,
+              error: "interrupted-transaction",
+              resumeCommand: orphan.resumeCommand,
+              abortCommand: orphan.abortCommand,
+            },
+            { json: true, humanReadable: error.message },
+          ),
+        );
+      } else {
+        clack.log.error(error.message);
+        clack.log.info(`  Resume: ${orphan.resumeCommand}`);
+        clack.log.info(`  Abort:  ${orphan.abortCommand}`);
+      }
+      process.exit(EXIT_CODE_ORPHAN_TRANSACTION);
+    }
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +154,8 @@ export function registerIngestCommand(program: Command): void {
             jsonMode
           );
         }
+
+        guardOrphanSentinel(workspaceRoot, jsonMode);
 
         let token: string;
         try {
@@ -261,6 +297,8 @@ export function registerIngestCommand(program: Command): void {
           jsonMode
         );
       }
+
+      guardOrphanSentinel(workspaceRoot, jsonMode);
 
       let email: string;
       let apiToken: string;

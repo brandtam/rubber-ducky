@@ -242,5 +242,69 @@ describe("Doctor module", () => {
       expect(result.passed).toBe(result.total);
       expect(result.total).toBeGreaterThan(0);
     });
+
+    it("passes stale-sentinels check when no sentinels exist", async () => {
+      createWorkspace(tmpDir);
+      const result = await runDoctor(tmpDir);
+      const check = result.checks.find((c) => c.name === "stale-sentinels");
+      expect(check).toBeDefined();
+      expect(check!.pass).toBe(true);
+    });
+
+    it("passes stale-sentinels check when sentinel is fresh (< 24h)", async () => {
+      createWorkspace(tmpDir);
+      // Write a fresh sentinel
+      const txDir = path.join(tmpDir, ".rubber-ducky", "transactions");
+      fs.mkdirSync(txDir, { recursive: true });
+      const sentinel = {
+        schemaVersion: 1,
+        operation: "merge",
+        timestamp: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        args: { asanaRef: "ECOMM-100", jiraRef: "WEB-50" },
+        step: "started",
+        merged: { filename: "", path: "", stem: "", oldAsanaStem: "", oldJiraStem: "" },
+      };
+      fs.writeFileSync(
+        path.join(txDir, "merge-ECOMM-100-WEB-50.json"),
+        JSON.stringify(sentinel),
+        "utf-8",
+      );
+
+      const result = await runDoctor(tmpDir);
+      const check = result.checks.find((c) => c.name === "stale-sentinels");
+      expect(check!.pass).toBe(true);
+      expect(check!.message).toContain("active");
+    });
+
+    it("fails stale-sentinels check when sentinel is older than 24 hours", async () => {
+      createWorkspace(tmpDir);
+      const txDir = path.join(tmpDir, ".rubber-ducky", "transactions");
+      fs.mkdirSync(txDir, { recursive: true });
+      const staleTime = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+      const sentinel = {
+        schemaVersion: 1,
+        operation: "merge",
+        timestamp: staleTime,
+        lastUpdated: staleTime,
+        args: { asanaRef: "ECOMM-100", jiraRef: "WEB-50" },
+        step: "orphans-deleted",
+        merged: { filename: "", path: "", stem: "", oldAsanaStem: "", oldJiraStem: "" },
+      };
+      fs.writeFileSync(
+        path.join(txDir, "merge-ECOMM-100-WEB-50.json"),
+        JSON.stringify(sentinel),
+        "utf-8",
+      );
+
+      const result = await runDoctor(tmpDir);
+      const check = result.checks.find((c) => c.name === "stale-sentinels");
+      expect(check!.pass).toBe(false);
+      expect(check!.message).toContain("stale");
+      expect(check!.message).toContain("--resume");
+      expect(check!.message).toContain("--abort");
+      expect(check!.message).toContain("ECOMM-100");
+      expect(result.healthy).toBe(false);
+    });
   });
 });

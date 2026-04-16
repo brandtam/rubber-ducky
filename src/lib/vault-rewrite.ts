@@ -62,6 +62,11 @@ export function safeRename(oldPath: string, newPath: string): void {
  * markdown file under `wiki/` to the corresponding `newStem`. Matching is
  * case-insensitive. Applies every `(oldStem → newStem)` pair in a single
  * pass per file. Returns the count of files modified.
+ *
+ * Per-file writes are NOT atomic (no temp-file + rename). A crash mid-write
+ * can leave a single file truncated. This is a known gap — operation-level
+ * resumability (merge-sentinel.ts) covers the broader case; per-file
+ * atomicity is deferred to a follow-up issue.
  */
 export function rewriteWikilinksForStems(
   vaultRoot: string,

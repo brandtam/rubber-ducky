@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { loadWorkspaceConfig } from "./workspace.js";
 import { checkConnectivity } from "./backend.js";
 import { getBundledTemplates } from "./update.js";
+import { findOrphanSentinels, isStale } from "./merge-sentinel.js";
 
 export interface DoctorCheck {
   name: string;
@@ -42,6 +43,7 @@ export async function runDoctor(
   checks.push(checkDirectoryStructure(workspaceRoot));
   checks.push(checkSkillFiles(workspaceRoot));
   checks.push(checkAgentFiles(workspaceRoot));
+  checks.push(checkStaleSentinels(workspaceRoot));
   checks.push(await checkBackendConnectivity(workspaceRoot, options));
 
   const passed = checks.filter((c) => c.pass).length;
@@ -211,5 +213,53 @@ async function checkBackendConnectivity(
     name: "backend-connectivity",
     pass: true,
     message: `All ${config.backends.length} backends connected`,
+  };
+}
+
+function formatDoctorAge(ms: number): string {
+  if (!isFinite(ms)) return "unknown age";
+  const hours = Math.floor(ms / (60 * 60 * 1000));
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
+function checkStaleSentinels(workspaceRoot: string): DoctorCheck {
+  const orphans = findOrphanSentinels(workspaceRoot);
+
+  if (orphans.length === 0) {
+    return {
+      name: "stale-sentinels",
+      pass: true,
+      message: "No orphaned transaction sentinels",
+    };
+  }
+
+  const stale = orphans.filter((o) => isStale(o.sentinel));
+
+  if (stale.length === 0) {
+    return {
+      name: "stale-sentinels",
+      pass: true,
+      message: `${orphans.length} active sentinel(s) found (not yet stale)`,
+    };
+  }
+
+  const details = stale.map((o) => {
+    const { sentinel } = o;
+    const age = formatDoctorAge(o.ageMs);
+    return (
+      `merge ${sentinel.args.asanaRef} + ${sentinel.args.jiraRef}: ` +
+      `step "${sentinel.step}", age ${age}. ` +
+      `Resume: ${o.resumeCommand} | Abort: ${o.abortCommand}`
+    );
+  });
+
+  return {
+    name: "stale-sentinels",
+    pass: false,
+    message:
+      `${stale.length} stale sentinel(s) older than 24 hours:\n` +
+      details.map((d) => `  ${d}`).join("\n"),
   };
 }

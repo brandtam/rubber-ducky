@@ -4,6 +4,11 @@ import chalk from "chalk";
 import { findWorkspaceRoot } from "../lib/workspace.js";
 import { formatOutput } from "../lib/output.js";
 import { runMigrate } from "../lib/migrate.js";
+import {
+  assertNoOrphanSentinel,
+  OrphanSentinelError,
+  EXIT_CODE_ORPHAN_TRANSACTION,
+} from "../lib/merge-sentinel.js";
 
 export function registerMigrateCommand(program: Command): void {
   program
@@ -30,6 +35,33 @@ export function registerMigrateCommand(program: Command): void {
           clack.log.error(msg);
         }
         process.exit(1);
+      }
+
+      try {
+        assertNoOrphanSentinel(workspaceRoot);
+      } catch (error) {
+        if (error instanceof OrphanSentinelError) {
+          const { orphan } = error;
+          if (jsonMode) {
+            console.log(
+              formatOutput(
+                {
+                  success: false,
+                  error: "interrupted-transaction",
+                  resumeCommand: orphan.resumeCommand,
+                  abortCommand: orphan.abortCommand,
+                },
+                { json: true, humanReadable: error.message },
+              ),
+            );
+          } else {
+            clack.log.error(error.message);
+            clack.log.info(`  Resume: ${orphan.resumeCommand}`);
+            clack.log.info(`  Abort:  ${orphan.abortCommand}`);
+          }
+          process.exit(EXIT_CODE_ORPHAN_TRANSACTION);
+        }
+        throw error;
       }
 
       try {

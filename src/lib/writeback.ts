@@ -57,11 +57,25 @@ export interface WriteActionOutcome {
 
 export type BackendResolver = (backendName: string) => Backend;
 
+export interface PreActionResult {
+  skip: boolean;
+  commentUrl?: string;
+}
+
 export interface RunWriteActionsOptions {
   actions: WriteAction[];
   /** Task page whose ref fields identify the target item in each backend. */
   taskPage: TaskPage;
   resolveBackend: BackendResolver;
+  /**
+   * Called before each action. If it returns `{ skip: true }`, the action
+   * is recorded as a success without hitting the remote — used for
+   * idempotent resume when the comment was already posted.
+   */
+  onPreAction?: (
+    action: WriteAction,
+    backend: Backend,
+  ) => Promise<PreActionResult>;
   /** Invoked after each successful action — typically used for audit logging. */
   onSuccess?: (action: WriteAction, outcome: WriteActionOutcome) => void;
 }
@@ -154,12 +168,21 @@ async function attemptWriteAction(
     const backend = options.resolveBackend(action.backend);
 
     if (action.action !== "comment") {
-      // Only `comment` has an adapter today. Push/transition get one when
-      // their commands are wired. Failing loudly here means an unmapped
-      // action type can't silently no-op.
       throw new Error(
         `Write action "${action.action}" is not supported by the executor`
       );
+    }
+
+    // Idempotency: check if the comment was already posted
+    if (options.onPreAction) {
+      const preResult = await options.onPreAction(action, backend);
+      if (preResult.skip) {
+        return {
+          action,
+          status: "success",
+          commentUrl: preResult.commentUrl,
+        };
+      }
     }
 
     const text = action.payload.text;

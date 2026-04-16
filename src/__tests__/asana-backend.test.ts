@@ -589,6 +589,98 @@ describe("Asana backend", () => {
     });
   });
 
+  describe("findCommentByMarker", () => {
+    it("returns found when a comment contains the marker", async () => {
+      const client = makeMockClient({
+        getStories: async () => [
+          {
+            gid: "s1",
+            type: "comment",
+            text: "Linked to WEB-50 in work log\n<!-- rubber-ducky:merge:ECOMM-100+WEB-50 -->",
+            created_by: { name: "Bot", gid: "bot1" },
+            created_at: "2026-01-01T00:00:00Z",
+          },
+        ],
+      });
+
+      const backend = createAsanaBackend({ client });
+      const taskPage = makeTaskPage({
+        ref: "1234567890",
+        asana_ref: "https://app.asana.com/0/project/1234567890",
+      });
+
+      const result = await backend.findCommentByMarker(
+        taskPage,
+        "<!-- rubber-ducky:merge:ECOMM-100+WEB-50 -->",
+      );
+      expect(result.found).toBe(true);
+      expect(result.commentUrl).toBeDefined();
+    });
+
+    it("returns not found when no comment contains the marker", async () => {
+      const client = makeMockClient({
+        getStories: async () => [
+          {
+            gid: "s1",
+            type: "comment",
+            text: "Some other comment",
+            created_by: { name: "User", gid: "u1" },
+            created_at: "2026-01-01T00:00:00Z",
+          },
+        ],
+      });
+
+      const backend = createAsanaBackend({ client });
+      const taskPage = makeTaskPage({
+        ref: "1234567890",
+        asana_ref: "https://app.asana.com/0/project/1234567890",
+      });
+
+      const result = await backend.findCommentByMarker(
+        taskPage,
+        "<!-- rubber-ducky:merge:ECOMM-100+WEB-50 -->",
+      );
+      expect(result.found).toBe(false);
+    });
+
+    it("ignores system stories (non-comment type)", async () => {
+      const client = makeMockClient({
+        getStories: async () => [
+          {
+            gid: "s1",
+            type: "system",
+            text: "<!-- rubber-ducky:merge:ECOMM-100+WEB-50 -->",
+            created_by: { name: "Bot", gid: "bot1" },
+            created_at: "2026-01-01T00:00:00Z",
+          },
+        ],
+      });
+
+      const backend = createAsanaBackend({ client });
+      const taskPage = makeTaskPage({
+        ref: "1234567890",
+        asana_ref: "https://app.asana.com/0/project/1234567890",
+      });
+
+      const result = await backend.findCommentByMarker(
+        taskPage,
+        "<!-- rubber-ducky:merge:ECOMM-100+WEB-50 -->",
+      );
+      expect(result.found).toBe(false);
+    });
+
+    it("returns not found when task page has no reference", async () => {
+      const backend = createAsanaBackend({ client: makeMockClient() });
+      const taskPage = makeTaskPage({ ref: null, asana_ref: null });
+
+      const result = await backend.findCommentByMarker(
+        taskPage,
+        "<!-- rubber-ducky:merge:ECOMM-100+WEB-50 -->",
+      );
+      expect(result.found).toBe(false);
+    });
+  });
+
   describe("unsupported operations", () => {
     it("throws clear error for transition", async () => {
       const backend = createAsanaBackend({ client: makeMockClient() });
