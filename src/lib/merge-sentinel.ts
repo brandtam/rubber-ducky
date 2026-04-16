@@ -12,7 +12,6 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import * as crypto from "node:crypto";
 
 // ---------------------------------------------------------------------------
@@ -402,10 +401,6 @@ export function createMergeSentinel(args: {
     merged: args.merged,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Formatting helpers
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Comment idempotency marker

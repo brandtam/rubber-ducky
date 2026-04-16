@@ -26,9 +26,9 @@ import {
   advanceSentinel,
   describeRemainingWork,
   mergeCommentMarker,
-  EXIT_CODE_ORPHAN_TRANSACTION,
   type MergeSentinel,
 } from "../lib/merge-sentinel.js";
+import { guardOrphanSentinel } from "./shared.js";
 
 export function registerMergeCommand(program: Command): void {
   program
@@ -95,39 +95,7 @@ export function registerMergeCommand(program: Command): void {
           return;
         }
 
-        // ---- Preflight: refuse if an orphan sentinel exists ----
-        const orphans = findOrphanSentinels(workspaceRoot);
-        if (orphans.length > 0) {
-          const orphan = orphans[0];
-          const { sentinel } = orphan;
-          if (jsonMode) {
-            console.log(
-              formatOutput(
-                {
-                  success: false,
-                  error: "interrupted-transaction",
-                  operation: sentinel.operation,
-                  step: sentinel.step,
-                  asanaRef: sentinel.args.asanaRef,
-                  jiraRef: sentinel.args.jiraRef,
-                  resumeCommand: orphan.resumeCommand,
-                  abortCommand: orphan.abortCommand,
-                },
-                { json: true, humanReadable: "" }
-              )
-            );
-          } else {
-            clack.log.error(
-              `An interrupted ${sentinel.operation} was detected.\n\n` +
-              `  Operation:  merge ${sentinel.args.asanaRef} + ${sentinel.args.jiraRef}\n` +
-              `  Last step:  ${sentinel.step}\n\n` +
-              `Resolve before running another merge:\n\n` +
-              `  Resume:  ${orphan.resumeCommand}\n` +
-              `  Abort:   ${orphan.abortCommand}`
-            );
-          }
-          process.exit(EXIT_CODE_ORPHAN_TRANSACTION);
-        }
+        guardOrphanSentinel(workspaceRoot, jsonMode);
 
         // Build resolutions from CLI flags
         const resolutions: MergeResolutions = {};
