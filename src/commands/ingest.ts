@@ -3,6 +3,7 @@ import * as clack from "@clack/prompts";
 import chalk from "chalk";
 import { findWorkspaceRoot, loadWorkspaceConfig } from "../lib/workspace.js";
 import { formatOutput } from "../lib/output.js";
+import { requireCredentials } from "../lib/backend.js";
 import { createAsanaClient } from "../lib/asana-client.js";
 import type { AsanaClient } from "../lib/asana-client.js";
 import {
@@ -120,10 +121,13 @@ export function registerIngestCommand(program: Command): void {
           );
         }
 
-        const token = process.env.ASANA_ACCESS_TOKEN;
-        if (!token) {
+        let token: string;
+        try {
+          const creds = requireCredentials({ type: "asana" });
+          token = creds.accessToken;
+        } catch (error) {
           exitWithError(
-            "ASANA_ACCESS_TOKEN is not set. Export your Asana Personal Access Token as ASANA_ACCESS_TOKEN. See references/backend-setup.md for setup instructions.",
+            error instanceof Error ? error.message : String(error),
             jsonMode
           );
         }
@@ -258,18 +262,15 @@ export function registerIngestCommand(program: Command): void {
         );
       }
 
-      const email = process.env.JIRA_EMAIL;
-      if (!email) {
+      let email: string;
+      let apiToken: string;
+      try {
+        const creds = requireCredentials({ type: "jira" });
+        email = creds.email;
+        apiToken = creds.apiToken;
+      } catch (error) {
         exitWithError(
-          "JIRA_EMAIL is not set. Export your Jira account email as JIRA_EMAIL. See references/backend-setup.md for instructions.",
-          jsonMode
-        );
-      }
-
-      const apiToken = process.env.JIRA_API_TOKEN;
-      if (!apiToken) {
-        exitWithError(
-          "JIRA_API_TOKEN is not set. Export your Jira API token as JIRA_API_TOKEN. See references/backend-setup.md for instructions.",
+          error instanceof Error ? error.message : String(error),
           jsonMode
         );
       }

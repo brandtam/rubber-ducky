@@ -156,6 +156,71 @@ export function assertCapability(
 }
 
 /**
+ * Validated credentials for a backend, discriminated by `type`. Returned by
+ * `requireCredentials` so callers get typed, non-optional values instead of
+ * scattering `process.env.X!` assertions across the codebase.
+ */
+export type BackendCredentials =
+  | { type: "asana"; accessToken: string }
+  | { type: "jira"; email: string; apiToken: string }
+  | { type: "github" };
+
+/**
+ * Read and validate the credentials required to operate a backend. Throws a
+ * setup-pointer error on the first missing var so every CLI command
+ * surfaces the same message for the same root cause — a user who sees
+ * "ASANA_ACCESS_TOKEN is not set" from `ingest` sees the identical message
+ * from `merge`, `push`, and any future adapter.
+ *
+ * Commands that route the failure through their own output formatter (e.g.
+ * `--json` mode) should catch the thrown error and pass its `.message` to
+ * the formatter. Commands that execute write actions through
+ * `runWriteActions` let this throw from the `resolveBackend` hook, which
+ * the executor records as a per-action failure — preserving partial-
+ * failure semantics when only one backend's credentials are missing.
+ *
+ * Overloaded so callers that pass a config literal get the narrowed
+ * credentials type at the call site (no `as` casts, no runtime re-check).
+ */
+export function requireCredentials<T extends BackendConfig["type"]>(
+  config: Omit<BackendConfig, "type"> & { type: T }
+): Extract<BackendCredentials, { type: T }>;
+export function requireCredentials(config: BackendConfig): BackendCredentials {
+  switch (config.type) {
+    case "asana": {
+      const accessToken = process.env.ASANA_ACCESS_TOKEN;
+      if (!accessToken) {
+        throw new Error(
+          "ASANA_ACCESS_TOKEN is not set. Export your Asana Personal Access Token as ASANA_ACCESS_TOKEN. See references/backend-setup.md for setup instructions."
+        );
+      }
+      return { type: "asana", accessToken };
+    }
+    case "jira": {
+      const email = process.env.JIRA_EMAIL;
+      if (!email) {
+        throw new Error(
+          "JIRA_EMAIL is not set. Export your Jira account email as JIRA_EMAIL. See references/backend-setup.md for instructions."
+        );
+      }
+      const apiToken = process.env.JIRA_API_TOKEN;
+      if (!apiToken) {
+        throw new Error(
+          "JIRA_API_TOKEN is not set. Export your Jira API token as JIRA_API_TOKEN. See references/backend-setup.md for instructions."
+        );
+      }
+      return { type: "jira", email, apiToken };
+    }
+    case "github":
+      // GitHub delegates to the `gh` CLI, which owns its own auth state.
+      // `rubber-ducky backend check github` is the right place to validate.
+      return { type: "github" };
+    default:
+      throw new Error(`Backend "${config.type}" is not yet implemented`);
+  }
+}
+
+/**
  * Create a backend instance from a workspace backend configuration.
  * Throws for backend types that are not yet implemented.
  */

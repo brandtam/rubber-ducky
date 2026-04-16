@@ -7,6 +7,12 @@ import {
   type MergeOptions,
   type MergeResult,
 } from "../lib/merge.js";
+import { runWriteActions } from "../lib/writeback.js";
+import type {
+  Backend,
+  CommentResult,
+  TaskPage,
+} from "../lib/backend.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -386,9 +392,11 @@ describe("runMerge", () => {
       workspaceRoot: tmpDir,
     });
 
-    expect(result.success).toBe(false);
-    expect(result.conflicts!.length).toBeGreaterThanOrEqual(1);
-    expect(result.conflicts!.find((c) => c.field === "status")).toBeDefined();
+    if (result.success) {
+      throw new Error("Expected merge to fail with conflicts");
+    }
+    expect(result.conflicts?.length).toBeGreaterThanOrEqual(1);
+    expect(result.conflicts?.find((c) => c.field === "status")).toBeDefined();
   });
 
   it("succeeds when conflicts exist but resolutions are provided", () => {
@@ -496,6 +504,68 @@ describe("runMerge", () => {
     expect(merged).toContain("## See also");
   });
 
+  it("pipes the merged TaskPage and writeActions through runWriteActions, invoking each backend's comment()", async () => {
+    seedWorkspace(tmpDir);
+    writeAsanaPage(tmpDir, "ECOMM-3585.md", {
+      ref: "https://app.asana.com/0/proj/3585",
+      asana_ref: "https://app.asana.com/0/proj/3585",
+    });
+    writeJiraPage(tmpDir, "WEB-297.md", {
+      ref: "WEB-297",
+      jira_ref: "https://jira.example.com/browse/WEB-297",
+    });
+
+    const result = runMerge({
+      asanaRef: "ECOMM-3585",
+      jiraRef: "WEB-297",
+      workspaceRoot: tmpDir,
+    });
+
+    if (!result.success) {
+      throw new Error(`Expected merge to succeed, got: ${result.error}`);
+    }
+
+    const calls: { backend: string; text: string }[] = [];
+    function stub(name: string): Backend {
+      return {
+        name,
+        capabilities: ["comment"],
+        ingest: async () => {
+          throw new Error("unused");
+        },
+        pull: async () => {
+          throw new Error("unused");
+        },
+        push: async () => {
+          throw new Error("unused");
+        },
+        comment: async (_page: TaskPage, text: string): Promise<CommentResult> => {
+          calls.push({ backend: name, text });
+          return { success: true, commentUrl: `https://${name}.example/c/1` };
+        },
+        transition: async () => {
+          throw new Error("unused");
+        },
+      };
+    }
+    const backends: Record<string, Backend> = {
+      asana: stub("asana"),
+      jira: stub("jira"),
+    };
+
+    const outcomes = await runWriteActions({
+      actions: result.writeActions,
+      taskPage: result.mergedTaskPage,
+      resolveBackend: (backend) => backends[backend],
+    });
+
+    expect(outcomes.map((o) => o.status)).toEqual(["success", "success"]);
+    expect(calls).toEqual([
+      { backend: "asana", text: "Linked to WEB-297 in work log" },
+      { backend: "jira", text: "Linked to ECOMM-3585 in work log" },
+    ]);
+  });
+
   it("returns writeActions for back-link comments in Asana and Jira", () => {
     seedWorkspace(tmpDir);
     writeAsanaPage(tmpDir, "ECOMM-3585.md", {
@@ -513,21 +583,18 @@ describe("runMerge", () => {
       workspaceRoot: tmpDir,
     });
 
-    expect(result.success).toBe(true);
-    expect(result.writeActions).toBeDefined();
+    if (!result.success) {
+      throw new Error(`Expected merge to succeed, got: ${result.error}`);
+    }
     expect(result.writeActions).toHaveLength(2);
 
-    const asanaWrite = result.writeActions!.find(
-      (w) => w.backend === "asana"
-    );
-    const jiraWrite = result.writeActions!.find(
-      (w) => w.backend === "jira"
-    );
+    const asanaWrite = result.writeActions.find((w) => w.backend === "asana");
+    const jiraWrite = result.writeActions.find((w) => w.backend === "jira");
 
     expect(asanaWrite).toBeDefined();
-    expect(asanaWrite!.action).toBe("comment");
+    expect(asanaWrite?.action).toBe("comment");
     expect(jiraWrite).toBeDefined();
-    expect(jiraWrite!.action).toBe("comment");
+    expect(jiraWrite?.action).toBe("comment");
   });
 
   it("integration: full merge with filesystem assertions", () => {
@@ -737,9 +804,11 @@ describe("runMerge — zero data loss for hand-edited sections", () => {
     };
     const result: MergeResult = runMerge(opts);
 
-    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error(`Expected merge to succeed, got: ${result.error}`);
+    }
 
-    const merged = fs.readFileSync(result.mergedPath!, "utf-8");
+    const merged = fs.readFileSync(result.mergedPath, "utf-8");
 
     expect(merged).toContain("## Decision notes (from Asana)");
     expect(merged).toContain("We picked option B because of latency.");
@@ -841,8 +910,10 @@ describe("runMerge — zero data loss for hand-edited sections", () => {
       jiraRef: "WEB-297",
       workspaceRoot: tmpDir,
     });
-    expect(result.success).toBe(true);
-    const merged = fs.readFileSync(result.mergedPath!, "utf-8");
+    if (!result.success) {
+      throw new Error(`Expected merge to succeed, got: ${result.error}`);
+    }
+    const merged = fs.readFileSync(result.mergedPath, "utf-8");
     expect(merged).not.toContain("Preserved extras:");
   });
 });
