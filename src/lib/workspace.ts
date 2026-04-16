@@ -49,6 +49,7 @@ const DIRS = [
   "raw",
   "references",
   ".obsidian",
+  ".rubber-ducky/transactions",
 ];
 
 export interface ExistingContentInfo {

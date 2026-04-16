@@ -4,6 +4,7 @@ import type {
   PullResult,
   PushResult,
   CommentResult,
+  FindCommentResult,
   TransitionResult,
   Status,
   ConnectivityResult,
@@ -256,6 +257,25 @@ export function createAsanaBackend(options: AsanaBackendOptions): Backend {
 
       return {
         success: true,
+        commentUrl: taskPage.asana_ref ?? taskGid,
+      };
+    },
+
+    async findCommentByMarker(
+      taskPage: TaskPage,
+      marker: string,
+    ): Promise<FindCommentResult> {
+      const taskGid = resolveTaskGid(taskPage);
+      if (!taskGid) return { found: false };
+
+      const stories = await client.getStories(taskGid);
+      const match = stories.find(
+        (s) => s.type === "comment" && s.text.includes(marker),
+      );
+      if (!match) return { found: false };
+
+      return {
+        found: true,
         commentUrl: taskPage.asana_ref ?? taskGid,
       };
     },

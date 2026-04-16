@@ -1,6 +1,7 @@
 /**
  * Merge orchestrator: composes frontmatter-merge, body-merge, vault-rewrite,
- * orphan delete, and back-link comment preparation into one atomic operation.
+ * orphan delete, and back-link comment preparation into one resumable
+ * operation guarded by a sentinel file.
  */
 
 import * as fs from "node:fs";
@@ -13,12 +14,24 @@ import { rewriteWikilinksForStems } from "./vault-rewrite.js";
 import { appendLog } from "./wiki.js";
 import type { TaskPage, Status } from "./backend.js";
 import type { WriteAction } from "./writeback.js";
+import {
+  createMergeSentinel,
+  writeSentinel,
+  advanceSentinel,
+  readSentinel,
+  mergeCommentMarker,
+  MERGE_STEPS,
+  type MergeSentinel,
+  type MergeStep,
+} from "./merge-sentinel.js";
 
 export interface MergeOptions {
   asanaRef: string;
   jiraRef: string;
   workspaceRoot: string;
   resolutions?: MergeResolutions;
+  /** Test-only: throw after advancing to this step to simulate a crash. */
+  __crashAfter?: MergeStep;
 }
 
 /**
@@ -41,6 +54,11 @@ export interface MergeSuccess {
    */
   mergedTaskPage: TaskPage;
   writeActions: WriteAction[];
+  /**
+   * Live sentinel state. The caller is responsible for advancing the
+   * sentinel through the back-link phase and deleting it on completion.
+   */
+  sentinel: MergeSentinel;
 }
 
 export interface MergeFailure {
@@ -207,8 +225,10 @@ function generateMergedPageContent(taskPage: TaskPage, body: string): string {
  * caller presents for confirmation and executes via the backend API.
  */
 export function runMerge(options: MergeOptions): MergeResult {
-  const { asanaRef, jiraRef, workspaceRoot, resolutions } = options;
+  const { asanaRef, jiraRef, workspaceRoot, resolutions, __crashAfter } = options;
   const tasksDir = path.join(workspaceRoot, "wiki", "tasks");
+
+  // ---- Validation (no sentinel yet — failures are clean) ----
 
   const asanaPath = findTaskFile(workspaceRoot, asanaRef);
   if (!asanaPath) {
@@ -246,6 +266,8 @@ export function runMerge(options: MergeOptions): MergeResult {
     };
   }
 
+  // ---- Prepare merge content ----
+
   const extras = collectPreservedExtras(asana.body, jira.body);
   let mergedBody = mergePageBodies(asana.body, jira.body);
   if (extras.asana.length > 0 || extras.jira.length > 0) {
@@ -253,37 +275,77 @@ export function runMerge(options: MergeOptions): MergeResult {
   }
   const mergedFilename = `${asanaRef} (${jiraRef}).md`;
   const mergedPath = path.join(tasksDir, mergedFilename);
+  const mergedStem = `${asanaRef} (${jiraRef})`;
   const mergedContent = generateMergedPageContent(fmResult.merged, mergedBody);
 
+  const marker = mergeCommentMarker(asanaRef, jiraRef);
+
+  // ---- Sentinel: begin tracked mutation sequence ----
+
+  let sentinel = createMergeSentinel({
+    asanaRef,
+    jiraRef,
+    resolutions: resolutions as Record<string, string> | undefined,
+    merged: {
+      filename: mergedFilename,
+      path: mergedPath,
+      stem: mergedStem,
+      oldAsanaStem: path.basename(asanaPath, ".md"),
+      oldJiraStem: path.basename(jiraPath, ".md"),
+    },
+  });
+  writeSentinel(workspaceRoot, sentinel);
+
+  if (__crashAfter === "started") throw new Error("__crashAfter: started");
+
+  // Phase 1: write merged file
   fs.mkdirSync(tasksDir, { recursive: true });
   fs.writeFileSync(mergedPath, mergedContent, "utf-8");
+  sentinel = advanceSentinel(workspaceRoot, sentinel, "merged-file-written");
 
-  // Unlink originals before the wikilink scan so `collectMdFiles` doesn't pick
-  // them up: rewriting links inside files we're about to delete is wasted work
-  // and leaves a confusing trail if the run is interrupted mid-pass.
+  if (__crashAfter === "merged-file-written") throw new Error("__crashAfter: merged-file-written");
+
+  // Phase 2: delete originals
   if (asanaPath !== mergedPath && fs.existsSync(asanaPath)) fs.unlinkSync(asanaPath);
   if (fs.existsSync(jiraPath)) fs.unlinkSync(jiraPath);
+  sentinel = advanceSentinel(workspaceRoot, sentinel, "orphans-deleted");
 
-  const mergedStem = `${asanaRef} (${jiraRef})`;
+  if (__crashAfter === "orphans-deleted") throw new Error("__crashAfter: orphans-deleted");
+
+  // Phase 3: rewrite wikilinks vault-wide
   rewriteWikilinksForStems(workspaceRoot, [
     { oldStem: path.basename(asanaPath, ".md"), newStem: mergedStem },
     { oldStem: path.basename(jiraPath, ".md"), newStem: mergedStem },
   ]);
+  sentinel = advanceSentinel(workspaceRoot, sentinel, "wikilinks-rewritten");
 
+  if (__crashAfter === "wikilinks-rewritten") throw new Error("__crashAfter: wikilinks-rewritten");
+
+  // Phase 4: audit log
   appendLog(workspaceRoot, `Merged ${asanaRef} + ${jiraRef} → ${mergedFilename}`);
+  sentinel = advanceSentinel(workspaceRoot, sentinel, "logged", {
+    backLinks: [
+      { backend: "asana", target: asana.taskPage.ref ?? asanaRef, posted: false },
+      { backend: "jira", target: jira.taskPage.ref ?? jiraRef, posted: false },
+    ],
+  });
+
+  if (__crashAfter === "logged") throw new Error("__crashAfter: logged");
+
+  // ---- Build write actions with idempotency marker ----
 
   const writeActions: WriteAction[] = [
     {
       action: "comment",
       backend: "asana",
       target: asana.taskPage.ref ?? asanaRef,
-      payload: { text: `Linked to ${jiraRef} in work log` },
+      payload: { text: `Linked to ${jiraRef} in work log\n${marker}` },
     },
     {
       action: "comment",
       backend: "jira",
       target: jira.taskPage.ref ?? jiraRef,
-      payload: { text: `Linked to ${asanaRef} in work log` },
+      payload: { text: `Linked to ${asanaRef} in work log\n${marker}` },
     },
   ];
 
@@ -293,5 +355,121 @@ export function runMerge(options: MergeOptions): MergeResult {
     mergedPath,
     mergedTaskPage: fmResult.merged,
     writeActions,
+    sentinel,
+  };
+}
+
+/**
+ * Resume a merge from the step recorded in the sentinel. Executes only
+ * the phases that haven't completed yet, leaving the vault in the same
+ * final state as an uninterrupted merge.
+ *
+ * Returns write actions for back-links that haven't been posted, or an
+ * empty array if the back-link phase was already complete.
+ */
+export function resumeMerge(
+  workspaceRoot: string,
+  sentinel: MergeSentinel,
+): MergeResult {
+  const { asanaRef, jiraRef } = sentinel.args;
+  const { merged } = sentinel;
+  const tasksDir = path.join(workspaceRoot, "wiki", "tasks");
+  // Captured once at entry: all phases after this index run unconditionally.
+  const stepIndex = MERGE_STEPS.indexOf(sentinel.step);
+
+  let current = sentinel;
+
+  // Phase 1: write merged file (if not done)
+  if (stepIndex < MERGE_STEPS.indexOf("merged-file-written")) {
+    const asanaPath = findTaskFile(workspaceRoot, asanaRef);
+    const jiraPath = findTaskFile(workspaceRoot, jiraRef);
+    if (!asanaPath && !jiraPath && !fs.existsSync(merged.path)) {
+      return {
+        success: false,
+        error: `Cannot resume: neither original files nor merged file found.`,
+      };
+    }
+
+    if (!fs.existsSync(merged.path)) {
+      if (!asanaPath || !jiraPath) {
+        return {
+          success: false,
+          error: `Cannot resume from 'started': original page(s) missing. Use --abort.`,
+        };
+      }
+      const asana = parsePageFile(asanaPath);
+      const jira = parsePageFile(jiraPath);
+      const resolutions = sentinel.args.resolutions as MergeResolutions | undefined;
+      const fmResult = mergeFrontmatter(asana.taskPage, jira.taskPage, resolutions);
+      if (fmResult.conflicts.length > 0) {
+        return {
+          success: false,
+          error: `Resume encountered unresolved conflicts. Use --abort and re-run with resolution flags.`,
+          conflicts: fmResult.conflicts,
+        };
+      }
+      const extras = collectPreservedExtras(asana.body, jira.body);
+      let mergedBody = mergePageBodies(asana.body, jira.body);
+      if (extras.asana.length > 0 || extras.jira.length > 0) {
+        mergedBody = appendMergeBreadcrumb(mergedBody, asanaRef, jiraRef, extras);
+      }
+      const mergedContent = generateMergedPageContent(fmResult.merged, mergedBody);
+      fs.mkdirSync(tasksDir, { recursive: true });
+      fs.writeFileSync(merged.path, mergedContent, "utf-8");
+    }
+    current = advanceSentinel(workspaceRoot, current, "merged-file-written");
+  }
+
+  // Phase 2: delete originals (if not done)
+  if (stepIndex < MERGE_STEPS.indexOf("orphans-deleted")) {
+    const asanaPath = path.join(tasksDir, `${merged.oldAsanaStem}.md`);
+    const jiraPath = path.join(tasksDir, `${merged.oldJiraStem}.md`);
+    if (asanaPath !== merged.path && fs.existsSync(asanaPath)) fs.unlinkSync(asanaPath);
+    if (fs.existsSync(jiraPath)) fs.unlinkSync(jiraPath);
+    current = advanceSentinel(workspaceRoot, current, "orphans-deleted");
+  }
+
+  // Phase 3: rewrite wikilinks (if not done)
+  if (stepIndex < MERGE_STEPS.indexOf("wikilinks-rewritten")) {
+    rewriteWikilinksForStems(workspaceRoot, [
+      { oldStem: merged.oldAsanaStem, newStem: merged.stem },
+      { oldStem: merged.oldJiraStem, newStem: merged.stem },
+    ]);
+    current = advanceSentinel(workspaceRoot, current, "wikilinks-rewritten");
+  }
+
+  // Phase 4: audit log (if not done)
+  if (stepIndex < MERGE_STEPS.indexOf("logged")) {
+    appendLog(workspaceRoot, `Merged ${asanaRef} + ${jiraRef} → ${merged.filename} (resumed)`);
+    const backLinks = current.backLinks ?? [
+      { backend: "asana" as const, target: asanaRef, posted: false },
+      { backend: "jira" as const, target: jiraRef, posted: false },
+    ];
+    current = advanceSentinel(workspaceRoot, current, "logged", { backLinks });
+  }
+
+  // Re-parse the merged file to get the TaskPage for back-link posting
+  const mergedPage = parsePageFile(merged.path);
+  const marker = mergeCommentMarker(asanaRef, jiraRef);
+
+  const pendingBackLinks = (current.backLinks ?? []).filter((b) => !b.posted);
+  const writeActions: WriteAction[] = pendingBackLinks.map((bl) => ({
+    action: "comment" as const,
+    backend: bl.backend,
+    target: bl.target,
+    payload: {
+      text: bl.backend === "asana"
+        ? `Linked to ${jiraRef} in work log\n${marker}`
+        : `Linked to ${asanaRef} in work log\n${marker}`,
+    },
+  }));
+
+  return {
+    success: true,
+    mergedFilename: merged.filename,
+    mergedPath: merged.path,
+    mergedTaskPage: mergedPage.taskPage,
+    writeActions,
+    sentinel: current,
   };
 }

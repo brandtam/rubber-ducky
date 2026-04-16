@@ -4,6 +4,7 @@ import chalk from "chalk";
 import { findWorkspaceRoot } from "../lib/workspace.js";
 import { formatOutput } from "../lib/output.js";
 import { runMigrate } from "../lib/migrate.js";
+import { guardOrphanSentinel } from "./shared.js";
 
 export function registerMigrateCommand(program: Command): void {
   program
@@ -31,6 +32,8 @@ export function registerMigrateCommand(program: Command): void {
         }
         process.exit(1);
       }
+
+      guardOrphanSentinel(workspaceRoot, jsonMode);
 
       try {
         const result = runMigrate(workspaceRoot);

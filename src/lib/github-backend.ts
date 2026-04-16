@@ -5,6 +5,7 @@ import type {
   PullResult,
   PushResult,
   CommentResult,
+  FindCommentResult,
   TransitionResult,
   Status,
   ConnectivityResult,
@@ -162,6 +163,30 @@ export function createGitHubBackend(options?: {
         success: true,
         commentUrl: output.trim() || target,
       };
+    },
+
+    async findCommentByMarker(
+      taskPage: TaskPage,
+      marker: string,
+    ): Promise<FindCommentResult> {
+      const target = taskPage.gh_ref ?? taskPage.ref;
+      if (!target) return { found: false };
+
+      try {
+        const output = gh([
+          "issue",
+          "view",
+          target,
+          "--json",
+          "comments",
+          "--jq",
+          ".comments[].body",
+        ]);
+        const found = output.includes(marker);
+        return { found, commentUrl: found ? target : undefined };
+      } catch {
+        return { found: false };
+      }
     },
 
     async transition(

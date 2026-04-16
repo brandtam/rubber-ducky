@@ -396,6 +396,25 @@ describe("createWorkspace", () => {
       expect(result.dirsCreated).toContain("wiki/projects");
       expect(result.dirsCreated).toContain("raw");
     });
+
+    it("creates .rubber-ducky/transactions directory", async () => {
+      const result = await createWorkspace(opts());
+
+      expect(result.dirsCreated).toContain(".rubber-ducky/transactions");
+      expect(
+        fs.existsSync(path.join(result.workspacePath, ".rubber-ducky", "transactions")),
+      ).toBe(true);
+    });
+
+    it("includes .rubber-ducky/ in generated .gitignore", async () => {
+      const result = await createWorkspace(opts());
+
+      const gitignore = fs.readFileSync(
+        path.join(result.workspacePath, ".gitignore"),
+        "utf-8",
+      );
+      expect(gitignore).toContain(".rubber-ducky/");
+    });
   });
 
   describe("detectExistingContent", () => {

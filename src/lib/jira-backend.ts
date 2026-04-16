@@ -4,6 +4,7 @@ import type {
   PullResult,
   PushResult,
   CommentResult,
+  FindCommentResult,
   TransitionResult,
   Status,
   ConnectivityResult,
@@ -207,6 +208,23 @@ export function createJiraBackend(options: JiraBackendOptions): Backend {
 
       return {
         success: true,
+        commentUrl: `${serverUrl}/browse/${issueKey}`,
+      };
+    },
+
+    async findCommentByMarker(
+      taskPage: TaskPage,
+      marker: string,
+    ): Promise<FindCommentResult> {
+      if (!taskPage.jira_ref && !taskPage.ref) return { found: false };
+
+      const issueKey = issueKeyFromTaskPage(taskPage);
+      const comments = await client.getComments(issueKey);
+      const match = comments.find((c) => c.body.includes(marker));
+      if (!match) return { found: false };
+
+      return {
+        found: true,
         commentUrl: `${serverUrl}/browse/${issueKey}`,
       };
     },

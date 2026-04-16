@@ -588,6 +588,73 @@ describe("Jira backend", () => {
     });
   });
 
+  describe("findCommentByMarker", () => {
+    it("returns found when a comment contains the marker", async () => {
+      const client = makeMockClient({
+        getComments: async () => [
+          {
+            id: "c1",
+            body: "Linked to ECOMM-100 in work log\n<!-- rubber-ducky:merge:ECOMM-100+WEB-50 -->",
+            author: { displayName: "Bot" },
+            created: "2026-01-01T00:00:00Z",
+          },
+        ],
+      });
+
+      const backend = createJiraBackend({
+        client,
+        serverUrl: "https://myorg.atlassian.net",
+      });
+      const taskPage = makeTaskPage();
+
+      const result = await backend.findCommentByMarker(
+        taskPage,
+        "<!-- rubber-ducky:merge:ECOMM-100+WEB-50 -->",
+      );
+      expect(result.found).toBe(true);
+      expect(result.commentUrl).toContain("PROJ-123");
+    });
+
+    it("returns not found when no comment contains the marker", async () => {
+      const client = makeMockClient({
+        getComments: async () => [
+          {
+            id: "c1",
+            body: "Some unrelated comment",
+            author: { displayName: "User" },
+            created: "2026-01-01T00:00:00Z",
+          },
+        ],
+      });
+
+      const backend = createJiraBackend({
+        client,
+        serverUrl: "https://myorg.atlassian.net",
+      });
+      const taskPage = makeTaskPage();
+
+      const result = await backend.findCommentByMarker(
+        taskPage,
+        "<!-- rubber-ducky:merge:ECOMM-100+WEB-50 -->",
+      );
+      expect(result.found).toBe(false);
+    });
+
+    it("returns not found when task page has no reference", async () => {
+      const backend = createJiraBackend({
+        client: makeMockClient(),
+        serverUrl: "https://myorg.atlassian.net",
+      });
+      const taskPage = makeTaskPage({ ref: null, jira_ref: null });
+
+      const result = await backend.findCommentByMarker(
+        taskPage,
+        "<!-- rubber-ducky:merge:ECOMM-100+WEB-50 -->",
+      );
+      expect(result.found).toBe(false);
+    });
+  });
+
   describe("transition", () => {
     it("transitions a Jira issue status", async () => {
       const capturedCalls: { issueKey: string; transitionId: string }[] = [];

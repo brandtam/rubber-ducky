@@ -22,6 +22,7 @@ function seedWorkspace(root: string): void {
   fs.mkdirSync(path.join(root, "wiki", "tasks"), { recursive: true });
   fs.mkdirSync(path.join(root, "wiki", "daily"), { recursive: true });
   fs.mkdirSync(path.join(root, "wiki", "projects"), { recursive: true });
+  fs.mkdirSync(path.join(root, ".rubber-ducky", "transactions"), { recursive: true });
 
   fs.writeFileSync(
     path.join(root, "workspace.md"),
@@ -543,6 +544,7 @@ describe("runMerge", () => {
           calls.push({ backend: name, text });
           return { success: true, commentUrl: `https://${name}.example/c/1` };
         },
+        findCommentByMarker: async () => ({ found: false }),
         transition: async () => {
           throw new Error("unused");
         },
@@ -561,8 +563,8 @@ describe("runMerge", () => {
 
     expect(outcomes.map((o) => o.status)).toEqual(["success", "success"]);
     expect(calls).toEqual([
-      { backend: "asana", text: "Linked to WEB-297 in work log" },
-      { backend: "jira", text: "Linked to ECOMM-3585 in work log" },
+      { backend: "asana", text: "Linked to WEB-297 in work log\n<!-- rubber-ducky:merge:ECOMM-3585+WEB-297 -->" },
+      { backend: "jira", text: "Linked to ECOMM-3585 in work log\n<!-- rubber-ducky:merge:ECOMM-3585+WEB-297 -->" },
     ]);
   });
 

@@ -18,6 +18,7 @@ import { createThrottleNotifier } from "../lib/http/throttle-notifier.js";
 import { runNamingPrompt, persistNamingResult } from "../lib/naming-prompt.js";
 import { inferLegacyScheme } from "../lib/naming.js";
 import type { BackendConfig } from "../lib/templates.js";
+import { guardOrphanSentinel } from "./shared.js";
 
 function exitWithError(msg: string, jsonMode: boolean): never {
   if (jsonMode) {
@@ -120,6 +121,8 @@ export function registerIngestCommand(program: Command): void {
             jsonMode
           );
         }
+
+        guardOrphanSentinel(workspaceRoot, jsonMode);
 
         let token: string;
         try {
@@ -261,6 +264,8 @@ export function registerIngestCommand(program: Command): void {
           jsonMode
         );
       }
+
+      guardOrphanSentinel(workspaceRoot, jsonMode);
 
       let email: string;
       let apiToken: string;

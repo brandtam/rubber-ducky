@@ -3,7 +3,7 @@ import * as clack from "@clack/prompts";
 import chalk from "chalk";
 import { findWorkspaceRoot, loadWorkspaceConfig } from "../lib/workspace.js";
 import { formatOutput } from "../lib/output.js";
-import { runMerge } from "../lib/merge.js";
+import { runMerge, resumeMerge } from "../lib/merge.js";
 import {
   formatWritePreview,
   logWriteAction,
@@ -18,6 +18,17 @@ import {
   type TaskPage,
 } from "../lib/backend.js";
 import type { MergeResolutions } from "../lib/frontmatter-merge.js";
+import {
+  findOrphanSentinels,
+  readSentinel,
+  deleteSentinel,
+  deleteSentinelAbort,
+  advanceSentinel,
+  describeRemainingWork,
+  mergeCommentMarker,
+  type MergeSentinel,
+} from "../lib/merge-sentinel.js";
+import { guardOrphanSentinel } from "./shared.js";
 
 export function registerMergeCommand(program: Command): void {
   program
@@ -31,6 +42,8 @@ export function registerMergeCommand(program: Command): void {
     .option("--resolve-priority <priority>", "Resolve priority conflict with this value")
     .option("--resolve-assignee <assignee>", "Resolve assignee conflict with this value")
     .option("--resolve-due <due>", "Resolve due date conflict with this value")
+    .option("--resume", "Resume an interrupted merge from the last completed step")
+    .option("--abort", "Abort an interrupted merge and delete the sentinel")
     .option(
       "--yes",
       "Post back-link comments without prompting. In TTY mode, bypasses the confirmation prompt; in --json mode, enables back-link posting (which is otherwise plan-only)."
@@ -44,6 +57,8 @@ export function registerMergeCommand(program: Command): void {
           resolvePriority?: string;
           resolveAssignee?: string;
           resolveDue?: string;
+          resume?: boolean;
+          abort?: boolean;
           yes?: boolean;
         },
         cmd: Command
@@ -67,6 +82,20 @@ export function registerMergeCommand(program: Command): void {
           }
           process.exit(1);
         }
+
+        // ---- Abort path ----
+        if (opts.abort) {
+          await handleAbort(workspaceRoot, asanaRef, jiraRef, jsonMode, opts.yes);
+          return;
+        }
+
+        // ---- Resume path ----
+        if (opts.resume) {
+          await handleResume(workspaceRoot, asanaRef, jiraRef, jsonMode, opts.yes);
+          return;
+        }
+
+        guardOrphanSentinel(workspaceRoot, jsonMode);
 
         // Build resolutions from CLI flags
         const resolutions: MergeResolutions = {};
@@ -118,107 +147,12 @@ export function registerMergeCommand(program: Command): void {
             process.exit(1);
           }
 
-          // Success path — `result` is narrowed to MergeSuccess here, so
-          // mergedFilename / writeActions / mergedTaskPage are all present
-          // without optional chaining or `!` assertions.
-          if (jsonMode) {
-            // --yes opts scripted callers into the same capability TTY
-            // users get via the clack prompt. Without --yes, JSON mode
-            // stays plan-only so existing tooling that parses the
-            // writeActions plan is not broken.
-            const outcomes =
-              opts.yes && result.writeActions.length > 0
-                ? await postBackLinkComments({
-                    workspaceRoot,
-                    writeActions: result.writeActions,
-                    mergedTaskPage: result.mergedTaskPage,
-                  })
-                : null;
-
-            console.log(
-              formatOutput(
-                {
-                  success: true,
-                  mergedFilename: result.mergedFilename,
-                  writeActions: result.writeActions.map((w) => ({
-                    action: w.action,
-                    backend: w.backend,
-                    target: w.target,
-                    text: w.payload.text,
-                  })),
-                  backLinkOutcomes: outcomes?.map((o) => ({
-                    backend: o.action.backend,
-                    target: o.action.target,
-                    status: o.status,
-                    commentUrl: o.commentUrl,
-                    error: o.error,
-                    onSuccessError: o.onSuccessError,
-                  })),
-                },
-                { json: true, humanReadable: "" }
-              )
-            );
-
-            if (outcomes && outcomesHaveDrift(outcomes)) {
-              process.exit(1);
-            }
-          } else {
-            clack.intro(chalk.bold("rubber-ducky merge"));
-            clack.log.success(
-              `Merged ${asanaRef} + ${jiraRef} → ${result.mergedFilename}`
-            );
-
-            if (result.writeActions.length > 0) {
-              clack.log.info("\nPending back-link comments:");
-              for (const wa of result.writeActions) {
-                clack.log.info(
-                  chalk.dim("─".repeat(40)) +
-                    "\n" +
-                    formatWritePreview(wa)
-                );
-              }
-
-              let shouldPost: boolean;
-              if (opts.yes) {
-                shouldPost = true;
-              } else {
-                const confirmed = await clack.confirm({
-                  message: "Post back-link comments to Asana and Jira?",
-                });
-                shouldPost = !clack.isCancel(confirmed) && confirmed === true;
-              }
-
-              if (!shouldPost) {
-                clack.log.warn(
-                  "Back-link comments skipped. You can post them manually later."
-                );
-              } else {
-                const outcomes = await postBackLinkComments({
-                  workspaceRoot,
-                  writeActions: result.writeActions,
-                  mergedTaskPage: result.mergedTaskPage,
-                });
-                reportWriteOutcomes(outcomes);
-                if (outcomesHaveDrift(outcomes)) {
-                  const hasPostFailure = outcomes.some(
-                    (o) => o.status === "failure"
-                  );
-                  // Red, not yellow: we exit non-zero so CI sees failure —
-                  // the on-screen severity must match the shell's verdict.
-                  clack.outro(
-                    chalk.red(
-                      hasPostFailure
-                        ? "Merge complete; back-link posting had failures."
-                        : "Merge complete; audit log did not persist for every post."
-                    )
-                  );
-                  process.exit(1);
-                }
-              }
-            }
-
-            clack.outro(chalk.green("Merge complete."));
-          }
+          await completeBackLinksAndFinalize({
+            workspaceRoot,
+            result,
+            jsonMode,
+            yes: opts.yes,
+          });
         } catch (error) {
           const msg =
             error instanceof Error ? error.message : "Unknown error";
@@ -238,17 +172,286 @@ export function registerMergeCommand(program: Command): void {
     );
 }
 
-/**
- * Post back-link comments to each backend referenced in the merge's
- * writeActions. Logs successful posts to wiki/log.md only after the remote
- * call returns. Failures in one backend do not block the other.
- */
+// ---------------------------------------------------------------------------
+// Resume handler
+// ---------------------------------------------------------------------------
+
+async function handleResume(
+  workspaceRoot: string,
+  asanaRef: string,
+  jiraRef: string,
+  jsonMode: boolean,
+  yes?: boolean,
+): Promise<void> {
+  const orphans = findOrphanSentinels(workspaceRoot);
+  const match = orphans.find(
+    (o) =>
+      o.sentinel.args.asanaRef === asanaRef &&
+      o.sentinel.args.jiraRef === jiraRef,
+  );
+
+  if (!match) {
+    const msg = `No interrupted merge found for ${asanaRef} + ${jiraRef}.`;
+    if (jsonMode) {
+      console.log(formatOutput({ success: false, error: msg }, { json: true, humanReadable: msg }));
+    } else {
+      clack.log.error(msg);
+    }
+    process.exit(1);
+  }
+
+  const sentinel = readSentinel(match.filePath);
+
+  try {
+    const result = resumeMerge(workspaceRoot, sentinel);
+    if (!result.success) {
+      if (jsonMode) {
+        console.log(
+          formatOutput(
+            { success: false, error: result.error, conflicts: result.conflicts },
+            { json: true, humanReadable: result.error },
+          ),
+        );
+      } else {
+        clack.log.error(result.error);
+      }
+      process.exit(1);
+    }
+
+    await completeBackLinksAndFinalize({
+      workspaceRoot,
+      result,
+      jsonMode,
+      yes,
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    if (jsonMode) {
+      console.log(formatOutput({ success: false, error: msg }, { json: true, humanReadable: msg }));
+    } else {
+      clack.log.error(msg);
+    }
+    process.exit(1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Abort handler
+// ---------------------------------------------------------------------------
+
+async function handleAbort(
+  workspaceRoot: string,
+  asanaRef: string,
+  jiraRef: string,
+  jsonMode: boolean,
+  yes?: boolean,
+): Promise<void> {
+  const orphans = findOrphanSentinels(workspaceRoot);
+  const match = orphans.find(
+    (o) =>
+      o.sentinel.args.asanaRef === asanaRef &&
+      o.sentinel.args.jiraRef === jiraRef,
+  );
+
+  if (!match) {
+    const msg = `No interrupted merge found for ${asanaRef} + ${jiraRef}.`;
+    if (jsonMode) {
+      console.log(formatOutput({ success: false, error: msg }, { json: true, humanReadable: msg }));
+    } else {
+      clack.log.error(msg);
+    }
+    process.exit(1);
+  }
+
+  const sentinel = readSentinel(match.filePath);
+  const remaining = describeRemainingWork(sentinel);
+
+  if (!jsonMode) {
+    clack.intro(chalk.bold("rubber-ducky merge --abort"));
+    clack.log.warning(
+      `Aborting interrupted merge: ${asanaRef} + ${jiraRef}\n` +
+      `Last completed step: ${sentinel.step}\n\n` +
+      `Remaining work that will NOT be completed:\n` +
+      remaining.map((r) => `  • ${r}`).join("\n"),
+    );
+
+    if (!yes) {
+      const confirmed = await clack.confirm({
+        message: "Delete the sentinel and abort this merge?",
+      });
+      if (clack.isCancel(confirmed) || !confirmed) {
+        clack.cancel("Abort cancelled.");
+        process.exit(0);
+      }
+    }
+  }
+
+  deleteSentinelAbort(workspaceRoot, sentinel);
+
+  if (jsonMode) {
+    console.log(
+      formatOutput(
+        {
+          success: true,
+          aborted: true,
+          step: sentinel.step,
+          remainingWork: remaining,
+        },
+        { json: true, humanReadable: "" },
+      ),
+    );
+  } else {
+    clack.log.success("Sentinel deleted.");
+    clack.outro(
+      chalk.yellow(
+        "Merge aborted. The vault may be in a partial state — review the remaining work listed above.",
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared: complete back-links + finalize sentinel
+// ---------------------------------------------------------------------------
+
+interface CompleteParams {
+  workspaceRoot: string;
+  result: Extract<ReturnType<typeof runMerge>, { success: true }>;
+  jsonMode: boolean;
+  yes?: boolean;
+}
+
+async function completeBackLinksAndFinalize(params: CompleteParams): Promise<void> {
+  const { workspaceRoot, result, jsonMode, yes } = params;
+  let { sentinel } = result;
+
+  if (jsonMode) {
+    const outcomes =
+      yes && result.writeActions.length > 0
+        ? await postBackLinkComments({
+            workspaceRoot,
+            writeActions: result.writeActions,
+            mergedTaskPage: result.mergedTaskPage,
+            sentinel,
+          })
+        : null;
+
+    if (outcomes) {
+      sentinel = updateSentinelFromOutcomes(workspaceRoot, sentinel, outcomes);
+    }
+
+    // If back-links were skipped (no --yes), treat as complete
+    if (!outcomes || !result.writeActions.length) {
+      sentinel = advanceSentinel(workspaceRoot, sentinel, "back-links-posted");
+    }
+
+    deleteSentinel(workspaceRoot, sentinel);
+
+    console.log(
+      formatOutput(
+        {
+          success: true,
+          mergedFilename: result.mergedFilename,
+          writeActions: result.writeActions.map((w) => ({
+            action: w.action,
+            backend: w.backend,
+            target: w.target,
+            text: w.payload.text,
+          })),
+          backLinkOutcomes: outcomes?.map((o) => ({
+            backend: o.action.backend,
+            target: o.action.target,
+            status: o.status,
+            commentUrl: o.commentUrl,
+            error: o.error,
+            onSuccessError: o.onSuccessError,
+          })),
+        },
+        { json: true, humanReadable: "" }
+      )
+    );
+
+    if (outcomes && outcomesHaveDrift(outcomes)) {
+      process.exit(1);
+    }
+  } else {
+    clack.intro(chalk.bold("rubber-ducky merge"));
+    clack.log.success(
+      `Merged ${sentinel.args.asanaRef} + ${sentinel.args.jiraRef} → ${result.mergedFilename}`
+    );
+
+    if (result.writeActions.length > 0) {
+      clack.log.info("\nPending back-link comments:");
+      for (const wa of result.writeActions) {
+        clack.log.info(
+          chalk.dim("─".repeat(40)) +
+            "\n" +
+            formatWritePreview(wa)
+        );
+      }
+
+      let shouldPost: boolean;
+      if (yes) {
+        shouldPost = true;
+      } else {
+        const confirmed = await clack.confirm({
+          message: "Post back-link comments to Asana and Jira?",
+        });
+        shouldPost = !clack.isCancel(confirmed) && confirmed === true;
+      }
+
+      if (!shouldPost) {
+        clack.log.warn(
+          "Back-link comments skipped. You can post them manually later."
+        );
+        sentinel = advanceSentinel(workspaceRoot, sentinel, "back-links-posted");
+      } else {
+        const outcomes = await postBackLinkComments({
+          workspaceRoot,
+          writeActions: result.writeActions,
+          mergedTaskPage: result.mergedTaskPage,
+          sentinel,
+        });
+        sentinel = updateSentinelFromOutcomes(workspaceRoot, sentinel, outcomes);
+        reportWriteOutcomes(outcomes);
+        if (outcomesHaveDrift(outcomes)) {
+          const hasPostFailure = outcomes.some(
+            (o) => o.status === "failure"
+          );
+          clack.outro(
+            chalk.red(
+              hasPostFailure
+                ? "Merge complete; back-link posting had failures."
+                : "Merge complete; audit log did not persist for every post."
+            )
+          );
+          process.exit(1);
+        }
+      }
+    } else {
+      sentinel = advanceSentinel(workspaceRoot, sentinel, "back-links-posted");
+    }
+
+    deleteSentinel(workspaceRoot, sentinel);
+    clack.outro(chalk.green("Merge complete."));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Back-link posting with sentinel tracking
+// ---------------------------------------------------------------------------
+
 async function postBackLinkComments(params: {
   workspaceRoot: string;
   writeActions: WriteAction[];
   mergedTaskPage: TaskPage;
+  sentinel: MergeSentinel;
 }): Promise<WriteActionOutcome[]> {
   const config = loadWorkspaceConfig(params.workspaceRoot);
+  const marker = mergeCommentMarker(
+    params.sentinel.args.asanaRef,
+    params.sentinel.args.jiraRef,
+  );
 
   return runWriteActions({
     actions: params.writeActions,
@@ -260,12 +463,18 @@ async function postBackLinkComments(params: {
           `No "${backendName}" backend configured in workspace.md`
         );
       }
-      // Fail fast with a setup-pointer when creds are missing; otherwise
-      // the underlying API call would surface a less actionable 401. The
-      // throw is caught by `runWriteActions` and recorded as a per-action
-      // failure so a missing Jira token still lets the Asana post proceed.
       requireCredentials(backendConfig);
       return getBackend(backendConfig);
+    },
+    onPreAction: async (action, backend) => {
+      const existing = await backend.findCommentByMarker(
+        params.mergedTaskPage,
+        marker,
+      );
+      if (existing.found) {
+        return { skip: true, commentUrl: existing.commentUrl };
+      }
+      return { skip: false };
     },
     onSuccess: (action, outcome) => {
       logWriteAction(params.workspaceRoot, action, outcome.commentUrl);
@@ -274,10 +483,33 @@ async function postBackLinkComments(params: {
 }
 
 /**
- * True when any outcome represents state drift: a remote post failed, OR a
- * remote post succeeded but the local audit-log write did not. Either case
- * is worth a non-zero exit so CI and shell pipelines notice.
+ * Update the sentinel's backLinks entries based on post outcomes,
+ * and advance to back-links-posted if all are done.
  */
+function updateSentinelFromOutcomes(
+  workspaceRoot: string,
+  sentinel: MergeSentinel,
+  outcomes: WriteActionOutcome[],
+): MergeSentinel {
+  const backLinks = (sentinel.backLinks ?? []).map((bl) => {
+    const outcome = outcomes.find(
+      (o) => o.action.backend === bl.backend && o.action.target === bl.target,
+    );
+    if (outcome && outcome.status === "success") {
+      return { ...bl, posted: true, commentUrl: outcome.commentUrl };
+    }
+    return bl;
+  });
+
+  const allPosted = backLinks.every((bl) => bl.posted);
+  const step = allPosted ? "back-links-posted" as const : sentinel.step;
+  return advanceSentinel(workspaceRoot, sentinel, step, { backLinks });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function outcomesHaveDrift(outcomes: WriteActionOutcome[]): boolean {
   return outcomes.some(
     (o) => o.status === "failure" || o.onSuccessError !== undefined
@@ -291,9 +523,6 @@ function reportWriteOutcomes(outcomes: WriteActionOutcome[]): void {
       const suffix = outcome.commentUrl ? ` → ${outcome.commentUrl}` : "";
       clack.log.success(`Posted back-link to ${label}${suffix}`);
       if (outcome.onSuccessError !== undefined) {
-        // The remote post landed; only the local audit log failed. Report
-        // it distinctly so the user does not retry the merge and create a
-        // duplicate comment.
         clack.log.warn(
           `Audit log write failed for ${label}: ${outcome.onSuccessError}`
         );
