@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import {
   assertCapability,
   getBackend,
   checkConnectivity,
+  requireCredentials,
   type TaskPage,
 } from "../lib/backend.js";
 import {
@@ -56,6 +57,64 @@ describe("Backend interface", () => {
       expect(() => assertCapability(backend, "transition")).toThrow(
         'Backend "github" does not support "transition"'
       );
+    });
+  });
+
+  describe("requireCredentials", () => {
+    const originalEnv = {
+      ASANA_ACCESS_TOKEN: process.env.ASANA_ACCESS_TOKEN,
+      JIRA_EMAIL: process.env.JIRA_EMAIL,
+      JIRA_API_TOKEN: process.env.JIRA_API_TOKEN,
+    };
+
+    beforeEach(() => {
+      delete process.env.ASANA_ACCESS_TOKEN;
+      delete process.env.JIRA_EMAIL;
+      delete process.env.JIRA_API_TOKEN;
+    });
+
+    afterEach(() => {
+      for (const [key, value] of Object.entries(originalEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    });
+
+    it("throws a setup-pointer error when ASANA_ACCESS_TOKEN is missing", () => {
+      expect(() => requireCredentials({ type: "asana" })).toThrow(
+        /ASANA_ACCESS_TOKEN is not set.*references\/backend-setup\.md/
+      );
+    });
+
+    it("returns the validated Asana token so callers don't re-read the env", () => {
+      process.env.ASANA_ACCESS_TOKEN = "asana-token-value";
+      const creds = requireCredentials({ type: "asana" });
+      expect(creds).toEqual({ type: "asana", accessToken: "asana-token-value" });
+    });
+
+    it("throws on JIRA_EMAIL before JIRA_API_TOKEN so users fix one at a time", () => {
+      expect(() => requireCredentials({ type: "jira" })).toThrow(
+        /JIRA_EMAIL is not set/
+      );
+      process.env.JIRA_EMAIL = "me@example.com";
+      expect(() => requireCredentials({ type: "jira" })).toThrow(
+        /JIRA_API_TOKEN is not set/
+      );
+      process.env.JIRA_API_TOKEN = "secret";
+      expect(requireCredentials({ type: "jira" })).toEqual({
+        type: "jira",
+        email: "me@example.com",
+        apiToken: "secret",
+      });
+    });
+
+    it("is a no-op for github (auth is delegated to the gh CLI)", () => {
+      expect(
+        requireCredentials({ type: "github", mcp_server: "github" })
+      ).toEqual({ type: "github" });
     });
   });
 

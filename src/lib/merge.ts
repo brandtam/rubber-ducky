@@ -21,13 +21,33 @@ export interface MergeOptions {
   resolutions?: MergeResolutions;
 }
 
-export interface MergeResult {
-  success: boolean;
-  mergedFilename?: string;
-  mergedPath?: string;
+/**
+ * Discriminated union on `success`. Narrowing with `if (result.success)`
+ * gives the compiler proof that the post-merge fields are present, so
+ * callers never need non-null assertions to reach `mergedTaskPage` or
+ * `writeActions`. New adapters (push, transition, migrate) should mirror
+ * this shape rather than re-introducing the bag-of-optionals pattern.
+ */
+export type MergeResult = MergeSuccess | MergeFailure;
+
+export interface MergeSuccess {
+  success: true;
+  mergedFilename: string;
+  mergedPath: string;
+  /**
+   * The merged canonical TaskPage written to disk. Exposed so callers can
+   * drive back-link writes (`backend.comment`) against the merged identity
+   * without re-parsing the file.
+   */
+  mergedTaskPage: TaskPage;
+  writeActions: WriteAction[];
+}
+
+export interface MergeFailure {
+  success: false;
+  error: string;
+  /** Present only when the failure was unresolved frontmatter conflicts. */
   conflicts?: MergeConflict[];
-  writeActions?: WriteAction[];
-  error?: string;
 }
 
 interface ParsedPage {
@@ -267,5 +287,11 @@ export function runMerge(options: MergeOptions): MergeResult {
     },
   ];
 
-  return { success: true, mergedFilename, mergedPath, writeActions };
+  return {
+    success: true,
+    mergedFilename,
+    mergedPath,
+    mergedTaskPage: fmResult.merged,
+    writeActions,
+  };
 }

@@ -241,6 +241,67 @@ describe("rubber-ducky merge CLI", () => {
     }
   });
 
+  it("JSON mode without --yes stays plan-only (backLinkOutcomes absent, backward compatible)", () => {
+    createWorkspace(tmpDir);
+    writeAsanaPage(tmpDir, "ECOMM-3585.md");
+    writeJiraPage(tmpDir, "WEB-297.md");
+
+    const output = runCli(
+      ["--json", "merge", "ECOMM-3585", "WEB-297"],
+      tmpDir
+    );
+    const parsed = JSON.parse(output);
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.writeActions).toHaveLength(2);
+    expect(parsed.backLinkOutcomes).toBeUndefined();
+  });
+
+  it("JSON mode with --yes executes posts and surfaces outcomes; missing creds become per-backend failures and exit non-zero", () => {
+    createWorkspace(tmpDir);
+    writeAsanaPage(tmpDir, "ECOMM-3585.md");
+    writeJiraPage(tmpDir, "WEB-297.md");
+
+    // Strip credentials so requireCredentials throws inside runWriteActions'
+    // resolver — the executor captures each throw as a per-action failure,
+    // proving the flag drives execution and partial-failure is preserved.
+    const envWithoutCreds = { ...process.env };
+    delete envWithoutCreds.ASANA_ACCESS_TOKEN;
+    delete envWithoutCreds.JIRA_EMAIL;
+    delete envWithoutCreds.JIRA_API_TOKEN;
+
+    let output = "";
+    try {
+      execFileSync(
+        TSX_PATH,
+        [CLI_PATH, "--json", "merge", "ECOMM-3585", "WEB-297", "--yes"],
+        {
+          encoding: "utf-8",
+          cwd: tmpDir,
+          env: { ...envWithoutCreds, NO_COLOR: "1" },
+        }
+      );
+      throw new Error("Expected CLI to exit non-zero");
+    } catch (error: unknown) {
+      if (error instanceof Error && "stdout" in error) {
+        output = (error as { stdout: string; status: number }).stdout;
+        expect(
+          (error as { status: number }).status
+        ).toBe(1);
+      } else {
+        throw error;
+      }
+    }
+
+    const parsed = JSON.parse(output);
+    expect(parsed.success).toBe(true);
+    expect(parsed.backLinkOutcomes).toHaveLength(2);
+    expect(parsed.backLinkOutcomes[0].status).toBe("failure");
+    expect(parsed.backLinkOutcomes[0].error).toMatch(/ASANA_ACCESS_TOKEN/);
+    expect(parsed.backLinkOutcomes[1].status).toBe("failure");
+    expect(parsed.backLinkOutcomes[1].error).toMatch(/JIRA_EMAIL/);
+  });
+
   it("fails when Asana page does not exist", () => {
     createWorkspace(tmpDir);
     writeJiraPage(tmpDir, "WEB-297.md");
