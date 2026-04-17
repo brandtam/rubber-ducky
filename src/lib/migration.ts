@@ -30,6 +30,10 @@ export interface ScanResult {
 
 const IGNORED_DIRS = new Set([".obsidian", ".git", "node_modules", ".claude"]);
 
+// User-facing content dirs that start empty. Git doesn't track empty folders,
+// so scaffolded workspaces drop a `.gitkeep` in each to keep them in the repo.
+export const GITKEEP_DIRS = new Set(["wiki/daily", "wiki/tasks", "wiki/projects", "raw"]);
+
 function collectMdFiles(dir: string, baseDir: string): ExistingFile[] {
   const files: ExistingFile[] = [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -166,9 +170,13 @@ export function executeMigration(
   const { name, purpose, targetDir } = opts;
   const filesCreated: string[] = [];
 
-  // Create missing directories
+  // Create missing directories. For user-facing content dirs that start empty,
+  // also drop a `.gitkeep` so git tracks the folder in the initial commit.
   for (const dir of plan.dirsToCreate) {
     fs.mkdirSync(path.join(targetDir, dir), { recursive: true });
+    if (GITKEEP_DIRS.has(dir)) {
+      fs.writeFileSync(path.join(targetDir, dir, ".gitkeep"), "", "utf-8");
+    }
   }
 
   // Create template files

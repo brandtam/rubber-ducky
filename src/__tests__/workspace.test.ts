@@ -41,6 +41,14 @@ describe("createWorkspace", () => {
       expect(fs.existsSync(path.join(result.workspacePath, "raw"))).toBe(true);
     });
 
+    it("drops .gitkeep files in empty content directories so git tracks them", async () => {
+      const result = await createWorkspace(opts());
+
+      for (const dir of ["wiki/daily", "wiki/tasks", "wiki/projects", "raw"]) {
+        expect(fs.existsSync(path.join(result.workspacePath, dir, ".gitkeep"))).toBe(true);
+      }
+    });
+
     it("creates the workspace in the specified target directory", async () => {
       const target = path.join(tmpDir, "custom-target");
       const result = await createWorkspace(opts({ targetDir: target }));

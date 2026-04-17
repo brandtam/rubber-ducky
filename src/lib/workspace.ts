@@ -20,6 +20,7 @@ import {
   scanExistingContent,
   buildMigrationPlan,
   executeMigration,
+  GITKEEP_DIRS,
   type ScanResult,
   type MigrationPlan,
 } from "./migration.js";
@@ -135,9 +136,13 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
   // Create workspace directory
   fs.mkdirSync(targetDir, { recursive: true });
 
-  // Create subdirectories
+  // Create subdirectories. Git doesn't track empty folders, so drop a
+  // `.gitkeep` in each user-facing content dir so it survives the first commit.
   for (const dir of DIRS) {
     fs.mkdirSync(path.join(targetDir, dir), { recursive: true });
+    if (GITKEEP_DIRS.has(dir)) {
+      fs.writeFileSync(path.join(targetDir, dir, ".gitkeep"), "", "utf-8");
+    }
   }
 
   // Generate and write core config files
