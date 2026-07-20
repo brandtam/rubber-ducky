@@ -1,0 +1,13 @@
+{
+  "name": "rubber-ducky",
+  "version": "3.0.0-dev",
+  "description": "Your AI helper in Obsidian. Spin up a vault for anything, talk to rubber-ducky about it; it remembers across sessions and acts on what you tell it.",
+  "author": {
+    "name": "Brandt Milczewski"
+  },
+  "homepage": "https://github.com/brandtam/rubber-ducky",
+  "repository": "https://github.com/brandtam/rubber-ducky",
+  "license": "MIT",
+  "keywords": ["obsidian", "wiki", "vault", "notes", "cli"],
+  "hooks": "./hooks/hooks.json"
+}
