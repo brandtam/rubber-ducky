@@ -1,0 +1,93 @@
+name: Release
+
+# Tag push → per-platform single-file binaries, each smoke-tested with the
+# full CLI-integration suite (the harness's RUBBER_DUCKY_TEST_BINARY switch,
+# same as ci.yml's test-binary job) before anything is published. The release
+# job only runs after every platform passes, so a failed smoke test on any
+# platform means no assets are published. GitHub tags + Releases are the only
+# distribution channel — no npm publishing.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  # The embedded version comes from a static package.json import at compile
+  # time, so tag and package.json must agree before we build anything.
+  verify-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches package.json version
+        run: |
+          pkg_version="$(jq -r .version package.json)"
+          if [ "${GITHUB_REF_NAME}" != "v${pkg_version}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version v${pkg_version}" >&2
+            exit 1
+          fi
+
+  # Build and smoke-test natively on each platform. Cross-compiling would be
+  # cheaper, but a binary we can't execute is a binary we can't smoke-test —
+  # so each target builds on a runner that can run it.
+  build-and-smoke-test:
+    needs: verify-version
+    strategy:
+      matrix:
+        include:
+          - target: bun-linux-x64
+            runner: ubuntu-latest
+            artifact: rubber-ducky-linux-x64
+          - target: bun-darwin-arm64
+            runner: macos-14
+            artifact: rubber-ducky-darwin-arm64
+          - target: bun-darwin-x64
+            runner: macos-15-intel
+            artifact: rubber-ducky-darwin-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Compile binary
+        run: bun build --compile --target=${{ matrix.target }} src/cli.ts --outfile dist/${{ matrix.artifact }}
+      - name: Verify binary reports the tagged version
+        run: |
+          reported="$(./dist/${{ matrix.artifact }} --version)"
+          if [ "v${reported}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Binary reports v${reported}, expected ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+      - name: Smoke test (full suite against the compiled binary)
+        run: bun test
+        env:
+          RUBBER_DUCKY_TEST_BINARY: ${{ github.workspace }}/dist/${{ matrix.artifact }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  # Runs only when every matrix job above passed — this is the gate that
+  # keeps assets unpublished if any smoke test fails.
+  release:
+    needs: build-and-smoke-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create GitHub Release with binaries attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --verify-tag \
+            --generate-notes
