@@ -71,6 +71,32 @@ describe("hook wiring", () => {
     expect(commands[0].command).toContain("${CLAUDE_PLUGIN_ROOT}");
   });
 
+  it("registers the confirm gate as a Bash-scoped PreToolUse hook", () => {
+    const preToolUse = hooks.hooks?.PreToolUse;
+    expect(Array.isArray(preToolUse)).toBe(true);
+    expect(preToolUse).toHaveLength(1);
+    // Scoped to Bash: the gate matches registered external-write commands;
+    // other tools must never be routed through command matching.
+    expect(preToolUse[0].matcher).toBe("Bash");
+    const commands = preToolUse[0].hooks;
+    expect(commands).toHaveLength(1);
+    expect(commands[0].type).toBe("command");
+    // The gate routes through the bin wrapper's hidden verb — one code path
+    // for policy resolution (the compiled CLI), no jq/node dependency.
+    expect(commands[0].command).toContain("${CLAUDE_PLUGIN_ROOT}");
+    expect(commands[0].command).toContain("bin/rubber-ducky hook pre-tool-use");
+  });
+
+  it("the confirm-gate hook command points at the executable bin wrapper", () => {
+    const command: string = hooks.hooks.PreToolUse[0].hooks[0].command;
+    const scriptPath = command
+      .replaceAll('"', "")
+      .replace("${CLAUDE_PLUGIN_ROOT}", REPO_ROOT)
+      .split(" ")[0];
+    expect(fs.existsSync(scriptPath)).toBe(true);
+    expect((fs.statSync(scriptPath).mode & 0o111) !== 0).toBe(true);
+  });
+
   it("points at a pre-warm script that exists and is executable", () => {
     const command: string = hooks.hooks.SessionStart[0].hooks[0].command;
     // Resolve ${CLAUDE_PLUGIN_ROOT} to the repo root (the plugin root) and

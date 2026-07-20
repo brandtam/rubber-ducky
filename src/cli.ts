@@ -21,6 +21,7 @@ import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerSettingsCommand } from "./commands/settings.js";
 import { registerContextCommand } from "./commands/context.js";
 import { registerDriftCommand } from "./commands/drift.js";
+import { registerHookCommand } from "./commands/hook.js";
 // Static import so the version is embedded at build time. The CLI ships as a
 // compiled single-file binary — never resolve package.json (or any asset)
 // relative to the module URL at runtime.
@@ -62,6 +63,7 @@ export function createProgram(): Command {
   registerSettingsCommand(program);
   registerContextCommand(program);
   registerDriftCommand(program);
+  registerHookCommand(program);
 
   return program;
 }
