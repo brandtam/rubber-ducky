@@ -1,0 +1,44 @@
+{
+  "name": "rubber-ducky",
+  "author": "Brandt Milczewski",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/brandtam/rubber-ducky-v3"
+  },
+  "homepage": "https://github.com/brandtam/rubber-ducky-v3",
+  "bugs": {
+    "url": "https://github.com/brandtam/rubber-ducky-v3/issues"
+  },
+  "keywords": [
+    "ai",
+    "assistant",
+    "cli",
+    "obsidian",
+    "claude code",
+    "llm wiki"
+  ],
+  "version": "3.0.0-dev",
+  "description": "Your AI helper in Obsidian. Spin up a vault for anything, talk to rubber-ducky about it; it remembers across sessions and acts on what you tell it.",
+  "type": "module",
+  "bin": {
+    "rubber-ducky": "./dist/rubber-ducky"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "bun build --compile src/cli.ts --outfile dist/rubber-ducky",
+    "dev": "bun src/cli.ts"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "chalk": "^5.6.2",
+    "commander": "^13.1.0",
+    "jsonc-parser": "^3.3.1",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.2",
+    "typescript": "^5.9.3"
+  }
+}

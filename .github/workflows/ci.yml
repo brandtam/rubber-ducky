@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+
+  # Prove the compiled single-file binary passes the same suite the source
+  # does — this is the harness's RUBBER_DUCKY_TEST_BINARY switch under CI.
+  test-binary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun test
+        env:
+          RUBBER_DUCKY_TEST_BINARY: ${{ github.workspace }}/dist/rubber-ducky

@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Local Claude Code config (permissions are user-specific)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Test coverage
+coverage/
+
+# Misc
+*.tgz
+.cache/
+tmp/
+
+# Test-leak guard: macOS tmpdir-style dirs that show up as `var-folders-*` or
+# `private-var-folders-*` mean a test wrote into the repo cwd by mistake. The
+# bug is fixed, but keeping this here so any future regression doesn't pollute
+# the working tree silently.
+var-folders-*/
+private-var-folders-*/
