@@ -125,20 +125,25 @@ describe("createWorkspace", () => {
     });
   });
 
-  describe("CLAUDE.md generation", () => {
-    it("creates CLAUDE.md", async () => {
+  describe("AGENTS.md / CLAUDE.md generation", () => {
+    it("creates AGENTS.md and a CLAUDE.md shim that imports it", async () => {
       const result = await createWorkspace(opts());
       expect(
-        fs.existsSync(path.join(result.workspacePath, "CLAUDE.md"))
+        fs.existsSync(path.join(result.workspacePath, "AGENTS.md"))
       ).toBe(true);
+
+      const shim = fs.readFileSync(
+        path.join(result.workspacePath, "CLAUDE.md"),
+        "utf-8"
+      );
+      expect(shim).toContain("@AGENTS.md");
+      expect(shim.trimEnd().split("\n")).toHaveLength(2);
     });
-
-
 
     it("does NOT reference UBIQUITOUS_LANGUAGE.md in silent init (no backends)", async () => {
       const result = await createWorkspace(opts());
       const content = fs.readFileSync(
-        path.join(result.workspacePath, "CLAUDE.md"),
+        path.join(result.workspacePath, "AGENTS.md"),
         "utf-8"
       );
 
@@ -148,7 +153,7 @@ describe("createWorkspace", () => {
     it("includes a Connected integrations placeholder when no backends", async () => {
       const result = await createWorkspace(opts());
       const content = fs.readFileSync(
-        path.join(result.workspacePath, "CLAUDE.md"),
+        path.join(result.workspacePath, "AGENTS.md"),
         "utf-8"
       );
 
@@ -159,7 +164,7 @@ describe("createWorkspace", () => {
     it("includes CLI command reference and request mapping", async () => {
       const result = await createWorkspace(opts());
       const content = fs.readFileSync(
-        path.join(result.workspacePath, "CLAUDE.md"),
+        path.join(result.workspacePath, "AGENTS.md"),
         "utf-8"
       );
 

@@ -181,7 +181,23 @@ See \`rubber-ducky doctor\` to verify configuration.
   return `---\n${yamlStringify(frontmatter).trimEnd()}\n---\n\n${body}`;
 }
 
-export function generateClaudeMd(opts: TemplateOptions): string {
+/**
+ * CLAUDE.md shim written into every vault. Claude Code does not read
+ * AGENTS.md natively, so CLAUDE.md exists solely to import it — the
+ * canonical agent instructions live in AGENTS.md (readable by any
+ * AGENTS.md-aware tool). Exactly two lines by design: a pointer comment
+ * and the import.
+ */
+export const CLAUDE_MD_SHIM = `<!-- Managed by rubber-ducky. This shim exists because Claude Code reads CLAUDE.md; the canonical agent instructions live in AGENTS.md — edit that file instead. -->
+@AGENTS.md
+`;
+
+/**
+ * AGENTS.md — the canonical agent-instructions file for a vault.
+ * (Formerly generated as CLAUDE.md; CLAUDE.md is now a two-line shim that
+ * imports this file. See CLAUDE_MD_SHIM.)
+ */
+export function generateAgentsMd(opts: TemplateOptions): string {
   const integrationsSection = `
 ## Connected integrations
 
@@ -202,7 +218,7 @@ Once an integration is connected, this section will list it along with a pointer
 - Ask the user to paste API tokens, passwords, or credentials into the chat
 - Log, echo, or output environment variable values that contain secrets
 - Include token values in commit messages, task pages, or any persisted file
-- Store credentials in \`workspace.md\`, \`CLAUDE.md\`, or any tracked file
+- Store credentials in \`workspace.md\`, \`AGENTS.md\`, or any tracked file
 
 Credentials belong **only** in the workspace's untracked \`.env.local\` file. Never try to debug a failing integration by inspecting the user's token values.
 `;
@@ -237,6 +253,8 @@ If the value is \`true\`, proceed normally.
 - \`wiki/projects/\` — Project pages
 - \`wiki/index.md\` — Auto-generated page index
 - \`wiki/log.md\` — Timestamped activity log
+- \`wiki/tasks.base\` — Task board (Obsidian Bases view over task pages)
+- \`wiki/projects.base\` — Project table (Obsidian Bases view over project pages)
 - \`raw/\` — Immutable input files (screenshots, attachments)
 ${integrationsSection}${credentialGuardrails}
 
@@ -281,6 +299,7 @@ All commands support \`--json\` for structured output. Run these via bash.
 - \`rubber-ducky doctor\` — Run health checks (structure, config)
 - \`rubber-ducky doctor lint\` — Lint pages (stale tasks, orphans, broken links, schema)
 - \`rubber-ducky status\` — Show workspace info
+- \`rubber-ducky adopt [dir]\` — Preview (default) or \`--apply\` a non-destructive refresh of managed files
 
 ## Conventions
 
@@ -618,6 +637,148 @@ export function generateClaudeSettings(): string {
 
   return JSON.stringify(settings, null, 2) + "\n";
 }
+
+/**
+ * Obsidian Bases views shipped into every vault. `.base` files are YAML
+ * documents rendered by Obsidian's core Bases plugin (1.9+) — they replace
+ * the Dataview dependency v2 carried. Two views ship: a task board over
+ * `wiki/tasks/` and a project table over `wiki/projects/`. Static strings,
+ * embedded at compile time like every other template.
+ */
+export interface BaseViewTemplate {
+  /** Path relative to the vault root (e.g. `wiki/tasks.base`). */
+  relativePath: string;
+  content: string;
+}
+
+export function generateBaseViews(): BaseViewTemplate[] {
+  return [
+    { relativePath: "wiki/tasks.base", content: TASKS_BASE_TEMPLATE },
+    { relativePath: "wiki/projects.base", content: PROJECTS_BASE_TEMPLATE },
+  ];
+}
+
+// Task board. Filters to task pages under wiki/tasks/ and offers a
+// status-sorted board plus focused tabs for the common slices. Property
+// references use the explicit `note.` prefix so they can never collide
+// with Bases' built-in `file.` namespace.
+const TASKS_BASE_TEMPLATE = `filters:
+  and:
+    - file.inFolder("wiki/tasks")
+    - file.ext == "md"
+    - note.type == "task"
+properties:
+  note.title:
+    displayName: Title
+  note.status:
+    displayName: Status
+  note.priority:
+    displayName: Priority
+  note.due:
+    displayName: Due
+  note.updated:
+    displayName: Updated
+  note.closed:
+    displayName: Closed
+views:
+  - type: table
+    name: Board
+    order:
+      - note.title
+      - note.status
+      - note.priority
+      - note.due
+      - note.updated
+    sort:
+      - property: note.status
+        direction: ASC
+      - property: note.priority
+        direction: ASC
+  - type: table
+    name: Open
+    filters:
+      and:
+        - note.status != "done"
+        - note.status != "deferred"
+    order:
+      - note.title
+      - note.status
+      - note.priority
+      - note.due
+    sort:
+      - property: note.status
+        direction: ASC
+      - property: note.due
+        direction: ASC
+  - type: table
+    name: In progress
+    filters:
+      and:
+        - note.status == "in-progress"
+    order:
+      - note.title
+      - note.priority
+      - note.due
+      - note.updated
+    sort:
+      - property: note.updated
+        direction: DESC
+  - type: table
+    name: Done
+    filters:
+      and:
+        - note.status == "done"
+    order:
+      - note.title
+      - note.closed
+    sort:
+      - property: note.closed
+        direction: DESC
+`;
+
+// Project table. One row per project page with the fields that matter for
+// a portfolio glance.
+const PROJECTS_BASE_TEMPLATE = `filters:
+  and:
+    - file.inFolder("wiki/projects")
+    - file.ext == "md"
+    - note.type == "project"
+properties:
+  note.title:
+    displayName: Title
+  note.status:
+    displayName: Status
+  note.tags:
+    displayName: Tags
+  note.created:
+    displayName: Created
+  note.updated:
+    displayName: Updated
+views:
+  - type: table
+    name: Projects
+    order:
+      - note.title
+      - note.status
+      - note.tags
+      - note.created
+      - note.updated
+    sort:
+      - property: note.updated
+        direction: DESC
+  - type: table
+    name: Active
+    filters:
+      and:
+        - note.status == "in-progress"
+    order:
+      - note.title
+      - note.tags
+      - note.updated
+    sort:
+      - property: note.updated
+        direction: DESC
+`;
 
 /**
  * Generate a .gitignore for rubber-ducky workspaces.

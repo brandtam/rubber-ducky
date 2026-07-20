@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { parse as parseYaml } from "yaml";
 import {
   generateWorkspaceMd,
-  generateClaudeMd,
+  generateAgentsMd,
   generateReferenceFiles,
 } from "../lib/templates.js";
 
@@ -91,29 +91,29 @@ describe("generateWorkspaceMd", () => {
   });
 });
 
-describe("generateClaudeMd", () => {
+describe("generateAgentsMd", () => {
   it("includes workspace identity", () => {
-    const content = generateClaudeMd({ name: "Dev Log", purpose: "Daily tracking" });
+    const content = generateAgentsMd({ name: "Dev Log", purpose: "Daily tracking" });
 
     expect(content).toContain("Dev Log");
     expect(content).toContain("Daily tracking");
   });
 
   it("does NOT reference UBIQUITOUS_LANGUAGE.md when no backends are configured", () => {
-    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+    const content = generateAgentsMd({ name: "Test", purpose: "Testing" });
 
     expect(content).not.toContain("Import and follow @UBIQUITOUS_LANGUAGE.md");
   });
 
   it("includes a Connected integrations placeholder when no backends", () => {
-    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+    const content = generateAgentsMd({ name: "Test", purpose: "Testing" });
 
     expect(content).toContain("## Connected integrations");
     expect(content).toContain("/connect");
   });
 
   it("always includes the credential safety guardrail", () => {
-    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+    const content = generateAgentsMd({ name: "Test", purpose: "Testing" });
 
     expect(content).toContain("## Credential safety");
     expect(content).toContain(
@@ -122,14 +122,14 @@ describe("generateClaudeMd", () => {
   });
 
   it("includes key file pointers", () => {
-    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+    const content = generateAgentsMd({ name: "Test", purpose: "Testing" });
 
     expect(content).toContain("workspace.md");
     expect(content).toContain("wiki/");
   });
 
   it("includes CLI command reference", () => {
-    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+    const content = generateAgentsMd({ name: "Test", purpose: "Testing" });
 
     expect(content).toContain("rubber-ducky page create");
     expect(content).toContain("rubber-ducky task start");
@@ -138,35 +138,35 @@ describe("generateClaudeMd", () => {
   });
 
   it("includes common request mapping table", () => {
-    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+    const content = generateAgentsMd({ name: "Test", purpose: "Testing" });
 
     expect(content).toContain("User says");
     expect(content).toContain("You do");
   });
 
   it("describes the primary interface role", () => {
-    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+    const content = generateAgentsMd({ name: "Test", purpose: "Testing" });
 
     expect(content).toContain("You are the primary interface");
   });
 
   it("does not include cli_mode references", () => {
-    const content = generateClaudeMd({ name: "Test", purpose: "Testing" });
+    const content = generateAgentsMd({ name: "Test", purpose: "Testing" });
 
     expect(content).not.toContain("cli_mode");
   });
 });
 
-describe("generateClaudeMd natural-language triggers", () => {
+describe("generateAgentsMd natural-language triggers", () => {
   it("instructs the agent to dispatch good-morning greetings directly", () => {
-    const content = generateClaudeMd({ name: "W", purpose: "P" });
+    const content = generateAgentsMd({ name: "W", purpose: "P" });
 
     expect(content).toContain("/good-morning");
     expect(content).toContain("do not ask for confirmation");
   });
 
   it("instructs the agent to dispatch wrap-up triggers directly", () => {
-    const content = generateClaudeMd({ name: "W", purpose: "P" });
+    const content = generateAgentsMd({ name: "W", purpose: "P" });
 
     expect(content).toContain("/wrap-up");
     expect(content).toContain("eod");
