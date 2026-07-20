@@ -36,6 +36,19 @@ this reference rather than improvising.
 - **"start a project called …"** → project page; tasks and meetings can attach
   to it.
 
+## Integrations
+
+- **"connect github" / "add an integration"** → wire up an external service:
+  pick a transport, write the bridge doc, register write patterns.
+- **"ingest issue 42" / "pull in that ticket"** → external ticket lands as a
+  typed wiki task page.
+- **"comment on the ticket" / "close it upstream"** → preview-then-confirm
+  write back to the connected tracker.
+- **"file a bug about …" / "new ticket for …"** → draft locally, create
+  upstream on approval, link the wiki page.
+- **"are we in sync?" / "check drift"** → reconcile wiki vs tracker,
+  per-disagreement: accept theirs, accept wiki, or skip.
+
 ## Agents (delegated work)
 
 - **"what did I work on last week?" / "when did we first discuss X?"** →
