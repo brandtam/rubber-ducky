@@ -1,0 +1,14 @@
+{
+  "name": "rubber-ducky",
+  "owner": {
+    "name": "Brandt Milczewski"
+  },
+  "description": "Self-hosted marketplace for the rubber-ducky plugin — the repo is both the plugin and its own catalog.",
+  "plugins": [
+    {
+      "name": "rubber-ducky",
+      "source": "./",
+      "description": "Your AI helper in Obsidian. Spin up a vault for anything, talk to rubber-ducky about it; it remembers across sessions and acts on what you tell it."
+    }
+  ]
+}
