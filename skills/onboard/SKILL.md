@@ -53,6 +53,47 @@ or this vault — bios, docs, anything — and I'll route what's useful into the
 right pages. Or say skip." Route pasted material into the same four context
 pages, append-only.
 
+## Pairings (optional, offer both)
+
+Two opt-ins after the interview, offered one at a time. Yes/no each; a decline
+just moves on — never re-pitch. Neither requires Obsidian to be installed, and
+both stay available later (the help skill lists them).
+
+**1. Official Obsidian skills.** Ask: "Want me to install the official
+Obsidian skills (by Obsidian's creator)? They teach me Obsidian-flavored
+markdown, Bases, and canvas files." On yes, run:
+
+```
+claude plugin marketplace add kepano/obsidian-skills
+claude plugin install obsidian@obsidian-skills
+```
+
+Then tell the user the skills load next session (or after `/reload-plugins`).
+If the commands fail, give the in-session fallback to run themselves:
+`/plugin marketplace add kepano/obsidian-skills` then
+`/plugin install obsidian@obsidian-skills`.
+
+**2. Memory in the vault.** Ask: "Want Claude Code's auto-memory to live
+inside this vault, so my notes-to-self are visible in Obsidian next to
+everything else?" On yes:
+
+1. `mkdir -p memory` in the vault root.
+2. Set `autoMemoryDirectory` in `.claude/settings.local.json` to the vault's
+   **absolute** path plus `/memory` (expand it via `pwd`; relative values are
+   rejected). Merge with any existing keys in that file — never clobber. Use
+   `settings.local.json`, not `settings.json`: the path is machine-specific
+   and `settings.json` is adopt-managed.
+3. Tell the user: takes effect next session; to carry over existing memory,
+   copy the contents of `~/.claude/projects/<project>/memory/` into
+   `memory/`. See `docs/spikes/auto-memory-redirect.md` in the plugin repo
+   for the full semantics.
+
+Record the outcome either way:
+
+```
+rubber-ducky log append "[onboard] pairings: obsidian-skills=<yes|no> memory-in-vault=<yes|no>"
+```
+
 ## Hand-off
 
 End with exactly one sentence: *I'm rubber-ducky. Say `help` anytime to see

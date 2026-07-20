@@ -173,6 +173,26 @@ describe("generateAgentsMd natural-language triggers", () => {
   });
 });
 
+describe("generateAgentsMd Obsidian visual moments (issue #10)", () => {
+  const content = generateAgentsMd({ name: "W", purpose: "P" });
+
+  it("teaches the show-me-that-note flow via the Obsidian CLI", () => {
+    expect(content).toContain("## Showing notes in Obsidian");
+    expect(content).toContain('obsidian open file="');
+    expect(content).toContain("Show me that note");
+  });
+
+  it("gates on CLI presence and a running app before opening anything", () => {
+    expect(content).toContain("command -v obsidian");
+    expect(content).toContain("pgrep -x Obsidian");
+  });
+
+  it("degrades gracefully headless — Obsidian is never required", () => {
+    expect(content).toContain("Obsidian is never required");
+    expect(content).toContain("never an error");
+  });
+});
+
 describe("generateReferenceFiles", () => {
   it("returns universal files when no backends provided", () => {
     const refs = generateReferenceFiles();

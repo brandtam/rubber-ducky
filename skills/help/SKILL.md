@@ -47,6 +47,19 @@ this reference rather than improvising.
 - **"research X for me"** → `research-partner` agent: web research with source
   citations.
 
+## Obsidian pairing (all optional — nothing requires Obsidian)
+
+- **"show me that note" / "open that in Obsidian"** → opens the note on screen
+  via the Obsidian CLI when the app is running; renders it in chat otherwise
+  (the flow lives in AGENTS.md, "Showing notes in Obsidian").
+- **"install the Obsidian skills"** → official skills by Obsidian's creator:
+  `claude plugin marketplace add kepano/obsidian-skills` then
+  `claude plugin install obsidian@obsidian-skills`.
+- **"put memory in the vault"** → point Claude Code's auto-memory at
+  `<vault>/memory/` via `autoMemoryDirectory` in `.claude/settings.local.json`
+  (absolute path; merge, don't clobber). Both pairings are also offered during
+  onboarding.
+
 ## Settings
 
 Natural phrasing works — translate intent into `rubber-ducky settings` calls:
