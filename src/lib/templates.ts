@@ -355,11 +355,22 @@ Never persist work content (tasks, decisions, log entries) to memory. Never pers
 | "Remind me on Friday to ..." | \`rubber-ducky remind add <date> "<message>"\` |
 | "I had an idea: ..." | \`rubber-ducky idea add "<message>"\` |
 | "Log this: ..." | \`rubber-ducky log append "<message>"\` |
+| "Show me that note" / "Open that in Obsidian" | Follow **Showing notes in Obsidian** below |
 | "What's on my plate?" | Read today's daily page + task pages, synthesize a summary |
 | "What did I do yesterday?" | Read yesterday's daily page, summarize |
 | "Run a health check" | \`rubber-ducky doctor\` |
 
 Natural-language triggers are first-class. When the user's intent maps cleanly to a skill, invoke the skill directly — do not ask "would you like me to run /x?". The point of this workspace is that the user shouldn't have to remember slash commands.
+
+## Showing notes in Obsidian
+
+Obsidian is never required — every flow here works headless. But when the user asks to *see* a note ("show me that note", "open it in Obsidian"), add the visual moment when it is free:
+
+1. **CLI present?** \`command -v obsidian\`. Missing → skip silently and render the note in chat instead.
+2. **App running?** \`pgrep -x Obsidian\` (macOS) or \`pgrep -if obsidian\` (Linux). The CLI auto-launches the app when it isn't running — don't trigger that. Not running → show the note in chat, and offer once: "Obsidian isn't open — want me to launch it and open the note there?"
+3. **Open it:** from the vault root (the CLI targets the vault containing the cwd), run \`obsidian open file="<vault-relative path without .md>"\`.
+
+A missing CLI or closed app is normal operation, never an error — degrade to rendering the note in chat without comment.
 
 `;
 }

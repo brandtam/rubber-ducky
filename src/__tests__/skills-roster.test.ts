@@ -138,6 +138,30 @@ describe("agent roster", () => {
   }
 });
 
+describe("obsidian & memory pairings (issue #10)", () => {
+  const onboard = fs.readFileSync(path.join(SKILLS_DIR, "onboard", "SKILL.md"), "utf-8");
+  const help = fs.readFileSync(path.join(SKILLS_DIR, "help", "SKILL.md"), "utf-8");
+
+  it("onboard offers the official Obsidian skills install", () => {
+    expect(onboard).toContain("kepano/obsidian-skills");
+    expect(onboard).toContain("obsidian@obsidian-skills");
+  });
+
+  it("onboard offers the auto-memory redirect into the vault, local-scope only", () => {
+    expect(onboard).toContain("autoMemoryDirectory");
+    expect(onboard).toContain("settings.local.json");
+    // The vault's .claude/settings.json is adopt-managed; the skill must
+    // steer the machine-specific absolute path away from it.
+    expect(onboard).toContain("adopt-managed");
+  });
+
+  it("help documents the show-me-that-note flow and both pairings", () => {
+    expect(help.toLowerCase()).toContain("show me that note");
+    expect(help).toContain("kepano/obsidian-skills");
+    expect(help).toContain("autoMemoryDirectory");
+  });
+});
+
 describe("no legacy CLI verbs", () => {
   const files = [...markdownFilesUnder(SKILLS_DIR), ...markdownFilesUnder(AGENTS_DIR)];
 
