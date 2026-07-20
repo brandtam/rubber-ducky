@@ -78,6 +78,19 @@ Body content.
         disagreements: [],
       });
     });
+
+    it("auto-emits JSON when stdout is piped even without --json", () => {
+      // The harness runs the CLI under execFileSync, so the child's stdout is
+      // a pipe (not a TTY) — exactly the bridge-doc workflow's case. Output
+      // must parse as the JSON envelope, not human/clack text.
+      const stdout = runCli(
+        ["drift", pageFile],
+        tmpDir,
+        JSON.stringify({ status: "in-progress" }),
+      );
+      expect(() => JSON.parse(stdout)).not.toThrow();
+      expect(JSON.parse(stdout).success).toBe(true);
+    });
   });
 
   describe("partial disagreement", () => {

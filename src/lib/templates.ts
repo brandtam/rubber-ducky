@@ -9,9 +9,10 @@ import { SETTINGS_TEMPLATE } from "./settings.js";
 export const VAULT_SETTINGS_TEMPLATE = SETTINGS_TEMPLATE;
 
 /**
- * Ongoing-context-capture pages scaffolded at init time. The `/ingest-writing`
- * skill appends to these — never overwrites — so the schema is intentionally
- * minimal: just enough section structure to keep extractions findable.
+ * Ongoing-context-capture pages scaffolded at init time. The Agent appends to
+ * these — during `/onboard`, and `/wrap-up` for voice samples — never
+ * overwrites, so the schema is intentionally minimal: just enough section
+ * structure to keep extractions findable.
  */
 export interface ContextPageTemplate {
   /** Path relative to the vault root (e.g. `wiki/voice.md`). */
@@ -41,16 +42,16 @@ description: "Voice samples and extracted tone patterns. Append-only; never sile
 
 # Voice
 
-> This page is maintained by the Agent via \`/ingest-writing\`. You can edit it by hand if you want, but you don't have to.
+> This page is maintained by the Agent — seeded during \`/onboard\` and updated as you work. Edit it by hand anytime; you don't have to.
 
 Samples of how the user writes and talks, plus tone patterns extracted from
-those samples. Skills that draft on the user's behalf (\`/push\`,
-\`/comment\`) read this page to match voice.
+those samples. Skills that draft on the user's behalf (\`/new-ticket\`,
+\`/backend-write\`) read this page to match voice.
 
 ## Samples
 
 <!-- Each entry: ### Source — YYYY-MM-DD followed by the raw text and a
-short note on why it was kept. Appended by \`/ingest-writing\`. -->
+short note on why it was kept. Appended during \`/wrap-up\` (voice-sample opt-in). -->
 
 ## Extracted patterns
 
@@ -65,7 +66,7 @@ description: "Factual context about the user — role, team, projects, who-repor
 
 # About
 
-> This page is maintained by the Agent via \`/ingest-writing\`. You can edit it by hand if you want, but you don't have to.
+> This page is maintained by the Agent — seeded during \`/onboard\` and updated as you work. Edit it by hand anytime; you don't have to.
 
 Stable facts the Agent should know about the user. Append-only — superseded
 facts get marked as such, not deleted, so future drafts don't reassert old
@@ -82,7 +83,7 @@ state.
 ## People
 
 <!-- Names, roles, relationships — peers, manager, reports, frequent
-collaborators. Source-attributed when added by \`/ingest-writing\`. -->
+collaborators. Source-attributed when added by the Agent. -->
 `;
 
 const VOCABULARY_PAGE_TEMPLATE = `---
@@ -92,7 +93,7 @@ description: "Terms, acronyms, and internal-system names this workspace expects 
 
 # Vocabulary
 
-> This page is maintained by the Agent via \`/ingest-writing\`. You can edit it by hand if you want, but you don't have to.
+> This page is maintained by the Agent — seeded during \`/onboard\` and updated as you work. Edit it by hand anytime; you don't have to.
 
 Terms, acronyms, and internal-system names this workspace uses — the words you
 want the Agent to know and use consistently. Append-only.
@@ -100,7 +101,7 @@ want the Agent to know and use consistently. Append-only.
 ## Terms
 
 <!-- Each entry: **<term>** — definition. Source-attributed when added by
-\`/ingest-writing\`. -->
+the Agent. -->
 
 ## Acronyms
 
@@ -119,7 +120,7 @@ description: "Communication preferences, style rules, and pet peeves the Agent s
 
 # Preferences
 
-> This page is maintained by the Agent via \`/ingest-writing\`. You can edit it by hand if you want, but you don't have to.
+> This page is maintained by the Agent — seeded during \`/onboard\` and updated as you work. Edit it by hand anytime; you don't have to.
 
 How the user wants the Agent to behave when drafting, replying, summarizing,
 or otherwise generating content. Append-only.
@@ -201,9 +202,12 @@ export function generateAgentsMd(opts: TemplateOptions): string {
   const integrationsSection = `
 ## Connected integrations
 
-No integrations connected yet. Run \`/connect <name>\` from inside Claude Code to wire up an external service via its CLI and a bridge doc.
+Connected services live in two places, both generic so this file never has to change:
 
-Once an integration is connected, this section will list it along with a pointer to its bridge guidance at \`.rubber-ducky/integrations/<name>.md\`.
+- \`workspace.md\` frontmatter — the \`integrations:\` list names what's wired up.
+- \`.rubber-ducky/integrations/<name>.md\` — one bridge doc per service, the single source of truth every integration skill (/ingest, /backend-write, /new-ticket, /reconcile) reads.
+
+To see what's connected, read that frontmatter or list \`.rubber-ducky/integrations/\`. Nothing connected yet? Run \`/connect <name>\` from inside Claude Code to wire up an external service via its CLI and a bridge doc.
 `;
 
   const purposeBlock = opts.purpose && opts.purpose.trim()
@@ -329,7 +333,7 @@ This compounds in value over time: it's how future-you reconstructs *why* a deci
 
 ### Append-only operations log
 
-\`wiki/log.md\` is an append-only record of every capture, task transition, and wrap-up. Use \`rubber-ducky log append "<message>"\` — never edit prior entries.
+\`wiki/log.md\` is an append-only record of task transitions, wrap-ups, and integration events. Use \`rubber-ducky log append "<message>"\` — never edit prior entries.
 
 ### Raw inputs are immutable
 
@@ -562,12 +566,12 @@ Token savings are real but modest (~7,000-15,000 tokens/day). Not the primary mo
 |-------|----------------|
 | \`/good-morning\` | Synthesizes priorities from multiple sources, makes judgment calls about focus |
 | \`/wrap-up\` | Summarizes a day's work, identifies patterns, suggests tomorrow's focus |
-| \`/write-a-prd\` | Creative — interviews user, explores codebase, designs architecture |
-| \`/prd-to-issues\` | Judgment — decides how to slice work, what dependencies exist |
-| \`/verify-prd\` | Analysis — cross-references branches, code, and issues |
-| \`/commit\` | Reads diff, synthesizes intent into a message |
-| \`/write-pr\` | Reads full branch diff, writes narrative description |
-| \`/add-integration\` | Research — evaluates MCP servers, APIs, capabilities |
+| \`/capture\` | Routes a stray thought to the right verb — urgent, dated, or someday |
+| \`/start-project\` | Interviews the user, scaffolds a project page and its structure |
+| \`/connect\` | Evaluates transport options (official/generated CLI, MCP, hand-written), writes the bridge doc |
+| \`/ingest\` | Maps an external ticket onto the typed wiki schema via its bridge doc |
+| \`/new-ticket\` | Drafts in the user's voice, then files upstream on approval |
+| \`/reconcile\` | Diffs wiki against the backend and walks disagreements one by one |
 
 ### Hybrid pattern (skill calls CLI)
 
@@ -581,7 +585,7 @@ Ask these questions:
 2. **Does it need to read content and make decisions?** If yes, it's a Claude Code skill (that may call CLI commands for the mechanical parts).
 3. **Is it a new operation on an existing page type?** Probably CLI — add a subcommand.
 4. **Is it a new workflow that combines multiple operations?** Probably a skill — it orchestrates CLI commands + AI synthesis.
-5. **Is it something the user will want to customize or override?** Skill — the user can edit \`.claude/skills/<name>/SKILL.md\` (and add sibling files for templates or workspace-local convention overrides).
+5. **Is it a new workflow worth shipping to everyone?** Skill — skills are plugin-resident (in the rubber-ducky plugin, never copied into the vault), so they update in lockstep with the CLI. Vault-local conventions belong in this AGENTS.md, not in a per-vault skill copy.
 `;
 }
 

@@ -3,7 +3,9 @@
 Output a prioritized summary as separate cards, in this order. Omit empty cards.
 
 1. **Urgent (ASAP)** — pending `asap list` items; handle first
-2. **Due today** — reminders and tasks with `due` = today
+2. **Due today** — reminders dated on or before today (flag any past-due ones as
+   `OVERDUE`) and tasks with `due` = today; a reminder from a day the user never
+   opened must resurface here, never silently drop off
 3. **Upcoming (next 3 days)** — approaching deadlines and reminders
 4. **Carried over** — unfinished items from yesterday's daily page
 5. **Quick wins** — short unblocking tasks (access, admin, provisioning, or

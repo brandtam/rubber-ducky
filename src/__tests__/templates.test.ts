@@ -4,6 +4,7 @@ import {
   generateWorkspaceMd,
   generateAgentsMd,
   generateReferenceFiles,
+  generateContextPageTemplates,
 } from "../lib/templates.js";
 
 describe("generateWorkspaceMd", () => {
@@ -244,4 +245,34 @@ describe("generateReferenceFiles", () => {
 
     expect(paths).not.toContain("references/backend-setup.md");
   });
+});
+
+describe("no generated template references a retired v2 skill", () => {
+  // These slugs left with the v2 integration apparatus / PRD workflow; a
+  // template that still names them would send the Agent to invoke a skill the
+  // v3 plugin does not ship.
+  const RETIRED = [
+    "/ingest-writing",
+    "/add-integration",
+    "/write-a-prd",
+    "/prd-to-issues",
+    "/verify-prd",
+    "/push",
+    "/comment",
+    "/transition",
+  ];
+
+  const generated: string[] = [
+    generateAgentsMd({ name: "T", purpose: "P" }),
+    ...generateReferenceFiles().map((r) => r.content),
+    ...generateContextPageTemplates().map((c) => c.content),
+  ];
+
+  for (const slug of RETIRED) {
+    it(`does not mention ${slug}`, () => {
+      for (const content of generated) {
+        expect(content).not.toContain(`\`${slug}\``);
+      }
+    });
+  }
 });

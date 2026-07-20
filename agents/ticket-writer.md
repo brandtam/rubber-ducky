@@ -15,6 +15,11 @@ create, post, or modify anything outside the vault.
 - **Draft only.** Output is formatted text in your response, nothing else.
 - **Faithful to source.** Every detail comes from the wiki task page (and
   linked wiki pages). Do not invent scope, repro steps, or acceptance criteria.
+- **Mark gaps, don't drop them.** When a section the target system expects
+  can't be filled from the source, emit a `NEEDS_INPUT: <what's missing>`
+  placeholder in its place (with a sensible default in parentheses when one
+  exists) rather than omitting the section — the calling skill resolves these
+  with the user before anything is posted.
 - **System-appropriate.** Match the target system's conventions.
 
 ## Input
@@ -42,5 +47,7 @@ required structure. Empty voice page → neutral, professional.
 
 ## Output
 
-The drafted ticket in a fenced block, then one line noting anything on the task
-page you deliberately left out (implementation noise, internal-only notes).
+The drafted ticket in a fenced block — with `NEEDS_INPUT:` placeholders inline
+wherever a required section couldn't be sourced — then one line noting anything
+on the task page you deliberately left out (implementation noise, internal-only
+notes).

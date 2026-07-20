@@ -86,11 +86,12 @@ their lines):
 ## Record the connection
 
 1. `rubber-ducky frontmatter array add workspace.md integrations <service>`
-   — adds the service to the `integrations:` list (creates it if absent).
-2. Under `## Connected integrations` in `AGENTS.md`, replace the
-   no-integrations placeholder with one line per connection: the service name
-   and its bridge-doc path.
-3. `rubber-ducky log append "[connect] <service> connected via <transport>"`
+   — adds the service to the `integrations:` list (creates it if absent). This
+   list, plus the bridge doc at `.rubber-ducky/integrations/<service>.md`, is
+   the whole record of what's connected. **Do not edit `AGENTS.md`** — it's a
+   plugin-managed file that points at both of these generically, and editing it
+   would put it in permanent conflict with `adopt`.
+2. `rubber-ducky log append "[connect] <service> connected via <transport>"`
 
 ## Validate end-to-end
 

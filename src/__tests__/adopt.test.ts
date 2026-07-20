@@ -169,6 +169,82 @@ describe("adopt engine", () => {
     });
   });
 
+  describe("user skills in a non-v2 vault are untouchable", () => {
+    // A skill directory named like a v2 skill (help, close, start, …) in a
+    // folder with NO v2 fingerprint must not be claimed or removed — the name
+    // alone is not evidence, and --force must not delete the user's own file.
+    it("leaves a user-authored .claude/skills/help/ untouched even under --force", () => {
+      const target = path.join(tmpDir, "mine");
+      fs.mkdirSync(path.join(target, ".claude", "skills", "help"), { recursive: true });
+      const skillFile = path.join(target, ".claude", "skills", "help", "SKILL.md");
+      fs.writeFileSync(skillFile, "# My own help skill\n\nnothing to do with v2.\n", "utf-8");
+      fs.writeFileSync(path.join(target, "notes.md"), "user notes\n", "utf-8");
+
+      // Plan must not mark the user's skill for removal or conflict.
+      const plan = planAdopt(target);
+      const touchingHelp = plan.actions.filter((a) => a.path.startsWith(".claude/skills/help/"));
+      expect(touchingHelp).toHaveLength(0);
+
+      // Even the most destructive apply leaves it byte-identical.
+      applyAdopt(planAdopt(target), { force: true });
+      expect(fs.existsSync(skillFile)).toBe(true);
+      expect(fs.readFileSync(skillFile, "utf-8")).toBe(
+        "# My own help skill\n\nnothing to do with v2.\n",
+      );
+    });
+  });
+
+  describe("directory-vs-file collisions", () => {
+    it("plans a blocking conflict instead of crashing apply, and writes no manifest", () => {
+      const target = path.join(tmpDir, "collide");
+      fs.mkdirSync(target, { recursive: true });
+      // A regular file where adopt needs the `raw` directory.
+      fs.writeFileSync(path.join(target, "raw"), "user's own file named raw\n", "utf-8");
+      const before = snapshotVault(target);
+
+      const plan = planAdopt(target);
+      const blocking = plan.actions.filter((a) => a.action === "conflict" && a.blocking);
+      expect(blocking.map((a) => a.path)).toContain("raw");
+
+      // Apply must not throw, must report the conflict, and must leave the
+      // user's file untouched — even under --force.
+      const result = applyAdopt(plan, { force: true });
+      expect(result.conflicts.map((c) => c.path)).toContain("raw");
+      expect(fs.readFileSync(path.join(target, "raw"), "utf-8")).toBe("user's own file named raw\n");
+      expect(snapshotVault(target).get("raw")).toBe(before.get("raw"));
+    });
+  });
+
+  describe("plan/apply consistency", () => {
+    it("a managed file edited between plan and apply is not claimed, and re-plans as a conflict", () => {
+      const target = path.join(tmpDir, "toctou");
+      applyAdopt(planAdopt(target)); // vault now matches templates byte-for-byte
+
+      // Plan sees AGENTS.md as an up-to-date managed keep.
+      const plan = planAdopt(target);
+      const agentsMd = path.join(target, "AGENTS.md");
+      expect(
+        plan.actions.some((a) => a.path === "AGENTS.md" && a.action === "keep" && a.role === "managed"),
+      ).toBe(true);
+
+      // Simulate an edit landing after the plan was computed.
+      const edited = fs.readFileSync(agentsMd, "utf-8") + "\n<!-- user tweak -->\n";
+      fs.writeFileSync(agentsMd, edited, "utf-8");
+
+      // Applying the stale plan must record the plan-time template hash, NOT
+      // the edited bytes — otherwise the next run would call it unmodified.
+      applyAdopt(plan);
+      const manifest = readManifest(target);
+      expect(manifest.files["AGENTS.md"].hash).not.toBe(sha256(edited));
+
+      // Re-planning now surfaces the edit as a conflict, never a silent refresh.
+      const replan = planAdopt(target);
+      expect(
+        replan.actions.some((a) => a.path === "AGENTS.md" && a.action === "conflict"),
+      ).toBe(true);
+    });
+  });
+
   describe("populated Obsidian vault", () => {
     it("leaves every pre-existing file byte-identical", () => {
       const target = path.join(tmpDir, "vault");

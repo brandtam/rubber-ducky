@@ -104,6 +104,9 @@ export function registerAdoptCommand(program: Command): void {
         if (interactive) {
           for (const action of plan.actions) {
             if (action.action !== "conflict") continue;
+            // Blocking conflicts can't be resolved here — nothing to overwrite
+            // or remove; they're reported for the user to fix by hand.
+            if (action.blocking) continue;
             const verb = action.content !== undefined ? "Overwrite" : "Remove";
             const answer = await clack.confirm({
               message: `${action.path}: ${action.reason}. ${verb} it?`,

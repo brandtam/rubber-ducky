@@ -64,22 +64,46 @@ esac
 CACHE_ROOT=${RUBBER_DUCKY_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/rubber-ducky}
 BINARY="$CACHE_ROOT/$VERSION/rubber-ducky"
 
+# Self-heal a poisoned cache. A middlebox (corporate TLS-inspection proxy,
+# captive portal) can answer the download with a 200 whose body is an HTML
+# block page; exec'ing that runs it as a shell script and fails with a blocking
+# error through the PreToolUse hook. A compiled binary starts with a non-text
+# magic byte (ELF/Mach-O); an HTML page starts with '<'. If the cached file
+# looks like HTML, drop it so the block below re-fetches. (Any other bad body
+# is caught at download time by the --version check below.)
+if [ -e "$BINARY" ]; then
+  first=$(head -c 1 "$BINARY" 2>/dev/null || true)
+  case "$first" in
+    '<') rm -f "$BINARY" ;;
+  esac
+fi
+
 if [ ! -x "$BINARY" ]; then
   BASE=${RUBBER_DUCKY_DOWNLOAD_BASE:-https://github.com/brandtam/rubber-ducky/releases/download}
   URL="$BASE/v$VERSION/rubber-ducky-$PLATFORM"
   mkdir -p "$CACHE_ROOT/$VERSION"
 
+  # Sweep partials left by an earlier download that was killed before mv (e.g.
+  # the PreToolUse hook hitting its timeout mid-fetch). Nothing else prunes
+  # them until the version bumps, so they otherwise accumulate.
+  rm -f "$CACHE_ROOT/$VERSION"/.download.* 2>/dev/null || true
+
   # Download to a temp file, then atomically mv into place — a concurrent
   # invocation (e.g. pre-warm racing a real call) never sees a half-written
   # binary; worst case both download and the last mv wins with identical bytes.
   TMP=$(mktemp "$CACHE_ROOT/$VERSION/.download.XXXXXX") || fail "could not create temp file in $CACHE_ROOT/$VERSION"
+  # Clean the partial if we're interrupted or killed mid-download.
+  trap 'rm -f "$TMP"' INT TERM
+  # Timeouts so an unreachable or blackholed network fails fast with the clear
+  # message below, instead of stalling every Bash tool call for the full hook
+  # timeout (or hanging an interactive invocation indefinitely).
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$TMP" "$URL" || {
+    curl -fsSL --connect-timeout 10 --max-time 600 -o "$TMP" "$URL" || {
       rm -f "$TMP"
       fail "download failed: $URL"
     }
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$TMP" "$URL" || {
+    wget -q --timeout=10 --tries=2 -O "$TMP" "$URL" || {
       rm -f "$TMP"
       fail "download failed: $URL"
     }
@@ -88,7 +112,16 @@ if [ ! -x "$BINARY" ]; then
     fail "neither curl nor wget is available to download $URL"
   fi
   chmod 755 "$TMP"
+  # Verify the download is a runnable binary before caching it. curl -f / wget
+  # reject non-2xx, but a 200 with the wrong body (proxy block page, truncated
+  # transfer) passes them — running --version catches it, so a bad body fails
+  # loudly here instead of being cached and exec'd on every later call.
+  if ! "$TMP" --version >/dev/null 2>&1; then
+    rm -f "$TMP"
+    fail "downloaded file is not a runnable rubber-ducky binary (blocked URL or corrupt download?): $URL"
+  fi
   mv -f "$TMP" "$BINARY"
+  trap - INT TERM
 
   # Prune binaries from other versions — the cache holds exactly the version
   # the installed plugin needs, so upgrades don't accumulate stale binaries.

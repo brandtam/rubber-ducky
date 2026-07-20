@@ -48,6 +48,14 @@ beforeAll(() => {
       if (pathname.includes("missing")) {
         return new Response("Not Found", { status: 404 });
       }
+      // A version containing "poison" simulates a middlebox answering 200 with
+      // an HTML block page instead of the binary (corporate TLS-inspection
+      // proxy, captive portal).
+      if (pathname.includes("poison")) {
+        return new Response("<!DOCTYPE html>\n<html><body>Access blocked</body></html>\n", {
+          status: 200,
+        });
+      }
       // The served "binary" reports which asset it came from and prints each
       // argument on its own line, so tests can assert argv boundaries.
       const body = `#!/bin/sh\necho "served:${pathname}"\nfor a in "$@"; do printf 'arg:%s\\n' "$a"; done\nexit 0\n`;
@@ -164,6 +172,31 @@ describe("plugin binary bootstrap wrapper", () => {
       const versionDir = path.join(cacheDir, "0.0.0-missing");
       const leftovers = fs.existsSync(versionDir) ? fs.readdirSync(versionDir) : [];
       expect(leftovers).toEqual([]);
+    });
+  });
+
+  describe("poisoned download / cache", () => {
+    it("rejects a 200 HTML body and caches nothing (proxy block page)", async () => {
+      stagePlugin("9.0.0-poison");
+      const result = await run(wrapper(), ["--version"]);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("not a runnable rubber-ducky binary");
+      // The HTML must never land in the cache to be exec'd later.
+      expect(fs.existsSync(cachedBinary("9.0.0-poison"))).toBe(false);
+    });
+
+    it("self-heals an already-poisoned cache entry by re-fetching", async () => {
+      stagePlugin("3.3.3");
+      // A previous run cached an HTML block page as the binary.
+      fs.mkdirSync(path.join(cacheDir, "3.3.3"), { recursive: true });
+      fs.writeFileSync(cachedBinary("3.3.3"), "<!DOCTYPE html>\n<html>blocked</html>\n", "utf-8");
+      fs.chmodSync(cachedBinary("3.3.3"), 0o755);
+
+      const result = await run(wrapper(), ["--version"]);
+      // The poisoned entry is dropped and the real asset fetched and run.
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain(`served:/v3.3.3/rubber-ducky-${PLATFORM}`);
+      expect(requests).toEqual([`/v3.3.3/rubber-ducky-${PLATFORM}`]);
     });
   });
 

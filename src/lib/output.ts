@@ -135,7 +135,7 @@ export function formatOutput(data: unknown, options: OutputOptions): string {
 export function resolveOutputOptions(
   globalOpts: Record<string, unknown>,
   humanReadable?: string,
-  isTTY: boolean = process.stdout.isTTY ?? true,
+  isTTY: boolean = process.stdout.isTTY === true,
 ): OutputOptions {
   const explicitJson = globalOpts.json === true;
   const explicitNoJson = globalOpts.json === false;

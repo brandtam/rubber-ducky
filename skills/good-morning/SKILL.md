@@ -17,7 +17,9 @@ The greeting is the request — run immediately, don't ask first.
    Opportunistic: skip silently if the agent is unavailable.
 4. **Gather context** (parallel where possible):
    - `rubber-ducky asap list` — pending urgent items
-   - `rubber-ducky remind list` — reminders due today, plus any within the next 3 days
+   - `rubber-ducky remind list` — reminders due today *or earlier* (surface overdue
+     ones as OVERDUE — a reminder from a day the user skipped must not be lost),
+     plus any within the next 3 days
    - `rubber-ducky idea list` — count only; mention if the list is growing
    - `rubber-ducky index rebuild`, then read `wiki/index.md` for task statuses;
      read task frontmatter (`status`, `priority`, `due`) where detail is needed

@@ -96,6 +96,12 @@ export interface AdoptAction {
    * whose forced resolution is a removal (v2 skill copies).
    */
   content?: string;
+  /**
+   * A conflict that no resolution can clear: a file occupies a path adopt
+   * needs as a directory. Reported and left untouched even under --force —
+   * never overwritten or removed. The user must move their file first.
+   */
+  blocking?: boolean;
 }
 
 export interface AdoptPlan {
@@ -239,12 +245,47 @@ function walkFiles(root: string): string[] {
 }
 
 /**
+ * Is there hard evidence this directory is (or was) a v2 vault? True only if
+ * something in it byte-matches a known v2 fingerprint: the v2 CLAUDE.md, a
+ * v2-shipped asset anywhere in the skill/command/agent/example namespaces, or
+ * a v2-shipped generated file. Used to gate the by-name skill-conflict rule so
+ * a generic directory name alone can never condemn a user-authored file.
+ */
+function vaultHasV2Fingerprint(targetDir: string): boolean {
+  const claudeMd = path.join(targetDir, "CLAUDE.md");
+  if (fs.existsSync(claudeMd) && matchesV2ClaudeMd(fs.readFileSync(claudeMd, "utf-8"))) {
+    return true;
+  }
+  for (const root of [".claude/skills", ".claude/commands", ".claude/agents", "examples"]) {
+    const abs = path.join(targetDir, root);
+    if (!fs.existsSync(abs)) continue;
+    for (const rel of walkFiles(abs)) {
+      if (V2_ASSET_HASHES.has(sha256(fs.readFileSync(path.join(abs, rel))))) return true;
+    }
+  }
+  for (const [rel] of V2_FILE_HASHES) {
+    const abs = path.join(targetDir, rel);
+    if (!fs.existsSync(abs)) continue;
+    const content = fs.readFileSync(abs, "utf-8");
+    if (matchesV2File(rel, sha256(content), content)) return true;
+  }
+  return false;
+}
+
+/**
  * Sweep the v2-era namespaces for shipped copies to claim. Returns remove
  * and conflict actions; files that match nothing are left invisible to the
  * plan (user-owned).
  */
 function planV2Sweep(targetDir: string): AdoptAction[] {
   const actions: AdoptAction[] = [];
+
+  // Only claim hand-modified skill copies by name when the vault is provably a
+  // v2 vault. A skill directory name (help, close, start, …) is far too
+  // generic to condemn a file on its own — a user's own `.claude/skills/help/`
+  // in a never-was-v2 folder must stay invisible. See docs/adr for the
+  // evidence rule.
+  const vaultLooksV2 = vaultHasV2Fingerprint(targetDir);
 
   // Vault-level skill copies (dir-based `.claude/skills/<name>/**` and the
   // older flat `.claude/commands/<name>.md`). Skills are plugin-resident in
@@ -263,7 +304,7 @@ function planV2Sweep(targetDir: string): AdoptAction[] {
           reason:
             "v2-shipped skill copy — skills are plugin-resident in v3 and a stale vault copy would shadow them",
         });
-      } else if (V2_SKILL_DIRS.has(skillDir)) {
+      } else if (vaultLooksV2 && V2_SKILL_DIRS.has(skillDir)) {
         actions.push({
           path: vaultRel,
           action: "conflict",
@@ -346,11 +387,31 @@ export function planAdopt(targetDir: string, opts: PlanAdoptOptions = {}): Adopt
   const name = exists ? resolveName(resolved, opts.name) : (opts.name ?? path.basename(resolved));
   const manifest = exists ? readManifest(resolved) : { version: 1 as const, updated: "", files: {} };
 
-  const dirs = DIRS.filter((d) => !fs.existsSync(path.join(resolved, d)));
+  const templates = currentTemplates(name);
 
-  const actions: AdoptAction[] = [];
+  // A regular file sitting where adopt needs a directory (e.g. a file named
+  // `raw` or `wiki`) would make apply throw ENOTDIR partway through, leaving a
+  // half-written vault with no manifest. Detect it up front so the dry-run
+  // shows it and apply reports it instead of crashing.
+  const blockedActions = exists ? planCollisions(resolved, templates.map((t) => t.path)) : [];
+  const blockedPaths = new Set(blockedActions.map((a) => a.path));
+  const underBlocked = (rel: string): boolean => {
+    let cur = "";
+    for (const part of rel.split("/")) {
+      cur = cur ? `${cur}/${part}` : part;
+      if (blockedPaths.has(cur)) return true;
+    }
+    return false;
+  };
 
-  for (const tmpl of currentTemplates(name)) {
+  const dirs = DIRS.filter(
+    (d) => !fs.existsSync(path.join(resolved, d)) && !underBlocked(d),
+  );
+
+  const actions: AdoptAction[] = [...blockedActions];
+
+  for (const tmpl of templates) {
+    if (underBlocked(tmpl.path)) continue;
     const abs = path.join(resolved, tmpl.path);
     if (!fs.existsSync(abs)) {
       actions.push({
@@ -383,6 +444,10 @@ export function planAdopt(targetDir: string, opts: PlanAdoptOptions = {}): Adopt
         action: "keep",
         role: "managed",
         reason: "up to date",
+        // Carry the plan-time content so apply records this hash rather than
+        // re-reading disk at apply time (which would claim an edit slipped in
+        // between plan and apply, then silently overwrite it on a later run).
+        content: tmpl.content,
       });
     } else if (manifest.files[tmpl.path]?.hash === diskHash) {
       actions.push({
@@ -417,6 +482,38 @@ export function planAdopt(targetDir: string, opts: PlanAdoptOptions = {}): Adopt
   }
 
   return { workspacePath: resolved, name, dirs, actions };
+}
+
+/**
+ * Detect paths that already exist as regular files where adopt needs a
+ * directory — the scaffold dirs and every template file's parent. Each is
+ * returned as a blocking conflict: apply reports it and moves on rather than
+ * throwing ENOTDIR mid-run, and no --force can overwrite or remove it.
+ */
+function planCollisions(resolved: string, templatePaths: string[]): AdoptAction[] {
+  const requiredDirs = new Set<string>(DIRS);
+  for (const p of templatePaths) {
+    const slash = p.lastIndexOf("/");
+    if (slash > 0) requiredDirs.add(p.slice(0, slash));
+  }
+
+  const blocked = new Set<string>();
+  for (const rel of requiredDirs) {
+    let cur = "";
+    for (const part of rel.split("/")) {
+      cur = cur ? `${cur}/${part}` : part;
+      const abs = path.join(resolved, cur);
+      if (fs.existsSync(abs) && !fs.statSync(abs).isDirectory()) blocked.add(cur);
+    }
+  }
+
+  return [...blocked].sort().map((rel) => ({
+    path: rel,
+    action: "conflict" as const,
+    role: "seed" as const,
+    reason: "a file exists where adopt needs a directory — rename or remove it, then re-run",
+    blocking: true,
+  }));
 }
 
 /** Write a file atomically: temp file in the same directory, then rename. */
@@ -503,13 +600,13 @@ export function applyAdopt(plan: AdoptPlan, opts: ApplyAdoptOptions = {}): Adopt
         break;
       }
       case "keep": {
-        // Managed keep: re-record so the manifest tracks the file even if
-        // it predates the manifest (e.g. a vault that already matches the
-        // current template byte-for-byte). Seed keep: the file is
-        // user-owned — leave any existing record alone.
+        // Managed keep: record the plan-time template content (which the plan
+        // proved byte-equal to disk) so the manifest tracks the file even if
+        // it predates the manifest. Recording a fresh disk read instead would
+        // claim any edit made between plan and apply and silently overwrite it
+        // next run. Seed keep: the file is user-owned — leave its record alone.
         if (action.role === "managed") {
-          const content = fs.readFileSync(path.join(targetDir, action.path), "utf-8");
-          record(action, content);
+          record(action, action.content ?? "");
         }
         result.kept.push(action.path);
         break;
@@ -521,6 +618,13 @@ export function applyAdopt(plan: AdoptPlan, opts: ApplyAdoptOptions = {}): Adopt
         break;
       }
       case "conflict": {
+        // A blocking conflict (a file where a directory must go) can't be
+        // resolved by overwriting or removing — report it untouched, even
+        // under --force.
+        if (action.blocking) {
+          result.conflicts.push({ path: action.path, reason: action.reason });
+          break;
+        }
         const resolveInFavor = opts.force === true || opts.resolve?.(action) === true;
         if (!resolveInFavor) {
           result.conflicts.push({ path: action.path, reason: action.reason });
