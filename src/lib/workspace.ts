@@ -1,30 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parse as parseYaml } from "yaml";
-import {
-  generateWorkspaceMd,
-  generateClaudeMd,
-  generateClaudeSettings,
-  generateContextPageTemplates,
-  generateGitignore,
-  generateReferenceFiles,
-  VAULT_SETTINGS_TEMPLATE,
-} from "./templates.js";
-import { SETTINGS_FILENAME } from "./settings.js";
+import { applyAdopt, planAdopt, DIRS } from "./adopt.js";
 import { summarizeArray, type ArrayEnvelope } from "./output.js";
-
-// User-facing content dirs that start empty. Git doesn't track empty folders,
-// so scaffolded workspaces drop a `.gitkeep` in each to keep them in the repo.
-const GITKEEP_DIRS = new Set([
-  "wiki/daily",
-  "wiki/tasks",
-  "wiki/projects",
-  "wiki/meetings",
-  "wiki/spikes",
-  "wiki/weekly",
-  "wiki/repos",
-  "raw",
-]);
 
 export interface WorkspaceOptions {
   name: string;
@@ -66,49 +44,15 @@ export function workspaceResultToJson(
   };
 }
 
-const DIRS = [
-  "wiki/daily",
-  "wiki/tasks",
-  "wiki/projects",
-  "wiki/meetings",
-  "wiki/spikes",
-  "wiki/weekly",
-  "wiki/repos",
-  "raw",
-  "references",
-  ".rubber-ducky/transactions",
-];
-
 /**
- * Install reference files and Claude Code settings into a workspace
- * directory. Called by createWorkspace. Skills, agents, and examples are
- * plugin-resident — the CLI never copies them into vaults.
+ * Create a fresh workspace in an empty (or nonexistent) directory.
+ *
+ * `init` is sugar for `adopt --apply` on an empty directory — this function
+ * delegates to the same plan/apply engine (`src/lib/adopt.ts`) so there is
+ * exactly one code path that decides what a vault contains. The empty-dir
+ * guard is init's own contract: adopting into a populated directory is
+ * `rubber-ducky adopt`'s job, where the plan is previewed first.
  */
-interface InstalledFiles {
-  refs: string[];
-  settings: string;
-}
-
-function installWorkspaceFiles(targetDir: string): InstalledFiles {
-  // Reference template files (frontmatter-templates, when-to-use-cli)
-  const refs = generateReferenceFiles();
-  for (const ref of refs) {
-    const refPath = path.join(targetDir, ref.path);
-    fs.mkdirSync(path.dirname(refPath), { recursive: true });
-    fs.writeFileSync(refPath, ref.content, "utf-8");
-  }
-
-  // Claude Code settings (permissions for CLI, git, etc.)
-  const settingsPath = path.join(targetDir, ".claude", "settings.json");
-  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, generateClaudeSettings(), "utf-8");
-
-  return {
-    refs: refs.map((r) => r.path),
-    settings: ".claude/settings.json",
-  };
-}
-
 export async function createWorkspace(opts: WorkspaceOptions): Promise<WorkspaceResult> {
   const { name, targetDir } = opts;
 
@@ -118,66 +62,18 @@ export async function createWorkspace(opts: WorkspaceOptions): Promise<Workspace
     if (entries.length > 0) {
       throw new Error(
         `Directory "${targetDir}" already exists and is not empty. ` +
-        `init creates a fresh workspace — choose an empty directory or remove existing content first.`
+        `init creates a fresh workspace — use \`rubber-ducky adopt ${targetDir}\` to layer ` +
+        `rubber-ducky into an existing directory non-destructively.`
       );
     }
   }
 
-  // Create workspace directory
-  fs.mkdirSync(targetDir, { recursive: true });
-
-  // Create subdirectories. Git doesn't track empty folders, so drop a
-  // `.gitkeep` in each user-facing content dir so it survives the first commit.
-  for (const dir of DIRS) {
-    fs.mkdirSync(path.join(targetDir, dir), { recursive: true });
-    if (GITKEEP_DIRS.has(dir)) {
-      fs.writeFileSync(path.join(targetDir, dir, ".gitkeep"), "", "utf-8");
-    }
-  }
-
-  const templateOpts = { name };
-
-  // Integration-specific scaffolding is never generated at init time — that
-  // lands when the user runs `/connect <integration>` from inside Claude.
-  const coreFiles: Array<{ name: string; content: string }> = [
-    { name: "workspace.md", content: generateWorkspaceMd(templateOpts) },
-    { name: "CLAUDE.md", content: generateClaudeMd(templateOpts) },
-    { name: ".gitignore", content: generateGitignore() },
-    // Vault-level settings: confirm-policy, ingest controls, and any future
-    // vault-level knob. Generated at init so users never see a "settings
-    // missing" error and can immediately tune defaults. Inline comments in
-    // the template explain each key.
-    { name: SETTINGS_FILENAME, content: VAULT_SETTINGS_TEMPLATE },
-  ];
-
-  for (const file of coreFiles) {
-    const filePath = path.join(targetDir, file.name);
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, file.content, "utf-8");
-  }
-
-  // Scaffold ongoing-context-capture pages. The `/ingest-writing` skill
-  // appends to these throughout the vault's lifetime; pre-creating them
-  // means the user (and the Agent) can see the schema from day one rather
-  // than discovering it lazily on first paste.
-  const contextPages = generateContextPageTemplates();
-  for (const page of contextPages) {
-    const pagePath = path.join(targetDir, page.relativePath);
-    fs.mkdirSync(path.dirname(pagePath), { recursive: true });
-    fs.writeFileSync(pagePath, page.content, "utf-8");
-  }
-
-  // Install references and settings.
-  const installed = installWorkspaceFiles(targetDir);
+  const plan = planAdopt(targetDir, { name });
+  const result = applyAdopt(plan);
 
   return {
-    workspacePath: targetDir,
-    filesCreated: [
-      ...coreFiles.map((f) => f.name),
-      ...contextPages.map((p) => p.relativePath),
-      ...installed.refs,
-      installed.settings,
-    ],
+    workspacePath: result.workspacePath,
+    filesCreated: result.created,
     dirsCreated: [...DIRS],
   };
 }

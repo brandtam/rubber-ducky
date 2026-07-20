@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { Command } from "commander";
 import { findWorkspaceRoot } from "./lib/workspace.js";
 import { registerInitCommand } from "./commands/init.js";
+import { registerAdoptCommand } from "./commands/adopt.js";
 import { registerFrontmatterCommand } from "./commands/frontmatter.js";
 import { registerStatusCommand } from "./commands/status.js";
 import { registerPageCommand } from "./commands/page.js";
@@ -44,6 +45,7 @@ export function createProgram(): Command {
     .option("--verbose", "Return full arrays instead of {count, sample} envelopes in JSON output");
 
   registerInitCommand(program);
+  registerAdoptCommand(program);
   registerFrontmatterCommand(program);
   registerStatusCommand(program);
   registerPageCommand(program);

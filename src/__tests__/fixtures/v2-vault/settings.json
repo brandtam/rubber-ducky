@@ -1,0 +1,30 @@
+// settings.json — vault-level config for rubber-ducky.
+//
+// Don't edit by hand; use `rubber-ducky settings ...` so values are
+// validated, comments stay intact, and changes land in wiki/log.md.
+//
+// Example overrides (run from a terminal inside the vault):
+//   rubber-ducky settings set confirm.jira.comment auto
+//   rubber-ducky settings set confirm.slack.send preview
+//   rubber-ducky settings enable ingest.auto_on_wrap_up
+//   rubber-ducky settings set ingest.kinds voice vocabulary
+{
+  // Per-action confirmation policy for external writes.
+  //   "auto"    — issue a confirm-token without prompting (skip the preview).
+  //   "preview" — show a structured preview and wait for explicit yes.
+  // Anything not listed here defaults to "preview" — fail-closed.
+  "confirm": {},
+
+  // Ongoing-context capture controls. Hooks that scan your writing for
+  // voice / vocabulary / preferences run only when enabled here.
+  "ingest": {
+    // Scan today's drafts at /wrap-up and offer to ingest them as voice
+    // samples. Off by default — opt in once you trust the extraction.
+    "auto_on_wrap_up": false,
+    // Invite the user to paste raw material at the end of /onboard.
+    "auto_on_onboard": true,
+    // Which kinds of extraction to perform: "voice", "vocabulary",
+    // "facts", "preferences". Trim this list to narrow what gets pulled.
+    "kinds": ["voice", "vocabulary"]
+  }
+}

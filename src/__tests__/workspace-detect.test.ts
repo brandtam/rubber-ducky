@@ -149,11 +149,11 @@ describe("workspace isolation", () => {
     expect(contentB).toContain("Personal");
     expect(contentB).not.toContain("Work");
 
-    // Each has its own CLAUDE.md
-    const claudeA = fs.readFileSync(path.join(wsA, "CLAUDE.md"), "utf-8");
-    const claudeB = fs.readFileSync(path.join(wsB, "CLAUDE.md"), "utf-8");
-    expect(claudeA).toContain("Work");
-    expect(claudeB).toContain("Personal");
+    // Each has its own AGENTS.md (CLAUDE.md is a shared two-line shim)
+    const agentsA = fs.readFileSync(path.join(wsA, "AGENTS.md"), "utf-8");
+    const agentsB = fs.readFileSync(path.join(wsB, "AGENTS.md"), "utf-8");
+    expect(agentsA).toContain("Work");
+    expect(agentsB).toContain("Personal");
 
     // Each has its own directory structure
     expect(fs.existsSync(path.join(wsA, "wiki", "daily"))).toBe(true);
