@@ -24,7 +24,28 @@ const SKILL_ROSTER = [
   "start-project",
   "onboard",
   "help",
+  // Integration skills on bridge docs (issue #9).
+  "connect",
+  "ingest",
+  "backend-write",
+  "new-ticket",
+  "reconcile",
 ];
+
+/**
+ * The five bridge-doc integration skills (issue #9). All service knowledge
+ * lives in the per-vault bridge doc at `.rubber-ducky/integrations/<name>.md`;
+ * each skill must anchor on that location, and none may hardcode a service.
+ */
+const INTEGRATION_SKILLS = [
+  "connect",
+  "ingest",
+  "backend-write",
+  "new-ticket",
+  "reconcile",
+];
+
+const BRIDGE_DOC_LOCATION = ".rubber-ducky/integrations/";
 
 const AGENT_ROSTER = ["work-historian", "linter", "ticket-writer", "research-partner"];
 
@@ -70,7 +91,7 @@ function markdownFilesUnder(dir: string): string[] {
 }
 
 describe("skill roster", () => {
-  it("contains exactly the nine consolidated skills", () => {
+  it("contains exactly the fourteen skills (nine consolidated + five integration)", () => {
     const dirs = fs
       .readdirSync(SKILLS_DIR, { withFileTypes: true })
       .filter((e) => e.isDirectory())
@@ -103,6 +124,32 @@ describe("skill roster", () => {
       });
     });
   }
+});
+
+describe("integration skills (bridge-doc surface)", () => {
+  for (const skill of INTEGRATION_SKILLS) {
+    it(`${skill} anchors on the bridge-doc location`, () => {
+      const content = fs.readFileSync(
+        path.join(SKILLS_DIR, skill, "SKILL.md"),
+        "utf-8",
+      );
+      expect(content).toContain(BRIDGE_DOC_LOCATION);
+    });
+  }
+
+  it("connect ships the bridge-doc template reference file", () => {
+    expect(
+      fs.existsSync(path.join(SKILLS_DIR, "connect", "bridge-doc.md")),
+    ).toBe(true);
+  });
+
+  it("connect documents the write-patterns registration file", () => {
+    const content = fs.readFileSync(
+      path.join(SKILLS_DIR, "connect", "SKILL.md"),
+      "utf-8",
+    );
+    expect(content).toContain(".rubber-ducky/write-patterns");
+  });
 });
 
 describe("agent roster", () => {

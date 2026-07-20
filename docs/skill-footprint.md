@@ -18,16 +18,25 @@ cd skills && total=0; for d in */; do n="${d%/}"; \
 
 | Skill | name+description chars |
 | :--- | ---: |
+| backend-write | 141 |
 | capture | 123 |
+| ingest | 119 |
 | wrap-up | 118 |
+| new-ticket | 117 |
+| connect | 115 |
 | meeting-note | 108 |
 | onboard | 108 |
+| reconcile | 105 |
 | start | 99 |
 | start-project | 94 |
 | good-morning | 90 |
 | help | 89 |
 | close | 85 |
-| **Total (9 skills)** | **914 chars ≈ 228 tokens** |
+| **Total (14 skills)** | **1511 chars ≈ 377 tokens** |
+
+The nine consolidated core skills (issue #8) cost 914 chars ≈ 228 tokens;
+the five bridge-doc integration skills (issue #9) add 597 chars ≈ 149
+tokens.
 
 ## v2 baseline (`rubber-ducky-legacy`, `src/skills/`)
 
@@ -40,7 +49,9 @@ plus the nine that survived consolidation), measured the same way:
 
 ## Result
 
-**914 vs 2270 chars — a 60% reduction (~339 tokens saved per session).**
+**1511 vs 2270 chars — a 33% reduction (~189 tokens saved per session),
+with the full integration surface included.** (The nine-skill core alone
+was 914 vs 2270 — a 60% reduction.)
 
 The consolidation that pays for it:
 
@@ -48,9 +59,10 @@ The consolidation that pays for it:
 - weekly-summary → a mode of `wrap-up`
 - query → the `work-historian` agent; lint → the `linter` agent (agent
   descriptions live in the agent roster, not the skill listing)
-- backend-facing skills (push, comment, transition, link, reconcile, connect,
-  triage, new-ticket, release) are not part of the v3 core roster (issue #9
-  owns backend-write surfaces)
+- v2's push + comment + transition + link → one `backend-write` skill;
+  triage folded into `capture`; release dropped. The five integration
+  skills (connect, ingest, backend-write, new-ticket, reconcile) replace
+  nine backend-facing v2 skills
 
 Discipline going forward: one line per description, written as an invocation
 trigger; per-skill detail lives in reference files inside the skill directory,
