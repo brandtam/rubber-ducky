@@ -8,7 +8,7 @@
     {
       "name": "rubber-ducky",
       "source": "./",
-      "description": "Your AI helper in Obsidian. Spin up a vault for anything, talk to rubber-ducky about it; it remembers across sessions and acts on what you tell it."
+      "description": "A deterministic memory layer for Claude Code — typed markdown vaults the agent maintains across sessions, in plain files you own. Obsidian-compatible, never required."
     }
   ]
 }
