@@ -11,6 +11,10 @@ missed here gets captured later in normal conversation.
 
 ## When to run
 
+No vault here yet (`rubber-ducky status` reports no workspace)? Invoke the
+`adopt` skill first — onboarding writes to context pages that only exist once
+the vault does.
+
 Check `rubber-ducky settings get onboard.completed`. `false` (the default) →
 run the interview. `true` → skip silently unless explicitly asked; if asked,
 confirm first: "We've onboarded before — re-run, top up one section, or skip?"

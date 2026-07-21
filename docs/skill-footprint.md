@@ -18,6 +18,7 @@ cd skills && total=0; for d in */; do n="${d%/}"; \
 
 | Skill | name+description chars |
 | :--- | ---: |
+| adopt | 141 |
 | backend-write | 141 |
 | capture | 123 |
 | ingest | 119 |
@@ -32,11 +33,11 @@ cd skills && total=0; for d in */; do n="${d%/}"; \
 | good-morning | 90 |
 | help | 89 |
 | close | 85 |
-| **Total (14 skills)** | **1511 chars ≈ 377 tokens** |
+| **Total (15 skills)** | **1652 chars ≈ 413 tokens** |
 
 The nine consolidated core skills (issue #8) cost 914 chars ≈ 228 tokens;
 the five bridge-doc integration skills (issue #9) add 597 chars ≈ 149
-tokens.
+tokens; the `adopt` lifecycle skill (UAT fixes) adds 141 chars ≈ 35 tokens.
 
 ## v2 baseline (`rubber-ducky-legacy`, `src/skills/`)
 
@@ -49,9 +50,9 @@ plus the nine that survived consolidation), measured the same way:
 
 ## Result
 
-**1511 vs 2270 chars — a 33% reduction (~189 tokens saved per session),
-with the full integration surface included.** (The nine-skill core alone
-was 914 vs 2270 — a 60% reduction.)
+**1652 vs 2270 chars — a 27% reduction (~154 tokens saved per session),
+with the full integration surface and vault lifecycle included.** (The
+nine-skill core alone was 914 vs 2270 — a 60% reduction.)
 
 The consolidation that pays for it:
 
