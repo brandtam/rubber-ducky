@@ -37,7 +37,8 @@ export function registerInitCommand(program: Command): void {
         if (entries.length > 0) {
           exitWithError(
             `Directory "${fullPath}" already exists and is not empty. ` +
-            `init creates a fresh workspace — please choose an empty directory or remove existing content first.`,
+            `init creates a fresh workspace — use \`rubber-ducky adopt ${directory}\` to layer ` +
+            `rubber-ducky into an existing directory non-destructively.`,
             out,
             ExitCode.StateConflict,
           );

@@ -27,15 +27,21 @@ import {
 export const SETTINGS_FILENAME = "settings.json";
 
 /**
- * Confirmation policy for an external write action. `auto` short-circuits the
- * preview/confirm prompt and issues a confirm-token immediately; `preview`
- * shows the user a structured preview and waits for explicit yes. Anything
- * not explicitly listed defaults to `preview` — fail-closed for hard writes.
+ * Confirmation policy for an external write action. Enforced by the plugin's
+ * PreToolUse confirm gate (see docs/adr/confirm-gate-single-hook.md):
+ *
+ *   - `auto`    — the registered write runs without prompting.
+ *   - `manual`  — the write is blocked pending explicit user confirmation.
+ *   - `preview` — the user is shown the exact command and asked to approve.
+ *
+ * Anything registered but not explicitly listed defaults to `preview` —
+ * fail-closed for hard writes.
  */
-export type ConfirmPolicy = "auto" | "preview";
+export type ConfirmPolicy = "auto" | "manual" | "preview";
 
 export const CONFIRM_POLICIES: readonly ConfirmPolicy[] = [
   "auto",
+  "manual",
   "preview",
 ] as const;
 
@@ -129,8 +135,9 @@ export const SETTINGS_TEMPLATE = `// settings.json — vault-level config for ru
 //   rubber-ducky settings set ingest.kinds voice vocabulary
 {
   // Per-action confirmation policy for external writes.
-  //   "auto"    — issue a confirm-token without prompting (skip the preview).
-  //   "preview" — show a structured preview and wait for explicit yes.
+  //   "auto"    — run the registered write without prompting.
+  //   "manual"  — block the write until you explicitly confirm it.
+  //   "preview" — show the exact command and wait for explicit yes.
   // Anything not listed here defaults to "preview" — fail-closed.
   "confirm": {},
 
@@ -655,7 +662,7 @@ function coerceBoolean(pathLabel: string, value: unknown): boolean {
 }
 
 function isConfirmPolicy(value: unknown): value is ConfirmPolicy {
-  return value === "auto" || value === "preview";
+  return value === "auto" || value === "manual" || value === "preview";
 }
 
 function isIngestKind(value: string): value is IngestKind {

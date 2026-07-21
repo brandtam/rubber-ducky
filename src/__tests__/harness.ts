@@ -24,12 +24,16 @@ function command(): { file: string; prefixArgs: string[] } {
 /**
  * Run the CLI, returning stdout. Throws on non-zero exit (the thrown error
  * carries `stdout`, `stderr`, and `status` from execFileSync).
+ *
+ * `input`, when provided, is piped to the child's stdin — used by verbs
+ * that read a payload from stdin (e.g. `drift`).
  */
-export function runCli(args: string[], cwd?: string): string {
+export function runCli(args: string[], cwd?: string, input?: string): string {
   const { file, prefixArgs } = command();
   return execFileSync(file, [...prefixArgs, ...args], {
     encoding: "utf-8",
     cwd,
+    input,
     env: { ...process.env, NO_COLOR: "1" },
   });
 }
@@ -44,9 +48,9 @@ export interface CliResult {
  * Run the CLI expecting (possible) failure — never throws; returns stdout,
  * stderr, and the exit status so tests can assert typed exit codes.
  */
-export function runCliFail(args: string[], cwd?: string): CliResult {
+export function runCliFail(args: string[], cwd?: string, input?: string): CliResult {
   try {
-    const stdout = runCli(args, cwd);
+    const stdout = runCli(args, cwd, input);
     return { stdout, stderr: "", status: 0 };
   } catch (error: unknown) {
     const err = error as { stdout?: string; stderr?: string; status?: number };

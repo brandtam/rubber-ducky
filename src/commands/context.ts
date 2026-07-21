@@ -19,7 +19,8 @@ import { exitWithError } from "../lib/cli-errors.js";
  * facts / vocabulary / preferences into their prompts without re-parsing
  * the full pages themselves.
  *
- * The pages are append-only markdown maintained by `/ingest-writing`. The
+ * The pages are append-only markdown maintained by the Agent (seeded during
+ * `/onboard`, extended during `/wrap-up`). The
  * CLI's job is to return their contents in a stable shape — a JSON
  * envelope when piped, a readable card when run in a TTY — so skills
  * never have to read the files freehand and never have to handle the
@@ -179,7 +180,7 @@ function renderHuman(
 ): void {
   if (!present) {
     clack.log.info(
-      `No ${chalk.cyan(`wiki/${kind}.md`)} yet — run /ingest-writing to populate it.`,
+      `No ${chalk.cyan(`wiki/${kind}.md`)} yet — run /onboard to populate it.`,
     );
     return;
   }

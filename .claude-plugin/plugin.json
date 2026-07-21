@@ -1,0 +1,13 @@
+{
+  "name": "rubber-ducky",
+  "version": "3.0.0-dev",
+  "description": "A deterministic memory layer for Claude Code — typed markdown vaults the agent maintains across sessions, in plain files you own. Obsidian-compatible, never required.",
+  "author": {
+    "name": "Brandt Milczewski"
+  },
+  "homepage": "https://github.com/brandtam/rubber-ducky",
+  "repository": "https://github.com/brandtam/rubber-ducky",
+  "license": "MIT",
+  "keywords": ["obsidian", "wiki", "vault", "notes", "cli"],
+  "hooks": "./hooks/hooks.json"
+}

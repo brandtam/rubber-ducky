@@ -17,6 +17,24 @@ jobs:
       - run: bun run typecheck
       - run: bun test
 
+  # Validate the Claude Code plugin + self-marketplace manifests with the
+  # official validator. `claude plugin validate` is a static schema check —
+  # headless, no API auth. The repo root is both the plugin and its own
+  # marketplace, so each manifest is validated by explicit file path (a bare
+  # directory path resolves to only the marketplace manifest when both exist).
+  # Structural checks that the validator can't see (hook wiring, version
+  # lockstep, wrapper presence) live in src/__tests__/plugin-manifest.test.ts.
+  validate-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Validate plugin manifest
+        run: claude plugin validate .claude-plugin/plugin.json --strict
+      - name: Validate marketplace manifest
+        run: claude plugin validate .claude-plugin/marketplace.json --strict
+
   # Prove the compiled single-file binary passes the same suite the source
   # does — this is the harness's RUBBER_DUCKY_TEST_BINARY switch under CI.
   test-binary:

@@ -9,9 +9,10 @@ import { SETTINGS_TEMPLATE } from "./settings.js";
 export const VAULT_SETTINGS_TEMPLATE = SETTINGS_TEMPLATE;
 
 /**
- * Ongoing-context-capture pages scaffolded at init time. The `/ingest-writing`
- * skill appends to these — never overwrites — so the schema is intentionally
- * minimal: just enough section structure to keep extractions findable.
+ * Ongoing-context-capture pages scaffolded at init time. The Agent appends to
+ * these — during `/onboard`, and `/wrap-up` for voice samples — never
+ * overwrites, so the schema is intentionally minimal: just enough section
+ * structure to keep extractions findable.
  */
 export interface ContextPageTemplate {
   /** Path relative to the vault root (e.g. `wiki/voice.md`). */
@@ -41,16 +42,16 @@ description: "Voice samples and extracted tone patterns. Append-only; never sile
 
 # Voice
 
-> This page is maintained by the Agent via \`/ingest-writing\`. You can edit it by hand if you want, but you don't have to.
+> This page is maintained by the Agent — seeded during \`/onboard\` and updated as you work. Edit it by hand anytime; you don't have to.
 
 Samples of how the user writes and talks, plus tone patterns extracted from
-those samples. Skills that draft on the user's behalf (\`/push\`,
-\`/comment\`) read this page to match voice.
+those samples. Skills that draft on the user's behalf (\`/new-ticket\`,
+\`/backend-write\`) read this page to match voice.
 
 ## Samples
 
 <!-- Each entry: ### Source — YYYY-MM-DD followed by the raw text and a
-short note on why it was kept. Appended by \`/ingest-writing\`. -->
+short note on why it was kept. Appended during \`/wrap-up\` (voice-sample opt-in). -->
 
 ## Extracted patterns
 
@@ -65,7 +66,7 @@ description: "Factual context about the user — role, team, projects, who-repor
 
 # About
 
-> This page is maintained by the Agent via \`/ingest-writing\`. You can edit it by hand if you want, but you don't have to.
+> This page is maintained by the Agent — seeded during \`/onboard\` and updated as you work. Edit it by hand anytime; you don't have to.
 
 Stable facts the Agent should know about the user. Append-only — superseded
 facts get marked as such, not deleted, so future drafts don't reassert old
@@ -82,7 +83,7 @@ state.
 ## People
 
 <!-- Names, roles, relationships — peers, manager, reports, frequent
-collaborators. Source-attributed when added by \`/ingest-writing\`. -->
+collaborators. Source-attributed when added by the Agent. -->
 `;
 
 const VOCABULARY_PAGE_TEMPLATE = `---
@@ -92,7 +93,7 @@ description: "Terms, acronyms, and internal-system names this workspace expects 
 
 # Vocabulary
 
-> This page is maintained by the Agent via \`/ingest-writing\`. You can edit it by hand if you want, but you don't have to.
+> This page is maintained by the Agent — seeded during \`/onboard\` and updated as you work. Edit it by hand anytime; you don't have to.
 
 Terms, acronyms, and internal-system names this workspace uses — the words you
 want the Agent to know and use consistently. Append-only.
@@ -100,7 +101,7 @@ want the Agent to know and use consistently. Append-only.
 ## Terms
 
 <!-- Each entry: **<term>** — definition. Source-attributed when added by
-\`/ingest-writing\`. -->
+the Agent. -->
 
 ## Acronyms
 
@@ -119,7 +120,7 @@ description: "Communication preferences, style rules, and pet peeves the Agent s
 
 # Preferences
 
-> This page is maintained by the Agent via \`/ingest-writing\`. You can edit it by hand if you want, but you don't have to.
+> This page is maintained by the Agent — seeded during \`/onboard\` and updated as you work. Edit it by hand anytime; you don't have to.
 
 How the user wants the Agent to behave when drafting, replying, summarizing,
 or otherwise generating content. Append-only.
@@ -181,13 +182,32 @@ See \`rubber-ducky doctor\` to verify configuration.
   return `---\n${yamlStringify(frontmatter).trimEnd()}\n---\n\n${body}`;
 }
 
-export function generateClaudeMd(opts: TemplateOptions): string {
+/**
+ * CLAUDE.md shim written into every vault. Claude Code does not read
+ * AGENTS.md natively, so CLAUDE.md exists solely to import it — the
+ * canonical agent instructions live in AGENTS.md (readable by any
+ * AGENTS.md-aware tool). Exactly two lines by design: a pointer comment
+ * and the import.
+ */
+export const CLAUDE_MD_SHIM = `<!-- Managed by rubber-ducky. This shim exists because Claude Code reads CLAUDE.md; the canonical agent instructions live in AGENTS.md — edit that file instead. -->
+@AGENTS.md
+`;
+
+/**
+ * AGENTS.md — the canonical agent-instructions file for a vault.
+ * (Formerly generated as CLAUDE.md; CLAUDE.md is now a two-line shim that
+ * imports this file. See CLAUDE_MD_SHIM.)
+ */
+export function generateAgentsMd(opts: TemplateOptions): string {
   const integrationsSection = `
 ## Connected integrations
 
-No integrations connected yet. Run \`/connect <name>\` from inside Claude Code to wire up an external service via its CLI and a bridge doc.
+Connected services live in two places, both generic so this file never has to change:
 
-Once an integration is connected, this section will list it along with a pointer to its bridge guidance at \`.rubber-ducky/integrations/<name>.md\`.
+- \`workspace.md\` frontmatter — the \`integrations:\` list names what's wired up.
+- \`.rubber-ducky/integrations/<name>.md\` — one bridge doc per service, the single source of truth every integration skill (/ingest, /backend-write, /new-ticket, /reconcile) reads.
+
+To see what's connected, read that frontmatter or list \`.rubber-ducky/integrations/\`. Nothing connected yet? Run \`/connect <name>\` from inside Claude Code to wire up an external service via its CLI and a bridge doc.
 `;
 
   const purposeBlock = opts.purpose && opts.purpose.trim()
@@ -202,7 +222,7 @@ Once an integration is connected, this section will list it along with a pointer
 - Ask the user to paste API tokens, passwords, or credentials into the chat
 - Log, echo, or output environment variable values that contain secrets
 - Include token values in commit messages, task pages, or any persisted file
-- Store credentials in \`workspace.md\`, \`CLAUDE.md\`, or any tracked file
+- Store credentials in \`workspace.md\`, \`AGENTS.md\`, or any tracked file
 
 Credentials belong **only** in the workspace's untracked \`.env.local\` file. Never try to debug a failing integration by inspecting the user's token values.
 `;
@@ -237,6 +257,8 @@ If the value is \`true\`, proceed normally.
 - \`wiki/projects/\` — Project pages
 - \`wiki/index.md\` — Auto-generated page index
 - \`wiki/log.md\` — Timestamped activity log
+- \`wiki/tasks.base\` — Task board (Obsidian Bases view over task pages)
+- \`wiki/projects.base\` — Project table (Obsidian Bases view over project pages)
 - \`raw/\` — Immutable input files (screenshots, attachments)
 ${integrationsSection}${credentialGuardrails}
 
@@ -281,6 +303,7 @@ All commands support \`--json\` for structured output. Run these via bash.
 - \`rubber-ducky doctor\` — Run health checks (structure, config)
 - \`rubber-ducky doctor lint\` — Lint pages (stale tasks, orphans, broken links, schema)
 - \`rubber-ducky status\` — Show workspace info
+- \`rubber-ducky adopt [dir]\` — Preview (default) or \`--apply\` a non-destructive refresh of managed files
 
 ## Conventions
 
@@ -310,7 +333,7 @@ This compounds in value over time: it's how future-you reconstructs *why* a deci
 
 ### Append-only operations log
 
-\`wiki/log.md\` is an append-only record of every capture, task transition, and wrap-up. Use \`rubber-ducky log append "<message>"\` — never edit prior entries.
+\`wiki/log.md\` is an append-only record of task transitions, wrap-ups, and integration events. Use \`rubber-ducky log append "<message>"\` — never edit prior entries.
 
 ### Raw inputs are immutable
 
@@ -336,11 +359,22 @@ Never persist work content (tasks, decisions, log entries) to memory. Never pers
 | "Remind me on Friday to ..." | \`rubber-ducky remind add <date> "<message>"\` |
 | "I had an idea: ..." | \`rubber-ducky idea add "<message>"\` |
 | "Log this: ..." | \`rubber-ducky log append "<message>"\` |
+| "Show me that note" / "Open that in Obsidian" | Follow **Showing notes in Obsidian** below |
 | "What's on my plate?" | Read today's daily page + task pages, synthesize a summary |
 | "What did I do yesterday?" | Read yesterday's daily page, summarize |
 | "Run a health check" | \`rubber-ducky doctor\` |
 
 Natural-language triggers are first-class. When the user's intent maps cleanly to a skill, invoke the skill directly — do not ask "would you like me to run /x?". The point of this workspace is that the user shouldn't have to remember slash commands.
+
+## Showing notes in Obsidian
+
+Obsidian is never required — every flow here works headless. But when the user asks to *see* a note ("show me that note", "open it in Obsidian"), add the visual moment when it is free:
+
+1. **CLI present?** \`command -v obsidian\`. Missing → skip silently and render the note in chat instead.
+2. **App running?** \`pgrep -x Obsidian\` (macOS) or \`pgrep -if obsidian\` (Linux). The CLI auto-launches the app when it isn't running — don't trigger that. Not running → show the note in chat, and offer once: "Obsidian isn't open — want me to launch it and open the note there?"
+3. **Open it:** from the vault root (the CLI targets the vault containing the cwd), run \`obsidian open file="<vault-relative path without .md>"\`.
+
+A missing CLI or closed app is normal operation, never an error — degrade to rendering the note in chat without comment.
 
 `;
 }
@@ -532,12 +566,12 @@ Token savings are real but modest (~7,000-15,000 tokens/day). Not the primary mo
 |-------|----------------|
 | \`/good-morning\` | Synthesizes priorities from multiple sources, makes judgment calls about focus |
 | \`/wrap-up\` | Summarizes a day's work, identifies patterns, suggests tomorrow's focus |
-| \`/write-a-prd\` | Creative — interviews user, explores codebase, designs architecture |
-| \`/prd-to-issues\` | Judgment — decides how to slice work, what dependencies exist |
-| \`/verify-prd\` | Analysis — cross-references branches, code, and issues |
-| \`/commit\` | Reads diff, synthesizes intent into a message |
-| \`/write-pr\` | Reads full branch diff, writes narrative description |
-| \`/add-integration\` | Research — evaluates MCP servers, APIs, capabilities |
+| \`/capture\` | Routes a stray thought to the right verb — urgent, dated, or someday |
+| \`/start-project\` | Interviews the user, scaffolds a project page and its structure |
+| \`/connect\` | Evaluates transport options (official/generated CLI, MCP, hand-written), writes the bridge doc |
+| \`/ingest\` | Maps an external ticket onto the typed wiki schema via its bridge doc |
+| \`/new-ticket\` | Drafts in the user's voice, then files upstream on approval |
+| \`/reconcile\` | Diffs wiki against the backend and walks disagreements one by one |
 
 ### Hybrid pattern (skill calls CLI)
 
@@ -551,7 +585,7 @@ Ask these questions:
 2. **Does it need to read content and make decisions?** If yes, it's a Claude Code skill (that may call CLI commands for the mechanical parts).
 3. **Is it a new operation on an existing page type?** Probably CLI — add a subcommand.
 4. **Is it a new workflow that combines multiple operations?** Probably a skill — it orchestrates CLI commands + AI synthesis.
-5. **Is it something the user will want to customize or override?** Skill — the user can edit \`.claude/skills/<name>/SKILL.md\` (and add sibling files for templates or workspace-local convention overrides).
+5. **Is it a new workflow worth shipping to everyone?** Skill — skills are plugin-resident (in the rubber-ducky plugin, never copied into the vault), so they update in lockstep with the CLI. Vault-local conventions belong in this AGENTS.md, not in a per-vault skill copy.
 `;
 }
 
@@ -618,6 +652,148 @@ export function generateClaudeSettings(): string {
 
   return JSON.stringify(settings, null, 2) + "\n";
 }
+
+/**
+ * Obsidian Bases views shipped into every vault. `.base` files are YAML
+ * documents rendered by Obsidian's core Bases plugin (1.9+) — they replace
+ * the Dataview dependency v2 carried. Two views ship: a task board over
+ * `wiki/tasks/` and a project table over `wiki/projects/`. Static strings,
+ * embedded at compile time like every other template.
+ */
+export interface BaseViewTemplate {
+  /** Path relative to the vault root (e.g. `wiki/tasks.base`). */
+  relativePath: string;
+  content: string;
+}
+
+export function generateBaseViews(): BaseViewTemplate[] {
+  return [
+    { relativePath: "wiki/tasks.base", content: TASKS_BASE_TEMPLATE },
+    { relativePath: "wiki/projects.base", content: PROJECTS_BASE_TEMPLATE },
+  ];
+}
+
+// Task board. Filters to task pages under wiki/tasks/ and offers a
+// status-sorted board plus focused tabs for the common slices. Property
+// references use the explicit `note.` prefix so they can never collide
+// with Bases' built-in `file.` namespace.
+const TASKS_BASE_TEMPLATE = `filters:
+  and:
+    - file.inFolder("wiki/tasks")
+    - file.ext == "md"
+    - note.type == "task"
+properties:
+  note.title:
+    displayName: Title
+  note.status:
+    displayName: Status
+  note.priority:
+    displayName: Priority
+  note.due:
+    displayName: Due
+  note.updated:
+    displayName: Updated
+  note.closed:
+    displayName: Closed
+views:
+  - type: table
+    name: Board
+    order:
+      - note.title
+      - note.status
+      - note.priority
+      - note.due
+      - note.updated
+    sort:
+      - property: note.status
+        direction: ASC
+      - property: note.priority
+        direction: ASC
+  - type: table
+    name: Open
+    filters:
+      and:
+        - note.status != "done"
+        - note.status != "deferred"
+    order:
+      - note.title
+      - note.status
+      - note.priority
+      - note.due
+    sort:
+      - property: note.status
+        direction: ASC
+      - property: note.due
+        direction: ASC
+  - type: table
+    name: In progress
+    filters:
+      and:
+        - note.status == "in-progress"
+    order:
+      - note.title
+      - note.priority
+      - note.due
+      - note.updated
+    sort:
+      - property: note.updated
+        direction: DESC
+  - type: table
+    name: Done
+    filters:
+      and:
+        - note.status == "done"
+    order:
+      - note.title
+      - note.closed
+    sort:
+      - property: note.closed
+        direction: DESC
+`;
+
+// Project table. One row per project page with the fields that matter for
+// a portfolio glance.
+const PROJECTS_BASE_TEMPLATE = `filters:
+  and:
+    - file.inFolder("wiki/projects")
+    - file.ext == "md"
+    - note.type == "project"
+properties:
+  note.title:
+    displayName: Title
+  note.status:
+    displayName: Status
+  note.tags:
+    displayName: Tags
+  note.created:
+    displayName: Created
+  note.updated:
+    displayName: Updated
+views:
+  - type: table
+    name: Projects
+    order:
+      - note.title
+      - note.status
+      - note.tags
+      - note.created
+      - note.updated
+    sort:
+      - property: note.updated
+        direction: DESC
+  - type: table
+    name: Active
+    filters:
+      and:
+        - note.status == "in-progress"
+    order:
+      - note.title
+      - note.tags
+      - note.updated
+    sort:
+      - property: note.updated
+        direction: DESC
+`;
 
 /**
  * Generate a .gitignore for rubber-ducky workspaces.

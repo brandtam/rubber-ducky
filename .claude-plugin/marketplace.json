@@ -1,0 +1,14 @@
+{
+  "name": "rubber-ducky",
+  "owner": {
+    "name": "Brandt Milczewski"
+  },
+  "description": "Self-hosted marketplace for the rubber-ducky plugin — the repo is both the plugin and its own catalog.",
+  "plugins": [
+    {
+      "name": "rubber-ducky",
+      "source": "./",
+      "description": "A deterministic memory layer for Claude Code — typed markdown vaults the agent maintains across sessions, in plain files you own. Obsidian-compatible, never required."
+    }
+  ]
+}

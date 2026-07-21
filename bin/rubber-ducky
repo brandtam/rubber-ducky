@@ -1,0 +1,141 @@
+#!/bin/sh
+# rubber-ducky binary bootstrap wrapper.
+#
+# Claude Code installs this plugin as plain files — no npm, no postinstall,
+# and users need neither Node nor Bun. The real CLI is a compiled per-platform
+# binary attached to GitHub Releases (see docs/adr/plugin-binary-bootstrap.md).
+# This wrapper resolves the platform, downloads the binary matching the
+# plugin's version once, caches it OUTSIDE the plugin directory (plugin dirs
+# are wiped and re-copied on every update), then execs it with all arguments
+# passed through untouched.
+#
+# The cache is keyed by version: ~/.cache/rubber-ducky/<version>/rubber-ducky.
+# When the plugin updates, the versioned path no longer exists, so the wrapper
+# re-fetches and prunes the stale versions — cached binary and plugin version
+# can never silently diverge.
+#
+# Environment overrides:
+#   RUBBER_DUCKY_CACHE_DIR       cache root (default: $XDG_CACHE_HOME/rubber-ducky,
+#                                falling back to ~/.cache/rubber-ducky)
+#   RUBBER_DUCKY_DOWNLOAD_BASE   release download base URL (default: this repo's
+#                                GitHub Releases). Tests point this at a local
+#                                server; the URL layout below stays identical.
+#   RUBBER_DUCKY_BOOTSTRAP_ONLY  "1" = ensure the binary is cached, then exit 0
+#                                without running it (used by the pre-warm hook).
+
+set -eu
+
+fail() {
+  printf 'rubber-ducky: %s\n' "$1" >&2
+  exit 1
+}
+
+PLUGIN_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+MANIFEST="$PLUGIN_ROOT/.claude-plugin/plugin.json"
+[ -f "$MANIFEST" ] || fail "plugin manifest not found at $MANIFEST"
+
+# Extract "version" from plugin.json. POSIX sed, no jq/node dependency; the
+# manifest is small and has exactly one "version" key.
+VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST" | head -n 1)
+[ -n "$VERSION" ] || fail "could not read version from $MANIFEST"
+
+# Map uname to the release asset suffix (must match .github/workflows/release.yml).
+os=$(uname -s)
+arch=$(uname -m)
+case "$os" in
+  Linux)
+    case "$arch" in
+      x86_64 | amd64) PLATFORM=linux-x64 ;;
+      *) fail "unsupported platform: $os $arch (supported: Linux x86_64, macOS x86_64/arm64)" ;;
+    esac
+    ;;
+  Darwin)
+    case "$arch" in
+      arm64) PLATFORM=darwin-arm64 ;;
+      x86_64) PLATFORM=darwin-x64 ;;
+      *) fail "unsupported platform: $os $arch (supported: Linux x86_64, macOS x86_64/arm64)" ;;
+    esac
+    ;;
+  *)
+    fail "unsupported platform: $os $arch (supported: Linux x86_64, macOS x86_64/arm64)"
+    ;;
+esac
+
+CACHE_ROOT=${RUBBER_DUCKY_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/rubber-ducky}
+BINARY="$CACHE_ROOT/$VERSION/rubber-ducky"
+
+# Self-heal a poisoned cache. A middlebox (corporate TLS-inspection proxy,
+# captive portal) can answer the download with a 200 whose body is an HTML
+# block page; exec'ing that runs it as a shell script and fails with a blocking
+# error through the PreToolUse hook. A compiled binary starts with a non-text
+# magic byte (ELF/Mach-O); an HTML page starts with '<'. If the cached file
+# looks like HTML, drop it so the block below re-fetches. (Any other bad body
+# is caught at download time by the --version check below.)
+if [ -e "$BINARY" ]; then
+  first=$(head -c 1 "$BINARY" 2>/dev/null || true)
+  case "$first" in
+    '<') rm -f "$BINARY" ;;
+  esac
+fi
+
+if [ ! -x "$BINARY" ]; then
+  BASE=${RUBBER_DUCKY_DOWNLOAD_BASE:-https://github.com/brandtam/rubber-ducky/releases/download}
+  URL="$BASE/v$VERSION/rubber-ducky-$PLATFORM"
+  mkdir -p "$CACHE_ROOT/$VERSION"
+
+  # Sweep partials left by an earlier download that was killed before mv (e.g.
+  # the PreToolUse hook hitting its timeout mid-fetch). Nothing else prunes
+  # them until the version bumps, so they otherwise accumulate.
+  rm -f "$CACHE_ROOT/$VERSION"/.download.* 2>/dev/null || true
+
+  # Download to a temp file, then atomically mv into place — a concurrent
+  # invocation (e.g. pre-warm racing a real call) never sees a half-written
+  # binary; worst case both download and the last mv wins with identical bytes.
+  TMP=$(mktemp "$CACHE_ROOT/$VERSION/.download.XXXXXX") || fail "could not create temp file in $CACHE_ROOT/$VERSION"
+  # Clean the partial if we're interrupted or killed mid-download.
+  trap 'rm -f "$TMP"' INT TERM
+  # Timeouts so an unreachable or blackholed network fails fast with the clear
+  # message below, instead of stalling every Bash tool call for the full hook
+  # timeout (or hanging an interactive invocation indefinitely).
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --connect-timeout 10 --max-time 600 -o "$TMP" "$URL" || {
+      rm -f "$TMP"
+      fail "download failed: $URL"
+    }
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q --timeout=10 --tries=2 -O "$TMP" "$URL" || {
+      rm -f "$TMP"
+      fail "download failed: $URL"
+    }
+  else
+    rm -f "$TMP"
+    fail "neither curl nor wget is available to download $URL"
+  fi
+  chmod 755 "$TMP"
+  # Verify the download is a runnable binary before caching it. curl -f / wget
+  # reject non-2xx, but a 200 with the wrong body (proxy block page, truncated
+  # transfer) passes them — running --version catches it, so a bad body fails
+  # loudly here instead of being cached and exec'd on every later call.
+  if ! "$TMP" --version >/dev/null 2>&1; then
+    rm -f "$TMP"
+    fail "downloaded file is not a runnable rubber-ducky binary (blocked URL or corrupt download?): $URL"
+  fi
+  mv -f "$TMP" "$BINARY"
+  trap - INT TERM
+
+  # Prune binaries from other versions — the cache holds exactly the version
+  # the installed plugin needs, so upgrades don't accumulate stale binaries.
+  for dir in "$CACHE_ROOT"/*/; do
+    [ -d "$dir" ] || continue
+    case "$dir" in
+      "$CACHE_ROOT/$VERSION/") ;;
+      *) rm -rf "$dir" ;;
+    esac
+  done
+fi
+
+if [ "${RUBBER_DUCKY_BOOTSTRAP_ONLY:-}" = "1" ]; then
+  exit 0
+fi
+
+exec "$BINARY" "$@"

@@ -1,0 +1,33 @@
+# Credentials — never commit tokens or secrets
+.env
+.env.*
+*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor / IDE
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+
+# Node (if running rubber-ducky from source in the workspace)
+node_modules/
+dist/
+
+# Obsidian — workspace-specific settings that shouldn't be shared
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+
+# Sandcastle worktrees and logs
+.sandcastle/worktrees/
+.sandcastle/logs/
+.sandcastle/.env
+
+# Rubber-Ducky local state (transaction sentinels, history)
+.rubber-ducky/

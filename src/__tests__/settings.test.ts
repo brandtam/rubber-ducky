@@ -96,7 +96,7 @@ describe("settings", () => {
       expect(() => loadSettings(tmpDir)).toThrow(SettingsValidationError);
     });
 
-    it("throws when confirm.<svc>.<verb> is not auto|preview", () => {
+    it("throws when confirm.<svc>.<verb> is not auto|manual|preview", () => {
       fs.writeFileSync(
         settingsPath(tmpDir),
         `{ "confirm": { "jira": { "comment": "yolo" } } }`,
@@ -185,6 +185,15 @@ describe("settings", () => {
       writeSettingPath(tmpDir, "confirm.jira.comment", "auto");
       const settings = loadSettings(tmpDir);
       expect(resolveConfirmPolicy(settings, "jira.comment")).toBe("auto");
+    });
+
+    it("accepts each of the three confirm policies", () => {
+      for (const policy of ["auto", "manual", "preview"] as const) {
+        writeSettingPath(tmpDir, "confirm.jira.comment", policy);
+        expect(
+          resolveConfirmPolicy(loadSettings(tmpDir), "jira.comment"),
+        ).toBe(policy);
+      }
     });
 
     it("validates ingest.kinds entries when assigning the array", () => {

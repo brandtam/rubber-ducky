@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { Command } from "commander";
 import { findWorkspaceRoot } from "./lib/workspace.js";
 import { registerInitCommand } from "./commands/init.js";
+import { registerAdoptCommand } from "./commands/adopt.js";
 import { registerFrontmatterCommand } from "./commands/frontmatter.js";
 import { registerStatusCommand } from "./commands/status.js";
 import { registerPageCommand } from "./commands/page.js";
@@ -19,6 +20,8 @@ import { registerTaskCommand } from "./commands/task.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerSettingsCommand } from "./commands/settings.js";
 import { registerContextCommand } from "./commands/context.js";
+import { registerDriftCommand } from "./commands/drift.js";
+import { registerHookCommand } from "./commands/hook.js";
 // Static import so the version is embedded at build time. The CLI ships as a
 // compiled single-file binary — never resolve package.json (or any asset)
 // relative to the module URL at runtime.
@@ -44,6 +47,7 @@ export function createProgram(): Command {
     .option("--verbose", "Return full arrays instead of {count, sample} envelopes in JSON output");
 
   registerInitCommand(program);
+  registerAdoptCommand(program);
   registerFrontmatterCommand(program);
   registerStatusCommand(program);
   registerPageCommand(program);
@@ -58,6 +62,8 @@ export function createProgram(): Command {
   registerDoctorCommand(program);
   registerSettingsCommand(program);
   registerContextCommand(program);
+  registerDriftCommand(program);
+  registerHookCommand(program);
 
   return program;
 }

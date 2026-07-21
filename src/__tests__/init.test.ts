@@ -60,15 +60,24 @@ describe("init — silent (default) workspace creation", () => {
     }
   });
 
-  it("CLAUDE.md has a Connected integrations placeholder when no backends", async () => {
-    const targetDir = path.join(tmpDir, "claude-md-placeholder");
-    await createWorkspace({ name: "claude-md-placeholder", targetDir });
+  it("AGENTS.md has a Connected integrations placeholder when no backends", async () => {
+    const targetDir = path.join(tmpDir, "agents-md-placeholder");
+    await createWorkspace({ name: "agents-md-placeholder", targetDir });
+
+    const agentsMd = fs.readFileSync(path.join(targetDir, "AGENTS.md"), "utf-8");
+    expect(agentsMd).toContain("## Connected integrations");
+    expect(agentsMd).toContain("/connect");
+    // No vocabulary file reference when none exists
+    expect(agentsMd).not.toContain("Import and follow @UBIQUITOUS_LANGUAGE.md");
+  });
+
+  it("CLAUDE.md is a two-line shim importing AGENTS.md", async () => {
+    const targetDir = path.join(tmpDir, "claude-md-shim");
+    await createWorkspace({ name: "claude-md-shim", targetDir });
 
     const claudeMd = fs.readFileSync(path.join(targetDir, "CLAUDE.md"), "utf-8");
-    expect(claudeMd).toContain("## Connected integrations");
-    expect(claudeMd).toContain("/connect");
-    // No vocabulary file reference when none exists
-    expect(claudeMd).not.toContain("Import and follow @UBIQUITOUS_LANGUAGE.md");
+    expect(claudeMd).toContain("@AGENTS.md");
+    expect(claudeMd.trimEnd().split("\n")).toHaveLength(2);
   });
 
   it("creates the standard wiki subdirectories and references/", async () => {
