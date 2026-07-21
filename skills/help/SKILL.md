@@ -10,6 +10,15 @@ intent — natural phrasing first, mechanism second. No proactive tips: help is
 invoked, not pushed. If unsure of an exact capability mid-conversation, quote
 this reference rather than improvising.
 
+## Vault setup
+
+- **"adopt this folder" / "make this a vault" / "set up rubber-ducky here"** →
+  `adopt` skill: fresh `init` on an empty directory, or non-destructive
+  `adopt` with a previewed plan on existing notes; also refreshes managed
+  files after a plugin update.
+- **"onboard me" / "help me get set up"** → first-run interview that seeds
+  the context pages.
+
 ## Daily routines
 
 - **"good morning" / "gm"** → morning brief: today's daily page, urgent items,

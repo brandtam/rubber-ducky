@@ -25,19 +25,38 @@ You talk to Claude; Claude calls `rubber-ducky` for the must-be-exact parts — 
 
 ## Install
 
-From inside Claude Code:
+rubber-ducky attaches to a directory — the folder that becomes (or already is) your vault. It doesn't need to be a git repository; any folder works. Start Claude Code there:
+
+```
+cd path/to/your-vault    # a fresh folder, or one full of existing notes
+claude
+```
+
+Then, inside Claude Code:
 
 ```
 /plugin marketplace add brandtam/rubber-ducky
 /plugin install rubber-ducky
 ```
 
-The right binary for your platform is fetched on first use and pre-warmed at session start. Then point rubber-ducky at a folder:
+Claude Code asks where to install. It says "repo" — read that as "this directory":
 
-- **Fresh vault:** `rubber-ducky init my-vault`
-- **Existing folder** (or a legacy vault): `rubber-ducky adopt .` — prints its plan and writes nothing until you add `--apply`.
+- **Install for you, in this repo only (local scope)** — the usual choice. This one folder is a vault; every other project is untouched.
+- **Install for you (user scope)** — active in every session, in every directory. Pick this if you'll open your vault from several places or want more than one vault.
+- **Install for all collaborators (project scope)** — records the plugin in the folder's shared `.claude/settings.json`, so anyone who clones it gets rubber-ducky too. Only meaningful for a vault that really is a shared repo.
 
-Start Claude Code there, say `hi`, and the agent sets you up. Then just talk, or say `help`.
+Then run `/reload-plugins` (Claude Code reminds you) so the plugin loads into the session you're in.
+
+The plugin ships a small wrapper; the right binary for your platform is fetched on first use and pre-warmed at session start. The `rubber-ducky` CLI lives inside your Claude Code sessions — the agent runs it for you — it's not on your terminal PATH.
+
+Last step: turn the folder into a vault, by asking.
+
+- **Fresh, empty folder:** say *"set this folder up as a new vault"* — the agent runs `rubber-ducky init` for you.
+- **Existing notes** (including a legacy vault): say *"adopt this folder"* — the agent runs `rubber-ducky adopt`, which prints a plan of what it would add and writes nothing until you approve. Either way your files are untouchable: rubber-ducky only writes files it owns.
+
+(Prefer to drive the CLI yourself? Prefix it with `!` at the Claude prompt — `! rubber-ducky adopt .` — a bare `rubber-ducky ...` typed into the prompt is just chat to the agent, not a shell command.)
+
+Then say `hi` — a short onboarding interview seeds the vault with who you are and how you work. After that, just talk. Or say `help`.
 
 ### From source
 

@@ -15,6 +15,8 @@ const SKILLS_DIR = path.join(REPO_ROOT, "skills");
 const AGENTS_DIR = path.join(REPO_ROOT, "agents");
 
 const SKILL_ROSTER = [
+  // Vault lifecycle (UAT fixes): init/adopt/refresh through the plan gate.
+  "adopt",
   "good-morning",
   "wrap-up",
   "capture",
@@ -91,7 +93,7 @@ function markdownFilesUnder(dir: string): string[] {
 }
 
 describe("skill roster", () => {
-  it("contains exactly the fourteen skills (nine consolidated + five integration)", () => {
+  it("contains exactly the fifteen skills (nine consolidated + five integration + adopt)", () => {
     const dirs = fs
       .readdirSync(SKILLS_DIR, { withFileTypes: true })
       .filter((e) => e.isDirectory())
