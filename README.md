@@ -47,7 +47,7 @@ Claude Code asks where to install. It says "repo" — read that as "this directo
 
 Then run `/reload-plugins` (Claude Code reminds you) so the plugin loads into the session you're in.
 
-One toggle worth flipping now: Claude Code does **not** auto-update plugins from third-party marketplaces, so bug fixes won't reach you on their own. Enable it under `/plugin` → Marketplaces → rubber-ducky → **Enable auto-update** — or update manually now and then with `/plugin marketplace update rubber-ducky`. If it's off, rubber-ducky reminds you once at session start.
+One toggle worth flipping now: Claude Code does **not** auto-update plugins from third-party marketplaces, so bug fixes won't reach you on their own. Enable it under `/plugin` → Marketplaces → rubber-ducky → **Enable auto-update**. The only manual alternative is a reinstall (`/plugin uninstall rubber-ducky@rubber-ducky`, then `/plugin install rubber-ducky@rubber-ducky`) — `/plugin marketplace update` alone refreshes the catalog but leaves installed plugins pinned while auto-update is off. If it's off, rubber-ducky reminds you once at session start.
 
 The plugin ships a small wrapper; the right binary for your platform is fetched on first use and pre-warmed at session start. The `rubber-ducky` CLI lives inside your Claude Code sessions — the agent runs it for you — it's not on your terminal PATH.
 

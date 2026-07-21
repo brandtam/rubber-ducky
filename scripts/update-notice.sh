@@ -24,6 +24,7 @@ MARKETPLACE_DIR=$(dirname "$PLUGIN_DIR")
 CACHE_DIR=$(dirname "$MARKETPLACE_DIR")
 [ "$(basename "$CACHE_DIR")" = "cache" ] || exit 0
 MARKETPLACE=$(basename "$MARKETPLACE_DIR")
+PLUGIN_NAME=$(basename "$PLUGIN_DIR")
 
 ACK_ROOT=${RUBBER_DUCKY_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/rubber-ducky}
 ACK_FILE="$ACK_ROOT/auto-update-notice-acked"
@@ -47,6 +48,6 @@ fi
 
 mkdir -p "$ACK_ROOT" 2>/dev/null || true
 cat <<EOF
-[rubber-ducky] Auto-update is OFF for the "$MARKETPLACE" plugin marketplace, so plugin bug fixes will not arrive on their own. At a natural moment early in this session (never mid-task), tell the user once, briefly: enable auto-update via /plugin -> Marketplaces -> $MARKETPLACE -> "Enable auto-update", or update manually anytime with /plugin marketplace update $MARKETPLACE followed by /reload-plugins. Those are user-typed commands — never run them yourself. After telling the user, run: touch "$ACK_FILE" so this notice never repeats.
+[rubber-ducky] Auto-update is OFF for the "$MARKETPLACE" plugin marketplace, so plugin bug fixes will not arrive on their own. This was checked at session start; the user may have enabled it since (e.g. via /plugin in this very session), so re-check before saying anything: grep -A 12 '"$MARKETPLACE":' "$KNOWN" | grep -q '"autoUpdate": true' — if that now succeeds, run: touch "$ACK_FILE" and say nothing. Otherwise, at a natural moment early in this session (never mid-task), tell the user once, briefly: enable auto-update via /plugin -> Marketplaces -> $MARKETPLACE -> "Enable auto-update" (recommended), or update by hand by reinstalling: /plugin uninstall $PLUGIN_NAME@$MARKETPLACE then /plugin install $PLUGIN_NAME@$MARKETPLACE. Warn them that /plugin marketplace update alone only refreshes the catalog — it does not update installed plugins while auto-update is off. Those are user-typed commands — never run them yourself. After telling the user, run the same touch command so this notice never repeats.
 EOF
 exit 0

@@ -30,7 +30,14 @@ Turn the current directory into a vault — or refresh an existing one — throu
    unresolved rather than prompting. List each conflicted path and what
    `--force` would overwrite; only run `adopt . --apply --force` after the
    user explicitly approves that list. Never lead with `--force`.
-6. **Hand off** — after a fresh init or first adoption, check
+6. **Wire the shim** — an adopted directory often has its own `CLAUDE.md`,
+   which adopt keeps — but that orphans `AGENTS.md`: the vault's agent
+   instructions only load through an `@AGENTS.md` reference. After
+   applying, if `CLAUDE.md` exists and lacks an `@AGENTS.md` line, offer
+   a one-line append adding it (append-only, their content untouched).
+   Declined → respect it, but say plainly what stays unwired: skills
+   still fire, ambient conventions and the fresh-session check don't.
+7. **Hand off** — after a fresh init or first adoption, check
    `rubber-ducky settings get onboard.completed`; if `false`, offer the
    short onboarding interview (invoke `/onboard`). Declined? Fine — confirm
    the vault is ready in one line and get out of the way.
