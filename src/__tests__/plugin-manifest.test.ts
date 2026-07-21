@@ -61,14 +61,18 @@ describe("marketplace manifest", () => {
 describe("hook wiring", () => {
   const hooks = readJson("hooks", "hooks.json");
 
-  it("registers a SessionStart command hook", () => {
+  it("registers SessionStart command hooks (pre-warm + update notice)", () => {
     const sessionStart = hooks.hooks?.SessionStart;
     expect(Array.isArray(sessionStart)).toBe(true);
     expect(sessionStart).toHaveLength(1);
     const commands = sessionStart[0].hooks;
-    expect(commands).toHaveLength(1);
-    expect(commands[0].type).toBe("command");
-    expect(commands[0].command).toContain("${CLAUDE_PLUGIN_ROOT}");
+    expect(commands).toHaveLength(2);
+    for (const command of commands) {
+      expect(command.type).toBe("command");
+      expect(command.command).toContain("${CLAUDE_PLUGIN_ROOT}");
+    }
+    expect(commands[0].command).toContain("scripts/prewarm.sh");
+    expect(commands[1].command).toContain("scripts/update-notice.sh");
   });
 
   it("registers the confirm gate as a Bash-scoped PreToolUse hook", () => {
@@ -97,13 +101,16 @@ describe("hook wiring", () => {
     expect((fs.statSync(scriptPath).mode & 0o111) !== 0).toBe(true);
   });
 
-  it("points at a pre-warm script that exists and is executable", () => {
-    const command: string = hooks.hooks.SessionStart[0].hooks[0].command;
-    // Resolve ${CLAUDE_PLUGIN_ROOT} to the repo root (the plugin root) and
-    // strip the shell-form quoting to get the real path.
-    const resolved = command.replaceAll('"', "").replace("${CLAUDE_PLUGIN_ROOT}", REPO_ROOT);
-    expect(fs.existsSync(resolved)).toBe(true);
-    expect((fs.statSync(resolved).mode & 0o111) !== 0).toBe(true);
+  it("every SessionStart script exists and is executable", () => {
+    for (const hook of hooks.hooks.SessionStart[0].hooks) {
+      // Resolve ${CLAUDE_PLUGIN_ROOT} to the repo root (the plugin root) and
+      // strip the shell-form quoting to get the real path.
+      const resolved = (hook.command as string)
+        .replaceAll('"', "")
+        .replace("${CLAUDE_PLUGIN_ROOT}", REPO_ROOT);
+      expect(fs.existsSync(resolved)).toBe(true);
+      expect((fs.statSync(resolved).mode & 0o111) !== 0).toBe(true);
+    }
   });
 });
 
@@ -116,11 +123,13 @@ describe("bin wrapper", () => {
     expect(firstLine).toBe("#!/bin/sh");
   });
 
-  it("ships an executable pre-warm script", () => {
-    expect(isExecutable("scripts", "prewarm.sh")).toBe(true);
-    const firstLine = fs
-      .readFileSync(path.join(REPO_ROOT, "scripts", "prewarm.sh"), "utf-8")
-      .split("\n")[0];
-    expect(firstLine).toBe("#!/bin/sh");
+  it("ships executable POSIX-sh hook scripts", () => {
+    for (const script of ["prewarm.sh", "update-notice.sh"]) {
+      expect(isExecutable("scripts", script)).toBe(true);
+      const firstLine = fs
+        .readFileSync(path.join(REPO_ROOT, "scripts", script), "utf-8")
+        .split("\n")[0];
+      expect(firstLine).toBe("#!/bin/sh");
+    }
   });
 });
