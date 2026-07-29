@@ -111,6 +111,21 @@ describe("hook pre-tool-use CLI (confirm gate)", () => {
     expect(result.stdout.trim()).toBe("");
   });
 
+  it("previews an ungated attempt to flip a confirm policy (self-gating)", () => {
+    const result = gate(payload("rubber-ducky settings set confirm.github.comment auto"));
+    expect(result.status).toBe(0);
+    const decision = decisionOf(result.stdout);
+    expect(decision.permissionDecision).toBe("ask");
+    expect(decision.permissionDecisionReason).toContain("never auto-approved");
+  });
+
+  it("previews a raw append onto the write-patterns file (self-gating)", () => {
+    const result = gate(payload("echo 'github.any gh *' >> .rubber-ducky/write-patterns"));
+    expect(result.status).toBe(0);
+    const decision = decisionOf(result.stdout);
+    expect(decision.permissionDecision).toBe("ask");
+  });
+
   it("is hidden from --help (machine-facing verb)", () => {
     const help = runCli(["--help"], vault);
     expect(help).not.toContain("pre-tool-use");

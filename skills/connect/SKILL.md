@@ -34,6 +34,13 @@ even when one looks obvious. The user knows their situation:
 > **(c) MCP server** — if a good MCP server exists for `<service>`, point me at it.
 > **(d) Hand-written** — you already have a custom CLI or script. Tell me what to call.
 >
+> One caveat either way: the confirm gate is a preview/UX layer, not a
+> security boundary. If your Claude Code native permissions carry a broad
+> allowlist for the transport's binary (e.g. `Bash(gh:*)`), any spelling
+> that isn't registered in `.rubber-ducky/write-patterns` runs without the
+> gate seeing a policy for it. And MCP transports bypass the gate entirely —
+> MCP tool calls are not Bash.
+>
 > Which fits?
 
 Then, per pick:

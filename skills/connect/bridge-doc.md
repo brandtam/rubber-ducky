@@ -40,6 +40,27 @@ canonical reference form), and — when the schema reserves a URL field for
 this service (`gh_ref` / `jira_ref` / `asana_ref`) — which one to set.
 Unmapped service fields go to the page body, not frontmatter.
 
+## Gate limits
+
+A standing section, copied verbatim into every generated bridge doc (fill in
+the service and binary names):
+
+```markdown
+## Gate limits
+
+The confirm gate is a preview/UX layer, not a security boundary. Two known
+bypasses to keep in mind for this integration:
+
+- A broad allowlist for `<binary>` in Claude Code's native permissions
+  (e.g. `Bash(<binary>:*)`) lets any command spelling NOT registered in
+  `.rubber-ducky/write-patterns` run without a gate policy. Keep native
+  allowlist entries narrow, or keep the write-patterns lines in sync with
+  every write spelling this doc lists.
+- MCP tool calls are not Bash — if this integration (or a sibling) uses an
+  MCP transport, the gate never sees those writes. Rely on Claude Code's
+  native permissions for them.
+```
+
 ## Status normalization
 
 A two-way table: every service status → one vault status (`backlog`,
@@ -83,6 +104,11 @@ Official CLI: `gh` (https://cli.github.com). Structured output: `--json <fields>
 - url → gh_ref
 - source: github; ref: <owner>/<repo>#<number>
 - body → page body `## Description` (not frontmatter)
+
+## Gate limits
+The confirm gate is a preview/UX layer, not a security boundary. A broad
+`Bash(gh:*)` allowlist in Claude Code's native permissions lets unregistered
+`gh` spellings run ungated; MCP transports bypass the gate entirely.
 
 ## Status normalization
 | GitHub | vault |
