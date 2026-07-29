@@ -37,6 +37,21 @@ const PLATFORM =
 let server: ReturnType<typeof Bun.serve>;
 let requests: string[] = [];
 
+/**
+ * The mock "binary" served for a given asset path. Shared between the server
+ * and the checksum computation in stagePlugin, so the staged
+ * .claude-plugin/checksums.json pins exactly the bytes the server will send.
+ * It reports which asset it came from and prints each argument on its own
+ * line, so tests can assert argv boundaries.
+ */
+function assetBody(pathname: string): string {
+  return `#!/bin/sh\necho "served:${pathname}"\nfor a in "$@"; do printf 'arg:%s\\n' "$a"; done\nexit 0\n`;
+}
+
+function sha256Hex(text: string): string {
+  return new Bun.CryptoHasher("sha256").update(text).digest("hex");
+}
+
 beforeAll(() => {
   server = Bun.serve({
     port: 0,
@@ -56,10 +71,7 @@ beforeAll(() => {
           status: 200,
         });
       }
-      // The served "binary" reports which asset it came from and prints each
-      // argument on its own line, so tests can assert argv boundaries.
-      const body = `#!/bin/sh\necho "served:${pathname}"\nfor a in "$@"; do printf 'arg:%s\\n' "$a"; done\nexit 0\n`;
-      return new Response(body);
+      return new Response(assetBody(pathname));
     },
   });
 });
@@ -84,14 +96,28 @@ describe("plugin binary bootstrap wrapper", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  /** Stage a copy of the real wrapper + pre-warm script under a manifest with a chosen version. */
-  function stagePlugin(version: string): void {
+  /**
+   * Stage a copy of the real wrapper + pre-warm script under a manifest with
+   * a chosen version. By default the staged checksums.json pins the sha256 of
+   * exactly what the mock server serves for this version+platform (the happy
+   * path); `checksum` overrides the pinned value (mismatch case) and
+   * `checksum: null` omits the entry entirely (missing-entry case).
+   */
+  function stagePlugin(version: string, opts: { checksum?: string | null } = {}): void {
     fs.mkdirSync(path.join(pluginDir, ".claude-plugin"), { recursive: true });
     fs.mkdirSync(path.join(pluginDir, "bin"), { recursive: true });
     fs.mkdirSync(path.join(pluginDir, "scripts"), { recursive: true });
     fs.writeFileSync(
       path.join(pluginDir, ".claude-plugin", "plugin.json"),
       JSON.stringify({ name: "rubber-ducky", version }, null, 2),
+      "utf-8",
+    );
+    const key = `v${version}/${PLATFORM}`;
+    const pinned =
+      opts.checksum === undefined ? sha256Hex(assetBody(`/v${version}/rubber-ducky-${PLATFORM}`)) : opts.checksum;
+    fs.writeFileSync(
+      path.join(pluginDir, ".claude-plugin", "checksums.json"),
+      JSON.stringify(pinned === null ? {} : { [key]: pinned }, null, 2),
       "utf-8",
     );
     for (const [src, dest] of [
@@ -180,7 +206,9 @@ describe("plugin binary bootstrap wrapper", () => {
       stagePlugin("9.0.0-poison");
       const result = await run(wrapper(), ["--version"]);
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("not a runnable rubber-ducky binary");
+      // The block page's bytes don't hash to the pinned checksum, so the
+      // integrity gate rejects it before anything would execute it.
+      expect(result.stderr).toContain("checksum mismatch");
       // The HTML must never land in the cache to be exec'd later.
       expect(fs.existsSync(cachedBinary("9.0.0-poison"))).toBe(false);
     });
@@ -197,6 +225,49 @@ describe("plugin binary bootstrap wrapper", () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain(`served:/v3.3.3/rubber-ducky-${PLATFORM}`);
       expect(requests).toEqual([`/v3.3.3/rubber-ducky-${PLATFORM}`]);
+    });
+  });
+
+  describe("download integrity (git-pinned sha256)", () => {
+    it("executes the download when its sha256 matches the pinned checksum", async () => {
+      stagePlugin("6.1.0"); // default: checksum of exactly what the server serves
+      const result = await run(wrapper(), ["--version"]);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain(`served:/v6.1.0/rubber-ducky-${PLATFORM}`);
+      expect(fs.existsSync(cachedBinary("6.1.0"))).toBe(true);
+    });
+
+    it("refuses to execute or cache a download whose sha256 does not match", async () => {
+      stagePlugin("6.2.0", { checksum: "0".repeat(64) });
+      const result = await run(wrapper(), ["--version"]);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("checksum mismatch");
+      // Nothing ran — not even the --version probe on the temp file.
+      expect(result.stdout).toBe("");
+      expect(fs.existsSync(cachedBinary("6.2.0"))).toBe(false);
+      // No leftover temp file either.
+      const versionDir = path.join(cacheDir, "6.2.0");
+      const leftovers = fs.existsSync(versionDir) ? fs.readdirSync(versionDir) : [];
+      expect(leftovers).toEqual([]);
+    });
+
+    it("fails without downloading when the checksum entry is missing", async () => {
+      stagePlugin("6.3.0", { checksum: null });
+      const result = await run(wrapper(), ["--version"]);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`no checksum entry for v6.3.0/${PLATFORM}`);
+      // Missing entry is an error, not a skip — the download never starts.
+      expect(requests).toEqual([]);
+      expect(fs.existsSync(cachedBinary("6.3.0"))).toBe(false);
+    });
+
+    it("rejects a manifest version with path or URL metacharacters before touching paths", async () => {
+      stagePlugin("../../evil");
+      const result = await run(wrapper(), ["--version"]);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("invalid version");
+      expect(requests).toEqual([]);
+      expect(fs.existsSync(cacheDir)).toBe(false);
     });
   });
 
