@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeFileAtomic } from "./fs-atomic.js";
 import { createPage } from "./page.js";
 
 // ── ASAP types ──────────────────────────────────────────────────────────────
@@ -150,7 +151,7 @@ export function addAsap(workspaceRoot: string, message: string): AsapAddResult {
   fs.mkdirSync(path.dirname(asapPath), { recursive: true });
 
   if (!fs.existsSync(asapPath)) {
-    fs.writeFileSync(asapPath, `${ASAP_HEADER}\n${line}`, "utf-8");
+    writeFileAtomic(asapPath, `${ASAP_HEADER}\n${line}`);
   } else {
     fs.appendFileSync(asapPath, line, "utf-8");
   }
@@ -225,7 +226,7 @@ export function resolveAsap(workspaceRoot: string, index: number): AsapResolveRe
   const resolvedAt = new Date().toISOString();
   lines[targetLineIdx] = `- [x] ${parsed.createdAt} — ${parsed.message} (resolved: ${resolvedAt})`;
 
-  fs.writeFileSync(asapPath, lines.join("\n"), "utf-8");
+  writeFileAtomic(asapPath, lines.join("\n"));
 
   return {
     index,
@@ -248,7 +249,7 @@ export function addReminder(
   fs.mkdirSync(path.dirname(remindersPath), { recursive: true });
 
   if (!fs.existsSync(remindersPath)) {
-    fs.writeFileSync(remindersPath, `${REMINDERS_HEADER}\n${line}`, "utf-8");
+    writeFileAtomic(remindersPath, `${REMINDERS_HEADER}\n${line}`);
   } else {
     fs.appendFileSync(remindersPath, line, "utf-8");
   }
@@ -331,7 +332,7 @@ export function resolveReminder(
   const resolvedAt = new Date().toISOString();
   lines[targetLineIdx] = `- [x] ${parsed.date} — ${parsed.message} (created: ${parsed.createdAt}, resolved: ${resolvedAt})`;
 
-  fs.writeFileSync(remindersPath, lines.join("\n"), "utf-8");
+  writeFileAtomic(remindersPath, lines.join("\n"));
 
   return {
     index,
@@ -350,7 +351,7 @@ export function addIdea(workspaceRoot: string, message: string): IdeaAddResult {
   fs.mkdirSync(path.dirname(ideasPath), { recursive: true });
 
   if (!fs.existsSync(ideasPath)) {
-    fs.writeFileSync(ideasPath, `${IDEAS_HEADER}\n${line}`, "utf-8");
+    writeFileAtomic(ideasPath, `${IDEAS_HEADER}\n${line}`);
   } else {
     fs.appendFileSync(ideasPath, line, "utf-8");
   }

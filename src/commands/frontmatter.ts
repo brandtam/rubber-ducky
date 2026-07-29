@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   parseFrontmatter,
   setFrontmatterField,
@@ -9,7 +10,10 @@ import {
   setFrontmatterArray,
   FrontmatterArrayTypeError,
 } from "../lib/frontmatter.js";
+import { writeFileAtomic } from "../lib/fs-atomic.js";
 import { formatOutput, ExitCode } from "../lib/output.js";
+import { findWorkspaceRoot } from "../lib/workspace.js";
+import { isInsideWorkspace } from "../lib/paths.js";
 import { exitWithError } from "../lib/cli-errors.js";
 
 export function registerFrontmatterCommand(program: Command): void {
@@ -21,9 +25,11 @@ export function registerFrontmatterCommand(program: Command): void {
     .description("Read frontmatter from a markdown file")
     .argument("<file>", "Path to the markdown file")
     .argument("[field]", "Specific field to read")
-    .action((file: string, field: string | undefined, _opts: unknown, cmd: Command) => {
+    .option("--outside-vault", "Allow a file path outside the current workspace", false)
+    .action((file: string, field: string | undefined, opts: { outsideVault: boolean }, cmd: Command) => {
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
       const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
+      file = confineFileArg(file, opts.outsideVault, jsonMode);
 
       try {
         if (!fs.existsSync(file)) {
@@ -69,9 +75,11 @@ export function registerFrontmatterCommand(program: Command): void {
     .argument("<file>", "Path to the markdown file")
     .argument("<field>", "Field name to set")
     .argument("<value>", "Value to set")
-    .action((file: string, field: string, value: string, _opts: unknown, cmd: Command) => {
+    .option("--outside-vault", "Allow a file path outside the current workspace", false)
+    .action((file: string, field: string, value: string, opts: { outsideVault: boolean }, cmd: Command) => {
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
       const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
+      file = confineFileArg(file, opts.outsideVault, jsonMode);
 
       try {
         if (!fs.existsSync(file)) {
@@ -81,7 +89,7 @@ export function registerFrontmatterCommand(program: Command): void {
         const content = fs.readFileSync(file, "utf-8");
         const parsedValue = parseCliValue(value);
         const updated = setFrontmatterField(content, field, parsedValue);
-        fs.writeFileSync(file, updated, "utf-8");
+        writeFileAtomic(file, updated);
 
         const output = formatOutput(
           { success: true, field, value: parsedValue },
@@ -104,9 +112,11 @@ export function registerFrontmatterCommand(program: Command): void {
     .argument("<field>", "Field name")
     .argument("<value>", "Value to append")
     .option("--allow-duplicates", "Append even when the value is already present", false)
-    .action((file: string, field: string, value: string, opts: { allowDuplicates: boolean }, cmd: Command) => {
+    .option("--outside-vault", "Allow a file path outside the current workspace", false)
+    .action((file: string, field: string, value: string, opts: { allowDuplicates: boolean; outsideVault: boolean }, cmd: Command) => {
       const globalOpts = cmd.parent?.parent?.parent?.opts() ?? {};
       const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
+      file = confineFileArg(file, opts.outsideVault, jsonMode);
 
       try {
         if (!fs.existsSync(file)) {
@@ -119,7 +129,7 @@ export function registerFrontmatterCommand(program: Command): void {
         });
 
         if (updated !== content) {
-          fs.writeFileSync(file, updated, "utf-8");
+          writeFileAtomic(file, updated);
         }
 
         const parsed = parseFrontmatter(updated);
@@ -149,9 +159,11 @@ export function registerFrontmatterCommand(program: Command): void {
     .argument("<file>", "Path to the markdown file")
     .argument("<field>", "Field name")
     .argument("<value>", "Value to remove")
-    .action((file: string, field: string, value: string, _opts: unknown, cmd: Command) => {
+    .option("--outside-vault", "Allow a file path outside the current workspace", false)
+    .action((file: string, field: string, value: string, opts: { outsideVault: boolean }, cmd: Command) => {
       const globalOpts = cmd.parent?.parent?.parent?.opts() ?? {};
       const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
+      file = confineFileArg(file, opts.outsideVault, jsonMode);
 
       try {
         if (!fs.existsSync(file)) {
@@ -162,7 +174,7 @@ export function registerFrontmatterCommand(program: Command): void {
         const updated = removeFromFrontmatterArray(content, field, value);
 
         if (updated !== content) {
-          fs.writeFileSync(file, updated, "utf-8");
+          writeFileAtomic(file, updated);
         }
 
         const parsed = parseFrontmatter(updated);
@@ -192,9 +204,11 @@ export function registerFrontmatterCommand(program: Command): void {
     .argument("<file>", "Path to the markdown file")
     .argument("<field>", "Field name")
     .argument("[values...]", "Values to set (omit for empty array)")
-    .action((file: string, field: string, values: string[], _opts: unknown, cmd: Command) => {
+    .option("--outside-vault", "Allow a file path outside the current workspace", false)
+    .action((file: string, field: string, values: string[], opts: { outsideVault: boolean }, cmd: Command) => {
       const globalOpts = cmd.parent?.parent?.parent?.opts() ?? {};
       const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
+      file = confineFileArg(file, opts.outsideVault, jsonMode);
 
       try {
         if (!fs.existsSync(file)) {
@@ -203,7 +217,7 @@ export function registerFrontmatterCommand(program: Command): void {
 
         const content = fs.readFileSync(file, "utf-8");
         const updated = setFrontmatterArray(content, field, values ?? []);
-        fs.writeFileSync(file, updated, "utf-8");
+        writeFileAtomic(file, updated);
 
         const output = formatOutput(
           { success: true, field, values: values ?? [] },
@@ -222,9 +236,11 @@ export function registerFrontmatterCommand(program: Command): void {
     .description("Validate frontmatter against the page type schema")
     .argument("<file>", "Path to the markdown file")
     .option("--type <type>", "Page type to validate against (daily, task, project)")
-    .action((file: string, opts: { type?: string }, cmd: Command) => {
+    .option("--outside-vault", "Allow a file path outside the current workspace", false)
+    .action((file: string, opts: { type?: string; outsideVault: boolean }, cmd: Command) => {
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
       const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
+      file = confineFileArg(file, opts.outsideVault, jsonMode);
 
       try {
         if (!fs.existsSync(file)) {
@@ -266,6 +282,30 @@ export function registerFrontmatterCommand(program: Command): void {
         exitWithError(error, { json: jsonMode }, ExitCode.Unclassified);
       }
     });
+}
+
+/**
+ * Vault confinement for frontmatter file args. When the command runs inside
+ * a workspace, the file must resolve inside that workspace — an agent
+ * passing `../../outside.md` (or an absolute path elsewhere) gets a typed
+ * InvalidInput rejection. Operating on out-of-vault files is intentionally
+ * supported, but only behind the explicit `--outside-vault` flag. Outside
+ * any workspace there is nothing to confine to, and any path is allowed.
+ */
+function confineFileArg(file: string, allowOutside: boolean, jsonMode: boolean): string {
+  const resolved = path.resolve(file);
+  if (!allowOutside) {
+    const root = findWorkspaceRoot();
+    if (root && !isInsideWorkspace(root, resolved)) {
+      exitWithError(
+        `File is outside the workspace: ${file}. ` +
+        `Pass --outside-vault to operate on files outside the vault.`,
+        { json: jsonMode },
+        ExitCode.InvalidInput,
+      );
+    }
+  }
+  return resolved;
 }
 
 function parseCliValue(value: string): unknown {

@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseFrontmatter, setFrontmatterField } from "./frontmatter.js";
+import { writeFileAtomic } from "./fs-atomic.js";
+import { resolveInsideWorkspace } from "./paths.js";
 import { appendUniqueToFrontmatterArray, ensureDailyPage } from "./daily.js";
 import { appendLog } from "./wiki.js";
 
@@ -100,7 +102,9 @@ function readTaskFile(
   workspaceRoot: string,
   taskFile: string
 ): { content: string; data: Record<string, unknown>; body: string; fullPath: string } {
-  const fullPath = path.join(workspaceRoot, taskFile);
+  // Confinement: taskFile is user/agent-supplied — resolve it and require
+  // the result inside the workspace root (rejects ../../escape.md).
+  const fullPath = resolveInsideWorkspace(workspaceRoot, taskFile);
 
   if (!fs.existsSync(fullPath)) {
     throw new Error(`Task file not found: ${taskFile}`);
@@ -141,7 +145,7 @@ export function startTask(
   taskContent = setFrontmatterField(taskContent, "updated", new Date().toISOString());
   const activityEntry = `- Started on ${taskDate}`;
   taskContent = appendToSection(taskContent, "Activity log", activityEntry);
-  fs.writeFileSync(task.fullPath, taskContent, "utf-8");
+  writeFileAtomic(task.fullPath, taskContent);
 
   // Ensure daily page exists
   const dailyFile = ensureDailyPage(workspaceRoot, taskDate);
@@ -150,7 +154,7 @@ export function startTask(
   const dailyPath = path.join(workspaceRoot, dailyFile);
   let dailyContent = fs.readFileSync(dailyPath, "utf-8");
   dailyContent = setFrontmatterField(dailyContent, "active_task", taskFile);
-  fs.writeFileSync(dailyPath, dailyContent, "utf-8");
+  writeFileAtomic(dailyPath, dailyContent);
 
   appendUniqueToFrontmatterArray(workspaceRoot, dailyFile, "tasks_touched", taskFile);
   appendUniqueToFrontmatterArray(workspaceRoot, dailyFile, "projects_touched", task.data.project);
@@ -187,7 +191,7 @@ export function closeTask(
   taskContent = setFrontmatterField(taskContent, "updated", new Date().toISOString());
   const activityEntry = `- Closed on ${taskDate}`;
   taskContent = appendToSection(taskContent, "Activity log", activityEntry);
-  fs.writeFileSync(task.fullPath, taskContent, "utf-8");
+  writeFileAtomic(task.fullPath, taskContent);
 
   // Ensure daily page exists
   const dailyFile = ensureDailyPage(workspaceRoot, taskDate);
@@ -201,14 +205,14 @@ export function closeTask(
   if (dailyParsed && dailyParsed.data.active_task === taskFile) {
     dailyContent = setFrontmatterField(dailyContent, "active_task", null);
     clearedActiveTask = true;
-    fs.writeFileSync(dailyPath, dailyContent, "utf-8");
+    writeFileAtomic(dailyPath, dailyContent);
   }
 
   // Add to completed-today section on daily page
   dailyContent = fs.readFileSync(dailyPath, "utf-8");
   const completedEntry = `- [[${taskFile}|${taskTitle}]]`;
   dailyContent = appendToSection(dailyContent, "Completed today", completedEntry);
-  fs.writeFileSync(dailyPath, dailyContent, "utf-8");
+  writeFileAtomic(dailyPath, dailyContent);
 
   appendUniqueToFrontmatterArray(workspaceRoot, dailyFile, "tasks_touched", taskFile);
   appendUniqueToFrontmatterArray(workspaceRoot, dailyFile, "projects_touched", task.data.project);

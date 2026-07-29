@@ -10,7 +10,13 @@ export interface ValidationError {
   message: string;
 }
 
-const FRONTMATTER_REGEX = /^---\n([\s\S]*?)---(\n[\s\S]*)?$/;
+// The closing `---` must sit alone at the start of a line (the YAML block
+// capture ends with `\n`, or is absent for empty frontmatter) and be
+// followed by a newline or end-of-input. Without the line anchor, a YAML
+// value containing `---` (e.g. `title: a---`) would terminate the
+// frontmatter mid-line — silent truncation that corrupts the file on the
+// next setFrontmatterField round-trip.
+const FRONTMATTER_REGEX = /^---\n([\s\S]*?\n)?---(\n[\s\S]*)?$/;
 
 const VALID_STATUSES = [
   "backlog", "to-do", "in-progress", "in-review",
@@ -137,7 +143,7 @@ export function parseFrontmatter(content: string): ParsedFrontmatter | null {
     return null;
   }
 
-  const yamlStr = match[1];
+  const yamlStr = match[1] ?? "";
   const body = match[2] ? match[2].replace(/^\n/, "") : "";
 
   const data = yamlStr.trim() === "" ? {} : yamlParse(yamlStr);
