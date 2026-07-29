@@ -50,6 +50,24 @@ export class PageExistsError extends Error {
 }
 
 /**
+ * Thrown when a title slugifies to the empty string (non-ASCII or
+ * symbol-only titles), which would otherwise produce a filename of `.md`.
+ * Identity-based so command handlers map it to `InvalidInput`.
+ */
+export class EmptySlugError extends Error {
+  readonly title: string;
+
+  constructor(title: string) {
+    super(
+      `Title "${title}" produces an empty filename slug. ` +
+      `Titles need at least one ASCII letter or digit (a-z, 0-9).`
+    );
+    this.name = "EmptySlugError";
+    this.title = title;
+  }
+}
+
+/**
  * Convert a title to a filename-safe slug (lowercase kebab-case).
  */
 export function slugify(text: string): string {
@@ -57,6 +75,18 @@ export function slugify(text: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Slugify for filename use: same transform, but an empty result is an
+ * error instead of a silent `.md` filename.
+ */
+function slugifyForFilename(title: string): string {
+  const slug = slugify(title);
+  if (slug === "") {
+    throw new EmptySlugError(title);
+  }
+  return slug;
 }
 
 /**
@@ -103,7 +133,7 @@ export function generateTaskPage(
 `;
 
   return {
-    filename: `${slugify(title)}.md`,
+    filename: `${slugifyForFilename(title)}.md`,
     directory: "wiki/tasks",
     content: `---\n${yaml}\n---\n${body}`,
   };
@@ -152,7 +182,7 @@ export function generateMeetingPage(
 `;
 
   return {
-    filename: `${meetingDate}-${slugify(title)}.md`,
+    filename: `${meetingDate}-${slugifyForFilename(title)}.md`,
     directory: "wiki/meetings",
     content: `---\n${yaml}\n---\n${body}`,
   };
@@ -195,7 +225,7 @@ export function generateSpikePage(
 `;
 
   return {
-    filename: `${slugify(title)}.md`,
+    filename: `${slugifyForFilename(title)}.md`,
     directory: "wiki/spikes",
     content: `---\n${yaml}\n---\n${body}`,
   };
@@ -225,7 +255,7 @@ export function generateProjectPage(title: string): PageGeneratorResult {
 `;
 
   return {
-    filename: `${slugify(title)}.md`,
+    filename: `${slugifyForFilename(title)}.md`,
     directory: "wiki/projects",
     content: `---\n${yaml}\n---\n${body}`,
   };
@@ -329,7 +359,7 @@ export function generateRepoPage(
 `;
 
   return {
-    filename: `${slugify(title)}.md`,
+    filename: `${slugifyForFilename(title)}.md`,
     directory: "wiki/repos",
     content: `---\n${yaml}\n---\n${body}`,
   };
@@ -402,13 +432,17 @@ export function createPage(
   const filePath = path.join(workspaceRoot, generated.directory, generated.filename);
   const relativePath = path.join(generated.directory, generated.filename);
 
-  if (fs.existsSync(filePath)) {
-    throw new PageExistsError(relativePath);
-  }
-
-  // Ensure directory exists
+  // Exclusive create (`wx`): the filesystem enforces "don't overwrite an
+  // existing page" — no exists-then-write race window.
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, generated.content, "utf-8");
+  try {
+    fs.writeFileSync(filePath, generated.content, { encoding: "utf-8", flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new PageExistsError(relativePath);
+    }
+    throw error;
+  }
 
   // Record on the relevant daily page so the workspace's temporal spine
   // reflects what was created today (or on the meeting's date).

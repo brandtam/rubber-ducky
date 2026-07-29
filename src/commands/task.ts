@@ -5,6 +5,8 @@ import { findWorkspaceRoot } from "../lib/workspace.js";
 import { startTask, closeTask } from "../lib/task.js";
 import { formatOutput, ExitCode } from "../lib/output.js";
 import { exitWithError } from "../lib/cli-errors.js";
+import { isValidIsoDate, invalidDateMessage } from "../lib/dates.js";
+import { PathOutsideWorkspaceError } from "../lib/paths.js";
 
 export function registerTaskCommand(program: Command): void {
   const task = program
@@ -19,6 +21,10 @@ export function registerTaskCommand(program: Command): void {
     .action(async (file: string, opts: { date?: string }, cmd: Command) => {
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
       const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
+
+      if (opts.date !== undefined && !isValidIsoDate(opts.date)) {
+        exitWithError(invalidDateMessage("--date", opts.date), { json: jsonMode }, ExitCode.InvalidInput);
+      }
 
       const workspaceRoot = findWorkspaceRoot();
       if (!workspaceRoot) {
@@ -62,6 +68,10 @@ export function registerTaskCommand(program: Command): void {
     .action(async (file: string, opts: { date?: string }, cmd: Command) => {
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
       const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
+
+      if (opts.date !== undefined && !isValidIsoDate(opts.date)) {
+        exitWithError(invalidDateMessage("--date", opts.date), { json: jsonMode }, ExitCode.InvalidInput);
+      }
 
       const workspaceRoot = findWorkspaceRoot();
       if (!workspaceRoot) {
@@ -117,5 +127,10 @@ function handleNoWorkspace(jsonMode: boolean): never {
 }
 
 function handleError(error: unknown, jsonMode: boolean): never {
-  exitWithError(error, { json: jsonMode }, ExitCode.Unclassified);
+  // Path escapes are invalid input, recognized by identity (not message
+  // parsing) so refactors can't silently demote the exit code.
+  const code = error instanceof PathOutsideWorkspaceError
+    ? ExitCode.InvalidInput
+    : ExitCode.Unclassified;
+  exitWithError(error, { json: jsonMode }, code);
 }

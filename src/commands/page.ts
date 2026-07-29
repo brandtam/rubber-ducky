@@ -2,7 +2,8 @@ import { Command } from "commander";
 import * as clack from "@clack/prompts";
 import chalk from "chalk";
 import { findWorkspaceRoot } from "../lib/workspace.js";
-import { createPage, PageExistsError } from "../lib/page.js";
+import { createPage, EmptySlugError, PageExistsError } from "../lib/page.js";
+import { isValidIsoDate, invalidDateMessage } from "../lib/dates.js";
 import { formatOutput, ExitCode } from "../lib/output.js";
 import { exitWithError } from "../lib/cli-errors.js";
 
@@ -23,6 +24,8 @@ export function registerPageCommand(program: Command): void {
     .action(async (date: string | undefined, _opts: unknown, cmd: Command) => {
       const globalOpts = cmd.parent?.parent?.parent?.opts() ?? {};
       const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
+
+      assertDateFlags(jsonMode, [["[date]", date]]);
 
       const workspaceRoot = findWorkspaceRoot();
       if (!workspaceRoot) {
@@ -114,6 +117,8 @@ export function registerPageCommand(program: Command): void {
         const globalOpts = cmd.parent?.parent?.parent?.opts() ?? {};
         const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
 
+        assertDateFlags(jsonMode, [["--date", opts.date]]);
+
         const workspaceRoot = findWorkspaceRoot();
         if (!workspaceRoot) {
           return handleNoWorkspace(jsonMode);
@@ -152,6 +157,12 @@ export function registerPageCommand(program: Command): void {
       ) => {
         const globalOpts = cmd.parent?.parent?.parent?.opts() ?? {};
         const jsonMode = globalOpts.json === true || !process.stdout.isTTY;
+
+        assertDateFlags(jsonMode, [
+          ["--date", opts.date],
+          ["--period-start", opts.periodStart],
+          ["--period-end", opts.periodEnd],
+        ]);
 
         const workspaceRoot = findWorkspaceRoot();
         if (!workspaceRoot) {
@@ -249,6 +260,23 @@ export function registerPageCommand(program: Command): void {
     );
 }
 
+/**
+ * Validate optional date flags before any of them reaches a file path or
+ * page content. Rejects with the typed InvalidInput exit code. This is also
+ * what turns `weekly`'s former opaque "Invalid Date" throw into a clear
+ * rejection.
+ */
+function assertDateFlags(
+  jsonMode: boolean,
+  flags: Array<[name: string, value: string | undefined]>
+): void {
+  for (const [name, value] of flags) {
+    if (value !== undefined && !isValidIsoDate(value)) {
+      exitWithError(invalidDateMessage(name, value), { json: jsonMode }, ExitCode.InvalidInput);
+    }
+  }
+}
+
 function handleNoWorkspace(jsonMode: boolean): never {
   exitWithError(
     "Not inside a Rubber-Ducky workspace. Run `rubber-ducky init` to create one.",
@@ -294,6 +322,8 @@ function handleError(error: unknown, jsonMode: boolean): never {
   // demote the exit code from StateConflict back to Unclassified.
   const code = error instanceof PageExistsError
     ? ExitCode.StateConflict
+    : error instanceof EmptySlugError
+    ? ExitCode.InvalidInput
     : ExitCode.Unclassified;
 
   exitWithError(error, { json: jsonMode }, code);

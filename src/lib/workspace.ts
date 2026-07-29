@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { parse as parseYaml } from "yaml";
 import { applyAdopt, planAdopt, DIRS } from "./adopt.js";
+import { parseFrontmatter } from "./frontmatter.js";
 import { summarizeArray, type ArrayEnvelope } from "./output.js";
 
 export interface WorkspaceOptions {
@@ -122,16 +122,23 @@ export function loadWorkspaceConfig(workspaceRoot: string): WorkspaceConfig {
     throw new Error(`workspace.md not found in "${workspaceRoot}"`);
   }
 
+  // Single parser for all frontmatter — a second regex here would drift
+  // from the canonical one in frontmatter.ts (and did, historically).
   const content = fs.readFileSync(wsFile, "utf-8");
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  const parsed = parseFrontmatter(content);
 
-  if (!match) {
+  if (!parsed) {
     throw new Error(
       `Invalid workspace.md: no YAML frontmatter found in "${wsFile}"`
     );
   }
 
-  const frontmatter = parseYaml(match[1]);
+  const frontmatter = parsed.data as {
+    name: string;
+    purpose?: string;
+    version: string;
+    created: string;
+  };
 
   return {
     name: frontmatter.name,

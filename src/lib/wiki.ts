@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseFrontmatter } from "./frontmatter.js";
+import { writeFileAtomic } from "./fs-atomic.js";
 
 export interface SearchMatch {
   relativePath: string;
@@ -247,8 +248,7 @@ export function rebuildIndex(workspaceRoot: string): IndexResult {
   const content = lines.join("\n");
   const indexPath = path.join(workspaceRoot, "wiki", "index.md");
 
-  fs.mkdirSync(path.dirname(indexPath), { recursive: true });
-  fs.writeFileSync(indexPath, content, "utf-8");
+  writeFileAtomic(indexPath, content);
 
   return {
     filePath: indexPath,
@@ -276,7 +276,7 @@ export function appendLog(workspaceRoot: string, message: string): LogResult {
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
 
   if (!fs.existsSync(logPath)) {
-    fs.writeFileSync(logPath, `${LOG_HEADER}\n${line}`, "utf-8");
+    writeFileAtomic(logPath, `${LOG_HEADER}\n${line}`);
   } else {
     fs.appendFileSync(logPath, line, "utf-8");
   }

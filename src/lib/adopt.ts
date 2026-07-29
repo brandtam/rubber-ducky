@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import { writeFileAtomic } from "./fs-atomic.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -516,12 +517,9 @@ function planCollisions(resolved: string, templatePaths: string[]): AdoptAction[
   }));
 }
 
-/** Write a file atomically: temp file in the same directory, then rename. */
+/** Write a file atomically — shared temp-file + rename primitive. */
 function atomicWrite(abs: string, content: string): void {
-  fs.mkdirSync(path.dirname(abs), { recursive: true });
-  const tmp = `${abs}.rd-tmp-${process.pid}`;
-  fs.writeFileSync(tmp, content, "utf-8");
-  fs.renameSync(tmp, abs);
+  writeFileAtomic(abs, content);
 }
 
 /** Remove a file, then prune any directories the removal left empty. */

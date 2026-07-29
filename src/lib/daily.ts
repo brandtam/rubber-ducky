@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { parseFrontmatter, setFrontmatterField } from "./frontmatter.js";
+import { writeFileAtomic } from "./fs-atomic.js";
 import type { PageGeneratorResult } from "./page.js";
 
 /**
@@ -56,8 +57,7 @@ export function ensureDailyPage(workspaceRoot: string, date: string): string {
 
   if (!fs.existsSync(fullPath)) {
     const generated = generateDailyPage(date);
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    fs.writeFileSync(fullPath, generated.content, "utf-8");
+    writeFileAtomic(fullPath, generated.content);
   }
 
   return relativePath;
@@ -88,7 +88,7 @@ export function appendUniqueToFrontmatterArray(
 
   existing.push(value);
   content = setFrontmatterField(content, field, existing);
-  fs.writeFileSync(fullPath, content, "utf-8");
+  writeFileAtomic(fullPath, content);
 }
 
 /**
