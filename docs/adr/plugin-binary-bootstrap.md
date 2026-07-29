@@ -1,8 +1,8 @@
 # ADR: Plugin distribution via self-marketplace with binary bootstrap
 
 - Status: accepted
-- Date: 2026-07-20
-- Relates to: issue #6 (part of #1)
+- Date: 2026-07-20 (integrity chain added 2026-07-29, issue #24)
+- Relates to: issue #6 (part of #1), issue #24 (binary integrity)
 
 ## Context
 
@@ -61,6 +61,68 @@ wrapper resolves, together.
 
 Downloads go to a temp file then atomically `mv` into place, so a pre-warm
 racing a real invocation never sees a half-written binary.
+
+## Integrity chain: git-pinned checksums (issue #24)
+
+GitHub release assets are mutable — anyone with write access to Releases (or
+a compromised token) can swap a binary under an existing tag, and the
+PreToolUse hook auto-executes whatever the wrapper fetches. The trust anchor
+therefore cannot be the release itself; it has to travel through git with
+the plugin files.
+
+- The release workflow computes sha256 for every per-platform binary and
+  commits them to `main` in `.claude-plugin/checksums.json`, keyed
+  `v<version>/<platform>`, **before** publishing any asset. If that commit
+  cannot land, the release fails — no asset ever exists without its pinned
+  hash in git.
+- The wrapper reads the expected hash from the checksums file inside its own
+  plugin root (resolved from `dirname $0`, never PATH or cwd), and verifies
+  the downloaded temp file with `sha256sum`/`shasum -a 256` **before** the
+  `--version` runnability probe and before the `mv` into the cache. A
+  mismatch deletes the temp file and exits non-zero with both hashes shown.
+  A missing checksums file or missing entry is a hard error before the
+  download even starts — fail closed, never open.
+- The wrapper also validates the sed-scraped manifest version against
+  `[0-9A-Za-z.-]` before it is used in cache paths or the URL, and pins
+  transport: curl gets `--proto '=https' --proto-redir '=https'` on the
+  production HTTPS URL (redirects pinned to HTTPS even for test overrides);
+  wget uses `--https-only` where the build supports it — wget has no
+  redirect-only equivalent, so on older builds the sha256 gate is the
+  backstop for a downgrade-redirect.
+- The release workflow itself is hardened: `contents: write` (plus
+  `id-token`/`attestations: write` for `actions/attest-build-provenance`)
+  is scoped to the release job only, all actions are pinned by commit SHA,
+  and the Bun toolchain version is pinned.
+
+### Release sequencing: atomic in one workflow run (option b)
+
+Two options were considered: (a) warn-but-continue on a missing checksums
+file for one release, enforce from the next; or (b) land the checksum commit
+and the release assets in the same workflow run so enforcement is immediate.
+
+**Chosen: (b).** The release job commits checksums to `main` first, then
+attests provenance, then publishes assets. Warn-but-continue (a) would ship
+a wrapper that sometimes skips verification — exactly the downgrade path an
+attacker wants, and a window that tends to become permanent. With (b) the
+enforcing wrapper and the checksums it needs move through git together:
+Claude Code installs the plugin from the repo, so any copy that contains the
+enforcing wrapper also sees `main`'s checksums file. The residual window —
+a user updating the plugin between the tag push and the checksum commit
+landing — fails closed with a clear "no checksum entry" error and heals on
+the next plugin refresh, which is strictly better than executing an
+unverified binary.
+
+### Cached binary is not re-hashed at exec time
+
+Re-verifying the cache on every invocation would close a local TOCTOU
+(swap the cached file after verification). It is deliberately skipped: the
+cache lives under the user's own `$HOME` with user-only write access, so the
+attacker in that scenario already writes to the user's home directory —
+i.e. can edit shellrc, the wrapper's own plugin copy, or `PATH` — and
+hashing a ~50 MB binary on every call (including every PreToolUse hook
+fire) would tax the hot path to defend a boundary that is already lost.
+The HTML-block-page sniff (self-heal) remains as a correctness, not
+security, measure.
 
 ## Testability
 
