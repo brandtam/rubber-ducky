@@ -24,21 +24,30 @@ GitHub, Jira, or a homegrown tracker.
 4. **Create the page.**
    `rubber-ducky page create task "<title>" --source <service> --ref "<ref>"`
    — `ref` in exactly the bridge doc's canonical reference form.
-5. **Map frontmatter.** Apply the bridge doc's Field mappings and Status
-   normalization via `rubber-ducky frontmatter set <file> <field> <value>`
-   (`rubber-ducky frontmatter array add <file> tags <value>` for array
-   fields): at minimum the normalized `status`; also `priority` /
-   `assignee` / `due` / `tags` where mapped. If the schema reserves a URL ref field for this
-   service (`gh_ref` / `jira_ref` / `asana_ref` — check
-   `references/frontmatter-templates.md`), set it to the item's URL.
-6. **Body.** Ticket description → `## Description`; useful links and
-   surrounding context → `## Context`; comments (only if the fetch recipe
-   returns them) summarized under `## Comments`. Add the ingest line to
-   `## Activity log`.
-7. **Verify + log.** `rubber-ducky frontmatter validate <file> --type task`,
-   then
-   `rubber-ducky log append "[ingest] <service> <ref> -> wiki/tasks/<slug>.md"`.
-8. **Confirm in one line** — `Ingested <service> <ref>: [[<slug>]] (<status>).`
+5. **Map frontmatter + verify + log — one composite call.** Normalize first
+   (Field mappings and Status normalization tables — normalization is YOURS,
+   the CLI applies values exactly as passed), then:
+
+   ```
+   rubber-ducky task stamp-write wiki/tasks/<slug>.md \
+     --set status=<normalized> \
+     --set priority=<value> --set assignee=<value> --set due=<value> \
+     --tag <tag> \
+     --activity "Ingested from <service> <ref>" \
+     --log "[ingest] <service> <ref> -> wiki/tasks/<slug>.md" \
+     --validate
+   ```
+
+   Only pass `--set` / `--tag` for fields the bridge doc actually maps. If
+   the schema reserves a URL ref field for this service (`gh_ref` /
+   `jira_ref` / `asana_ref` — check `references/frontmatter-templates.md`),
+   add `--set <field>=<url>`. A non-zero exit with `validationErrors` means
+   the mapping produced bad frontmatter — fix and re-stamp before moving on.
+6. **Body** (authored prose, via Edit). Ticket description →
+   `## Description`; useful links and surrounding context → `## Context`;
+   comments (only if the fetch recipe returns them) summarized under
+   `## Comments`.
+7. **Confirm in one line** — `Ingested <service> <ref>: [[<slug>]] (<status>).`
 
 ## Rules
 
