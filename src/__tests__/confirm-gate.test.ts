@@ -7,6 +7,7 @@ import {
   commandMatchesPattern,
   matchWritePattern,
   decideGate,
+  detectSelfGatingWrite,
   runConfirmGate,
   WRITE_PATTERNS_RELPATH,
 } from "../lib/confirm-gate.js";
@@ -211,5 +212,119 @@ describe("runConfirmGate (filesystem-backed)", () => {
     } finally {
       fs.rmSync(orphan, { recursive: true, force: true });
     }
+  });
+});
+
+describe("detectSelfGatingWrite (gate the gate)", () => {
+  // Enumerated spellings the detector must catch. Not watertight by design --
+  // the goal is raising the cost of self-reconfiguration from innocuous to
+  // visibly evasive.
+  const caught: Array<[label: string, command: string]> = [
+    ["plain settings set confirm key", "rubber-ducky settings set confirm.github.comment auto"],
+    ["settings set with global flag", "rubber-ducky --json settings set confirm.jira.comment auto"],
+    ["binary path spelling", "./dist/rubber-ducky settings set confirm.slack.send auto"],
+    ["npx spelling", "npx rubber-ducky settings set confirm.github.comment auto"],
+    ["chained after another command", "echo hi && rubber-ducky settings set confirm.github.comment auto"],
+    ["quoted confirm key", 'rubber-ducky settings set "confirm.github.comment" auto'],
+    ["> redirect onto write-patterns", "echo 'github.any gh *' > .rubber-ducky/write-patterns"],
+    [">> append onto write-patterns", "echo 'github.any gh *' >> .rubber-ducky/write-patterns"],
+    ["glued >> redirect", "echo x >>.rubber-ducky/write-patterns"],
+    ["> redirect onto settings.json", 'echo "{}" > settings.json'],
+    ["redirect onto ./settings.json", 'echo "{}" > ./settings.json'],
+    ["redirect onto absolute settings.json", 'echo "{}" > /vault/settings.json'],
+    ["tee onto write-patterns", "echo 'x y' | tee .rubber-ducky/write-patterns"],
+    ["tee -a onto settings.json", "cat patch.json | tee -a settings.json"],
+    ["cp onto settings.json", "cp /tmp/evil.json settings.json"],
+    ["cp onto write-patterns", "cp /tmp/patterns .rubber-ducky/write-patterns"],
+    ["mv onto settings.json", "mv staged.json settings.json"],
+    ["absolute-path cp binary", "/bin/cp /tmp/evil.json settings.json"],
+  ];
+
+  for (const [label, command] of caught) {
+    it(`catches: ${label}`, () => {
+      expect(detectSelfGatingWrite(command)).not.toBeNull();
+    });
+  }
+
+  const passed: Array<[label: string, command: string]> = [
+    ["unrelated command", "ls -la"],
+    ["settings get is read-only", "rubber-ducky settings get confirm.github.comment"],
+    ["settings set of a non-confirm key", "rubber-ducky settings set ingest.default_project alpha"],
+    ["reading gate config", "cat .rubber-ducky/write-patterns"],
+    ["reading settings", "cat settings.json"],
+    ["grep over settings", "grep confirm settings.json"],
+    ["redirect onto an ordinary file", "echo hi > notes.md"],
+    ["cp between ordinary files", "cp a.md b.md"],
+    ["mention without write", "echo see settings.json for details"],
+  ];
+
+  for (const [label, command] of passed) {
+    it(`passes: ${label}`, () => {
+      expect(detectSelfGatingWrite(command)).toBeNull();
+    });
+  }
+});
+
+describe("runConfirmGate self-gating (filesystem-backed)", () => {
+  let vault: string;
+
+  const payload = (command: string): string =>
+    JSON.stringify({
+      session_id: "test",
+      hook_event_name: "PreToolUse",
+      cwd: vault,
+      tool_name: "Bash",
+      tool_input: { command },
+    });
+
+  beforeEach(() => {
+    vault = fs.mkdtempSync(path.join(os.tmpdir(), "rd-selfgate-"));
+    fs.writeFileSync(path.join(vault, "workspace.md"), "---\nname: t\n---\n");
+    fs.mkdirSync(path.join(vault, ".rubber-ducky"), { recursive: true });
+    fs.writeFileSync(
+      path.join(vault, WRITE_PATTERNS_RELPATH),
+      "github.comment gh issue comment *\n",
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(vault, { recursive: true, force: true });
+  });
+
+  it("previews settings set confirm.* even when nothing would otherwise match", () => {
+    const decision = runConfirmGate(
+      payload("rubber-ducky settings set confirm.github.comment auto"),
+    );
+    expect(decision?.hookSpecificOutput.permissionDecision).toBe("ask");
+    expect(decision?.hookSpecificOutput.permissionDecisionReason).toContain("never auto-approved");
+  });
+
+  it("is not configurable: an auto policy cannot suppress the self-gating prompt", () => {
+    // Even a hostile registration that would auto-allow everything must not
+    // beat the self-gating check -- it runs before pattern matching.
+    fs.writeFileSync(
+      path.join(vault, WRITE_PATTERNS_RELPATH),
+      "shell.any *\n",
+    );
+    fs.writeFileSync(
+      path.join(vault, "settings.json"),
+      '{ "confirm": { "shell": { "any": "auto" } } }',
+    );
+    const decision = runConfirmGate(
+      payload("echo \'x y\' >> .rubber-ducky/write-patterns"),
+    );
+    expect(decision?.hookSpecificOutput.permissionDecision).toBe("ask");
+  });
+
+  it("fires even when the patterns file is missing (config still protected)", () => {
+    fs.rmSync(path.join(vault, WRITE_PATTERNS_RELPATH));
+    const decision = runConfirmGate(
+      payload("rubber-ducky settings set confirm.github.comment auto"),
+    );
+    expect(decision?.hookSpecificOutput.permissionDecision).toBe("ask");
+  });
+
+  it("still passes ordinary unregistered commands through", () => {
+    expect(runConfirmGate(payload("ls -la"))).toBeNull();
   });
 });

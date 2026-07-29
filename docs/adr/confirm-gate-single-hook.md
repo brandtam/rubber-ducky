@@ -127,6 +127,53 @@ but whose `settings.json` is unreadable gets the fail-closed default
 (`preview` → `ask`) instead of a free pass. A known external write should
 never lose its gate to a corrupted settings file.
 
+### A preview/UX layer, not a security boundary
+
+The gate mediates the writes it knows about; it does not — and cannot —
+contain a hostile agent. Known limits, accepted rather than papered over:
+
+- **Unregistered spellings.** A broad allowlist for a transport binary in
+  Claude Code's native permissions (e.g. `Bash(gh:*)`) lets any command
+  spelling not present in `write-patterns` run without a gate decision.
+- **MCP transports.** MCP tool calls are not Bash; the gate never sees
+  them. `/connect` says so in the transport menu and every bridge doc
+  carries a standing "Gate limits" section.
+- **Shell spellings are unbounded.** Pattern matching and the self-gating
+  detector below are string-level heuristics; an adversarial encoding
+  (base64 through `sh`, variable indirection) gets past them. The goal is
+  making evasion *visibly evasive* in the transcript, not impossible.
+
+### Self-gating carve-out
+
+The gate's own configuration — the `confirm.*` keys in `settings.json` and
+the `.rubber-ducky/write-patterns` registrations — must not be rewritable by
+an ungated (or auto-allowed) Bash command, or the gate can be switched off
+by the very layer it mediates. Before normal pattern matching, the hook
+detects:
+
+- `rubber-ducky settings set` with a `confirm.*` key (any binary spelling);
+- common Bash writes onto the two config files: `>` / `>>` redirection
+  targets, `tee`, and `cp` / `mv` onto the paths.
+
+A hit always answers preview-style `ask`. This is **not configurable** — no
+policy, including a hostile `* → auto` registration, can suppress it, and it
+fires even when no patterns file exists. The legitimate path is unchanged:
+`settings set confirm.*` executes normally once the user approves the
+prompt. Matching `settings.json` by basename means other settings files
+(`.vscode/settings.json`) inside a vault also prompt — accepted, because a
+false positive costs one visible dialog.
+
+### `SHELL_CONTROL` and plain `>` / `<` — a decision, not an accident
+
+The wildcard-span safety check (`autoAllowIsUnsafe`) downgrades `auto` to
+`ask` when a `*` span carries `;` `&` `|` backtick, newline, or a
+`$(` / `<(` / `>(` opener — constructs that chain or spawn a second command.
+Plain `>` / `<` redirection is deliberately excluded: a redirect writes a
+local file rather than executing anything, and `>` appears routinely in
+quoted prose (markdown blockquotes, arrows) that comment-style writes carry.
+Redirections aimed at the gate's own config files are covered separately and
+unconditionally by the self-gating detector.
+
 ## Consequences
 
 - The gate is only as good as the registered patterns; `/connect` (#9) owns
