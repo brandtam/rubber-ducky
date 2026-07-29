@@ -299,3 +299,130 @@ describe("task close CLI", () => {
     }
   });
 });
+
+describe("task stamp-write CLI", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rubber-ducky-stamp-cli-"));
+    runCli(["--json", "init", tmpDir]);
+    runCli(["--json", "page", "create", "task", "Ship feature"], tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const taskPath = () => path.join(tmpDir, "wiki", "tasks", "ship-feature.md");
+
+  it("stamps source/ref/url/pushed, activity, and log in one call", () => {
+    const output = runCli(
+      [
+        "--json", "task", "stamp-write", "wiki/tasks/ship-feature.md",
+        "--set", "source=github", "--set", "ref=acme/app#42", "--set", "gh_ref=https://github.com/acme/app/issues/42",
+        "--pushed",
+        "--activity", "Pushed to github as acme/app#42",
+        "--log", "[backend-write] github.create acme/app#42 -- pushed",
+        "--validate",
+      ],
+      tmpDir
+    );
+    const result = JSON.parse(output);
+    expect(result.success).toBe(true);
+    expect(result.fieldsSet).toContain("source");
+    expect(result.fieldsSet).toContain("pushed");
+    expect(result.validationErrors).toEqual([]);
+
+    const content = fs.readFileSync(taskPath(), "utf-8");
+    const parsed = parseFrontmatter(content);
+    expect(parsed!.data.source).toBe("github");
+    expect(parsed!.data.ref).toBe("acme/app#42");
+    expect(parsed!.data.pushed).toBeTruthy();
+    expect(parsed!.data.updated).toBeTruthy();
+    expect(content).toContain("- Pushed to github as acme/app#42");
+
+    const log = fs.readFileSync(path.join(tmpDir, "wiki", "log.md"), "utf-8");
+    expect(log).toContain("[backend-write] github.create acme/app#42 -- pushed");
+  });
+
+  it("bumps comment_count and dedups tags", () => {
+    runCli(
+      ["--json", "task", "stamp-write", "wiki/tasks/ship-feature.md",
+       "--bump-comments", "--tag", "frontend", "--tag", "frontend"],
+      tmpDir
+    );
+    const output = runCli(
+      ["--json", "task", "stamp-write", "wiki/tasks/ship-feature.md",
+       "--bump-comments", "2", "--tag", "frontend"],
+      tmpDir
+    );
+    const result = JSON.parse(output);
+    expect(result.tagsAdded).toEqual([]);
+    const parsed = parseFrontmatter(fs.readFileSync(taskPath(), "utf-8"));
+    expect(parsed!.data.comment_count).toBe(3);
+    expect(parsed!.data.tags).toEqual(["frontend"]);
+  });
+
+  it("sets a non-done status without closing", () => {
+    const output = runCli(
+      ["--json", "task", "stamp-write", "wiki/tasks/ship-feature.md", "--status", "in-review"],
+      tmpDir
+    );
+    const result = JSON.parse(output);
+    expect(result.newStatus).toBe("in-review");
+    expect(result.closed).toBe(false);
+    const parsed = parseFrontmatter(fs.readFileSync(taskPath(), "utf-8"));
+    expect(parsed!.data.status).toBe("in-review");
+    expect(parsed!.data.closed).toBeNull();
+  });
+
+  it("--status done runs the full close flow (closed date + daily page)", () => {
+    const output = runCli(
+      ["--json", "task", "stamp-write", "wiki/tasks/ship-feature.md",
+       "--status", "done", "--date", "2024-03-15"],
+      tmpDir
+    );
+    const result = JSON.parse(output);
+    expect(result.closed).toBe(true);
+    const parsed = parseFrontmatter(fs.readFileSync(taskPath(), "utf-8"));
+    expect(parsed!.data.status).toBe("done");
+    expect(parsed!.data.closed).toBe("2024-03-15");
+    expect(fs.existsSync(path.join(tmpDir, "wiki", "daily", "2024-03-15.md"))).toBe(true);
+  });
+
+  it("rejects a malformed --set pair with InvalidInput", () => {
+    const { status } = runCliFail(
+      ["--json", "task", "stamp-write", "wiki/tasks/ship-feature.md", "--set", "no-equals-sign"],
+      tmpDir
+    );
+    expect(status).toBe(2);
+  });
+
+  it("rejects a malformed --date with InvalidInput", () => {
+    const { status } = runCliFail(
+      ["--json", "task", "stamp-write", "wiki/tasks/ship-feature.md", "--status", "done", "--date", "bogus"],
+      tmpDir
+    );
+    expect(status).toBe(2);
+  });
+
+  it("rejects a path escaping the workspace with InvalidInput", () => {
+    const { status } = runCliFail(
+      ["--json", "task", "stamp-write", "../../outside.md", "--pushed"],
+      tmpDir
+    );
+    expect(status).toBe(2);
+  });
+
+  it("surfaces validation failures with success false and InvalidInput", () => {
+    const { stdout, status } = runCliFail(
+      ["--json", "task", "stamp-write", "wiki/tasks/ship-feature.md",
+       "--set", "status=not-a-status", "--validate"],
+      tmpDir
+    );
+    expect(status).toBe(2);
+    const result = JSON.parse(stdout);
+    expect(result.success).toBe(false);
+    expect(result.validationErrors.length).toBeGreaterThan(0);
+  });
+});

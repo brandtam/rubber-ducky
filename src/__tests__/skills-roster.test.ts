@@ -32,6 +32,8 @@ const SKILL_ROSTER = [
   "backend-write",
   "new-ticket",
   "reconcile",
+  // Mid-life task updates (issue #25).
+  "task-note",
 ];
 
 /**
@@ -93,7 +95,7 @@ function markdownFilesUnder(dir: string): string[] {
 }
 
 describe("skill roster", () => {
-  it("contains exactly the fifteen skills (nine consolidated + five integration + adopt)", () => {
+  it("contains exactly the sixteen skills (nine consolidated + five integration + adopt + task-note)", () => {
     const dirs = fs
       .readdirSync(SKILLS_DIR, { withFileTypes: true })
       .filter((e) => e.isDirectory())

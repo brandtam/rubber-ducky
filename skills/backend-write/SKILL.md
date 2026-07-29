@@ -22,6 +22,10 @@ policy, stamp the wiki after.
    The command must match a registered `<service>.<verb>` line in
    `.rubber-ducky/write-patterns`; if no pattern covers this shape, stop and
    register one (or re-run /connect) before writing.
+   <!-- CANONICAL COPY: this preview-and-policy step (and the
+        authored-prose-is-never-auto rule under Rules) is inlined verbatim
+        in skills/new-ticket/SKILL.md and skills/reconcile/SKILL.md, whose
+        contexts do not include this file. Edit all three together. -->
 3. **Preview, then honor the policy.** Read
    `rubber-ducky settings get confirm.<service>.<verb>`:
    - `auto` — state what you're doing in one line and run it; the gate
@@ -40,14 +44,22 @@ policy, stamp the wiki after.
    ```
 4. **Run it.** On failure: report the error, change nothing in the wiki,
    never retry silently.
-5. **Stamp the wiki** (only after the write succeeds):
-   - create / push → `rubber-ducky frontmatter set` for `source`, `ref`, the
-     URL ref field, and a `pushed` timestamp;
-   - transition → `rubber-ducky task close <file>` when the new status is
-     `done`, else `rubber-ducky frontmatter set <file> status <status>`;
-   - comment → bump `comment_count`;
-   - always: stamp `updated`, add one `## Activity log` line, and
-     `rubber-ducky log append "[backend-write] <service>.<verb> <ref> — <summary>"`.
+5. **Stamp the wiki** (only after the write succeeds) — one composite call:
+
+   ```
+   rubber-ducky task stamp-write <file> \
+     --activity "<one-line summary of the write>" \
+     --log "[backend-write] <service>.<verb> <ref> — <summary>"
+   ```
+
+   plus the verb's flags:
+   - create / push → `--set source=<service> --set ref="<ref>"
+     --set <url-ref-field>=<url> --pushed`;
+   - transition → `--status <status>` (`done` runs the full task-close flow:
+     closed date, daily page, log);
+   - comment → `--bump-comments`.
+
+   `updated` is stamped automatically on every call.
 6. **Link** (relate two tickets) = two comment writes — one per ticket, each
    previewed and gated per step 3, cross-referencing URLs only — plus
    `## See also` wikilinks on both wiki pages. If the bridge doc documents a

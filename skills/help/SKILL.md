@@ -40,6 +40,9 @@ this reference rather than improvising.
 ## Tasks and pages
 
 - **"I'm starting on …"** → task flips to in-progress, becomes today's focus.
+- **"note on the task …" / "mark it blocked" / "bump the priority"** →
+  mid-flight task update: activity-log note, priority/status change, blocker
+  recorded — one composite CLI call.
 - **"done with …"** → task closed with a resolution note, close date stamped.
 - **"meeting note: …"** → structured meeting page with decisions and action items.
 - **"start a project called …"** → project page; tasks and meetings can attach
@@ -91,6 +94,7 @@ Natural phrasing works — translate intent into `rubber-ducky settings` calls:
 | `ingest.auto_on_wrap_up` | Offer to save today's writing as voice samples at wrap-up |
 | `ingest.auto_on_onboard` | Invite a raw-material paste during onboarding |
 | `onboard.completed` | Whether the first-run interview has happened |
+| `confirm.<service>.<verb>` | Policy for a registered external write: `auto`, `manual`, or `preview` (default `preview`) |
 
 Operators: `rubber-ducky settings get|set|enable|disable <path>` — every change
 is audit-logged to `wiki/log.md`.
@@ -98,5 +102,6 @@ is audit-logged to `wiki/log.md`.
 ## Operator CLI
 
 For debugging or scripting: `rubber-ducky init <dir>`, `adopt`, `doctor`,
-`doctor lint`, `status`, `wiki search`, `index rebuild`, `screenshot ingest`.
+`doctor lint`, `status`, `wiki search`, `index rebuild`, `screenshot ingest`,
+`task stamp-write` (composite post-write wiki stamp).
 Run `rubber-ducky --help` for the full surface.

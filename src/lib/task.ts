@@ -1,6 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { parseFrontmatter, setFrontmatterField } from "./frontmatter.js";
+import {
+  addToFrontmatterArray,
+  parseFrontmatter,
+  setFrontmatterField,
+  validateFrontmatter,
+  type ValidationError,
+} from "./frontmatter.js";
 import { writeFileAtomic } from "./fs-atomic.js";
 import { resolveInsideWorkspace } from "./paths.js";
 import { appendUniqueToFrontmatterArray, ensureDailyPage } from "./daily.js";
@@ -166,6 +172,132 @@ export function startTask(
     newStatus: "in-progress",
     dailyFile,
     activityEntry,
+  };
+}
+
+export interface StampWriteOptions {
+  /** Scalar frontmatter fields to set, e.g. { source: "github", ref: "o/r#7" }. */
+  set?: Record<string, unknown>;
+  /** Values appended (deduplicated) to the `tags` array. */
+  tags?: string[];
+  /** New status. `"done"` delegates to the full closeTask flow. */
+  status?: string;
+  /** Increment `comment_count` by this many (default 0). */
+  bumpComments?: number;
+  /** Stamp `pushed` with the current ISO timestamp. */
+  pushed?: boolean;
+  /** Line appended to `## Activity log` (without the leading `- `). */
+  activity?: string;
+  /** Message appended to wiki/log.md. */
+  log?: string;
+  /** Run frontmatter validation (type: task) after stamping. */
+  validate?: boolean;
+  /** Date for the daily page when status is "done" (defaults to today). */
+  date?: string;
+}
+
+export interface StampWriteResult {
+  taskFile: string;
+  taskTitle: string;
+  fieldsSet: string[];
+  tagsAdded: string[];
+  newStatus: string | null;
+  closed: boolean;
+  activityEntry: string | null;
+  logEntry: string | null;
+  validationErrors: ValidationError[] | null;
+}
+
+/**
+ * Composite post-write stamp: the mechanical wiki bookkeeping that follows a
+ * successful external write (or an ingest), in ONE invocation instead of
+ * 4–6. Purely structural — no judgment, no normalization: values land
+ * exactly as passed (the calling skill owns mapping/normalization, per
+ * docs/adr/drift-pure-structural-diff.md).
+ *
+ * Always stamps `updated`. `status: "done"` delegates to {@link closeTask}
+ * so the daily page and log keep their close semantics.
+ */
+export function stampWrite(
+  workspaceRoot: string,
+  taskFile: string,
+  opts: StampWriteOptions
+): StampWriteResult {
+  const task = readTaskFile(workspaceRoot, taskFile);
+  const taskTitle = String(task.data.title ?? "Untitled");
+  const now = new Date().toISOString();
+
+  const fieldsSet: string[] = [];
+  let content = task.content;
+
+  for (const [field, value] of Object.entries(opts.set ?? {})) {
+    content = setFrontmatterField(content, field, value);
+    fieldsSet.push(field);
+  }
+
+  const tagsAdded: string[] = [];
+  for (const tag of opts.tags ?? []) {
+    const next = addToFrontmatterArray(content, "tags", tag);
+    if (next !== content) tagsAdded.push(tag);
+    content = next;
+  }
+
+  if (opts.bumpComments && opts.bumpComments > 0) {
+    const current = typeof task.data.comment_count === "number" ? task.data.comment_count : 0;
+    content = setFrontmatterField(content, "comment_count", current + opts.bumpComments);
+    fieldsSet.push("comment_count");
+  }
+
+  if (opts.pushed) {
+    content = setFrontmatterField(content, "pushed", now);
+    fieldsSet.push("pushed");
+  }
+
+  const closing = opts.status === "done";
+  let newStatus: string | null = opts.status ?? null;
+  if (opts.status !== undefined && !closing) {
+    content = setFrontmatterField(content, "status", opts.status);
+    fieldsSet.push("status");
+  }
+
+  content = setFrontmatterField(content, "updated", now);
+
+  let activityEntry: string | null = null;
+  if (opts.activity) {
+    activityEntry = `- ${opts.activity}`;
+    content = appendToSection(content, "Activity log", activityEntry);
+  }
+
+  writeFileAtomic(task.fullPath, content);
+
+  if (closing) {
+    // Full close flow: daily page bookkeeping + log line, on the already
+    // stamped file.
+    closeTask(workspaceRoot, taskFile, opts.date);
+    newStatus = "done";
+  }
+
+  let logEntry: string | null = null;
+  if (opts.log) {
+    logEntry = appendLog(workspaceRoot, opts.log).entry;
+  }
+
+  let validationErrors: ValidationError[] | null = null;
+  if (opts.validate) {
+    const parsed = parseFrontmatter(fs.readFileSync(task.fullPath, "utf-8"));
+    validationErrors = parsed ? validateFrontmatter(parsed.data, "task") : [];
+  }
+
+  return {
+    taskFile,
+    taskTitle,
+    fieldsSet,
+    tagsAdded,
+    newStatus,
+    closed: closing,
+    activityEntry,
+    logEntry,
+    validationErrors,
   };
 }
 

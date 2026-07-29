@@ -49,9 +49,32 @@ says in-progress, <service> says done` — and offer three moves:
 - **(w) Accept wiki** — the wiki is right; the tracker catches up. This is
   a `<service>.<verb>` external write: compose it from the bridge doc's
   write recipe (status translated wiki→service through its normalization
-  table) and follow /backend-write's preview-and-policy step. If the bridge
-  doc has no write recipe for that field, say so — the fix upstream is
-  manual.
+  table), then apply the preview-and-policy step below. If the bridge doc
+  has no write recipe for that field, say so — the fix upstream is manual.
+
+  <!-- Inlined verbatim from the CANONICAL COPY in
+       skills/backend-write/SKILL.md (step 3 + Rules) — this skill's
+       context does not load /backend-write. Edit all three copies
+       together (backend-write, new-ticket, reconcile). -->
+  Read `rubber-ducky settings get confirm.<service>.<verb>`:
+  - `auto` — state what you're doing in one line and run it; the gate
+    allows the command without a dialog.
+  - `manual`, `preview`, or unset (default is `preview`) — show the preview
+    below and run only after the user says yes. The PreToolUse gate
+    additionally routes the command through the permission dialog — that
+    dialog is the enforcement; your preview is what makes it a rubber
+    stamp instead of a surprise.
+
+  ```
+  WRITE PREVIEW — <service>.<verb>
+  Target:  <ref> (<title>)
+  Command: <exact command>
+  Content: <the body / status / fields being written>
+  ```
+
+  `auto` covers mechanical writes (status flips, URL back-links), not
+  authored prose: drafted comment or ticket text is always shown to the
+  user before posting, whatever the policy says.
 - **(s) Skip** — change nothing, run nothing. The drift re-surfaces on the
   next run; there is no skip-with-memory, ever — a hidden disagreement is
   how a source of truth rots.
